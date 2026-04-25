@@ -358,9 +358,9 @@ void App::handleRefreshMenu() {
     
     RefreshStrategy strategy = _reader.getRefreshStrategy();
     const char* items[] = {
-        "低 - 每10页全刷（最流畅）",
-        "中 - 每5页全刷（平衡）",
-        "高 - 每3页全刷（最清晰）"
+        "极速 - DU4快刷 / 每20页全刷",
+        "均衡 - DU快刷 / 每10页全刷",
+        "清晰 - GL16文本 / 每5页全刷"
     };
     int selected = (int)strategy.frequency;
     
@@ -375,7 +375,7 @@ void App::handleRefreshMenu() {
     }
     
     display.setCursor(200, 400);
-    display.println("低=残影多但翻页快 | 高=清晰但略慢");
+    display.println("对标梦西游：速度优先 / 均衡 / 显示优先");
     display.setCursor(200, 450);
     display.println("← → 切换 | 点击确认 | 上滑返回");
     

@@ -149,9 +149,9 @@ struct BatteryInfo {
 // ===== 刷新策略（局刷/全刷控制）=====
 // ===== 刷新频率档位 =====
 enum class RefreshFrequency {
-    FREQ_LOW,      // 每10页全刷（最流畅，残影最多）
-    FREQ_MEDIUM,   // 每5页全刷（平衡）
-    FREQ_HIGH      // 每3页全刷（最清晰，略慢）
+    FREQ_LOW,      // 极速：DU4 快刷，每20页 GC16 全刷
+    FREQ_MEDIUM,   // 均衡：DU 快刷，每10页 GC16 全刷
+    FREQ_HIGH      // 清晰：GL16 文本刷新，每5页 GC16 全刷
 };
 
 struct RefreshStrategy {
@@ -162,11 +162,11 @@ struct RefreshStrategy {
     static RefreshStrategy FromFrequency(RefreshFrequency freq) {
         switch (freq) {
             case RefreshFrequency::FREQ_LOW:
-                return { .frequency = freq, .fullRefreshEvery = 10, .usePartialUpdate = true };
+                return { .frequency = freq, .fullRefreshEvery = 20, .usePartialUpdate = true };
             case RefreshFrequency::FREQ_MEDIUM:
-                return { .frequency = freq, .fullRefreshEvery = 5, .usePartialUpdate = true };
+                return { .frequency = freq, .fullRefreshEvery = 10, .usePartialUpdate = true };
             case RefreshFrequency::FREQ_HIGH:
-                return { .frequency = freq, .fullRefreshEvery = 3, .usePartialUpdate = true };
+                return { .frequency = freq, .fullRefreshEvery = 5, .usePartialUpdate = true };
             default:
                 return { .frequency = RefreshFrequency::FREQ_MEDIUM, .fullRefreshEvery = 5, .usePartialUpdate = true };
         }
@@ -174,9 +174,9 @@ struct RefreshStrategy {
     
     const char* getLabel() const {
         switch (frequency) {
-            case RefreshFrequency::FREQ_LOW: return "低(流畅)";
-            case RefreshFrequency::FREQ_MEDIUM: return "中(平衡)";
-            case RefreshFrequency::FREQ_HIGH: return "高(清晰)";
+            case RefreshFrequency::FREQ_LOW: return "极速";
+            case RefreshFrequency::FREQ_MEDIUM: return "均衡";
+            case RefreshFrequency::FREQ_HIGH: return "清晰";
         }
         return "中";
     }

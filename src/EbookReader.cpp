@@ -483,6 +483,8 @@ void EbookReader::renderPage() {
 
 void EbookReader::renderPageFull() {
     auto& display = M5.Display;
+    // 对标梦西游：周期性使用 GC16 高质量刷新清残影。
+    display.setEpdMode(epd_mode_t::epd_quality);
     display.clear();
     if (_hasPreload && _preloadPage == _currentPage) {
         drawTextPageFast();
@@ -496,6 +498,20 @@ void EbookReader::renderPageFull() {
 
 void EbookReader::renderPageFast() {
     auto& display = M5.Display;
+    // 对标梦西游：快速翻页按策略动态选择波形。
+    // 极速=DU4(最快/低对比度)，均衡=DU(快/低残影)，清晰=GL16(文本抗锯齿更好)。
+    switch (_refreshStrategy.frequency) {
+        case RefreshFrequency::FREQ_LOW:
+            display.setEpdMode(epd_mode_t::epd_fastest);
+            break;
+        case RefreshFrequency::FREQ_MEDIUM:
+            display.setEpdMode(epd_mode_t::epd_fast);
+            break;
+        case RefreshFrequency::FREQ_HIGH:
+        default:
+            display.setEpdMode(epd_mode_t::epd_text);
+            break;
+    }
     display.fillRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT - 4, 15);
     if (_hasPreload && _preloadPage == _currentPage) {
         drawTextPageFast();
@@ -1022,9 +1038,9 @@ void EbookReader::gotoChapter(int chapterIndex) {
 }
 
 RefreshFrequency EbookReader::getRefreshFrequency() const {
-    if (_refreshStrategy.fullRefreshEvery == 10) return RefreshFrequency::FREQ_LOW;
-    if (_refreshStrategy.fullRefreshEvery == 5) return RefreshFrequency::FREQ_MEDIUM;
-    if (_refreshStrategy.fullRefreshEvery == 3) return RefreshFrequency::FREQ_HIGH;
+    if (_refreshStrategy.fullRefreshEvery == 20) return RefreshFrequency::FREQ_LOW;
+    if (_refreshStrategy.fullRefreshEvery == 10) return RefreshFrequency::FREQ_MEDIUM;
+    if (_refreshStrategy.fullRefreshEvery == 5) return RefreshFrequency::FREQ_HIGH;
     return RefreshFrequency::FREQ_MEDIUM;
 }
 
