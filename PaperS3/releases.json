@@ -1,0 +1,64 @@
+{
+  "schema": 1,
+  "device": "PaperS3",
+  "firmwareName": "Vink-PaperS3",
+  "description": "面向 M5Stack PaperS3 的 Vink 电子书阅读固件。",
+  "releases": [
+    {
+      "version": "v1.2.0",
+      "name": "Vink-PaperS3 v1.2.0",
+      "summary": "Vink-PaperS3 v1.2.0",
+      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v1.2.0",
+      "changelog": "## Vink-PaperS3 v1.2.0\n\nVink-PaperS3 是面向 M5Stack PaperS3 的电子书阅读固件。\n\n### 完整烧录包\n- 新增 16MB 完整首刷镜像：`Vink-PaperS3-v1.2.0-full-16MB.bin`\n- 包含 bootloader、分区表、固件 app、SPIFFS 字库/Web资源\n- Vink Flasher 默认烧录完整镜像，避免只刷 app 导致资源缺失\n\n### 内置资源分区\n- 切换 16MB 分区表：app0/app1 双 6MB + SPIFFS 约 3.9MB\n- SPIFFS 内置 16/20/24px 4bpp 灰度中文字库\n- SD 卡字体优先，SPIFFS 字体回退，最后再用代码内置 fallback\n\n### Web 与 OTA\n- Web 管理页增加设备状态与 OTA 入口\n- 支持 `Vink-PaperS3-v1.2.0-ota.bin` 程序 OTA\n- 保留 `Vink-PaperS3-v1.2.0-spiffs.bin` 资源分区镜像\n\n### 显示刷新策略\n- 对标梦西游显示策略\n- 极速：DU4 快刷，每20页 GC16 全刷\n- 均衡：DU 快刷，每10页 GC16 全刷\n- 清晰：GL16 文本刷新，每5页 GC16 全刷\n\n### 文件说明\n- `Vink-PaperS3-v1.2.0-full-16MB.bin`：完整16MB首刷镜像，推荐 App/首次烧录使用\n- `Vink-PaperS3-v1.2.0-ota.bin`：仅 app 分区 OTA 使用\n- `Vink-PaperS3-v1.2.0-spiffs.bin`：字库与Web资源分区镜像",
+      "assets": {
+        "full": {
+          "name": "Vink-PaperS3-v1.2.0-full-16MB.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v1.2.0/Vink-PaperS3-v1.2.0-full-16MB.bin",
+          "size": 16777216,
+          "flashOffset": 0
+        },
+        "ota": {
+          "name": "Vink-PaperS3-v1.2.0-ota.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v1.2.0/Vink-PaperS3-v1.2.0-ota.bin",
+          "size": 1887888,
+          "flashOffset": 65536
+        },
+        "spiffs": {
+          "name": "Vink-PaperS3-v1.2.0-spiffs.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v1.2.0/Vink-PaperS3-v1.2.0-spiffs.bin",
+          "size": 4128768
+        }
+      }
+    },
+    {
+      "version": "v1.1.0",
+      "name": "Vink-PaperS3 v1.1.0",
+      "summary": "Crosslink风格UI改版",
+      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v1.1.0",
+      "changelog": "## v1.1.0 - Crosslink风格UI改版\n\n### 全新界面\n- 📖 四标签导航：读书/书架/传输/设置\n- 🎨 浅灰白纸质感配色，墨水屏原生风格\n- 📚 书架9宫格封面展示\n- 🛜 传输中心6大功能卡片\n- ⚙️ 设置页卡片式布局+胶囊开关+滑块\n\n### 交互改进\n- 左右滑动切换标签页\n- 阅读时弹出式菜单\n- 点击封面直接打开书籍\n\n### 其他\n- 新增UITheme绘制库\n- M5PaperS3无物理按键适配",
+      "assets": {
+        "ota": {
+          "name": "firmware.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v1.1.0/firmware.bin",
+          "size": 1834416,
+          "flashOffset": 65536
+        }
+      }
+    },
+    {
+      "version": "v1.0.0",
+      "name": "Vink-PaperS3 v1.0.0",
+      "summary": "首个电子书阅读固件版本",
+      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v1.0.0",
+      "changelog": "## Vink-PaperS3 v1.0.0\n\n### 功能特性\n- 📖 **EPUB 支持** — 逐章阅读，章末自动加载下一章\n- 🌐 **Web 文件管理器** — 通过浏览器浏览/上传/删除/创建目录\n- 🔤 **内置字体** — 500 常用汉字，SD 卡无字体时自动回退\n- ☁️ **Legado WebDav 同步** — 与阅读 App 同步阅读进度\n- 📁 **子目录浏览** — 支持多级目录结构\n- 📡 **蓝牙翻页器** — BLE HID 键盘/遥控器翻页\n- 📶 **WiFi 传书** — 手机/电脑通过浏览器上传书籍\n- 📊 **阅读统计** — 阅读时长、页数、进度追踪\n- 🔖 **书签管理** — 10 个书签位，支持导出/导入\n- 📝 **GBK 编码** — 自动识别 GBK/UTF-8/UTF-16/BIG5\n- 📑 **章节识别** — 自动识别章节标题，支持缓存\n- 😴 **休眠锁屏** — 自动休眠，低电量提醒\n- ⚡ **预加载** — 后台预渲染下一页\n- 🔄 **三级刷新** — 智能局部/全局刷新策略\n- 📄 **快速翻页** — 连续翻页 + 页码跳转",
+      "assets": {
+        "ota": {
+          "name": "firmware.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v1.0.0/firmware.bin",
+          "size": 1782640,
+          "flashOffset": 65536
+        }
+      }
+    }
+  ]
+}
