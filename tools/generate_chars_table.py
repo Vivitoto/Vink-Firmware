@@ -80,7 +80,7 @@ def generate_chars_table(count, output_path):
     # 写入文件，每行50个字符
     with open(output_path, 'w', encoding='utf-8') as f:
         f.write(f"# 常用汉字 {len(unique_chars)} 字\n")
-        f.write("# 用于生成 M5PaperS3 电子书固件字库\n\n")
+        f.write("# 用于生成 Vink-PaperS3 固件字库\n\n")
         
         for i in range(0, len(unique_chars), 50):
             line = ''.join(unique_chars[i:i+50])

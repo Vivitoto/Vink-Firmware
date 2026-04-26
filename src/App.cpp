@@ -28,7 +28,7 @@ App::App() : _state(AppState::INIT), _reader(_font), _touching(false),
 bool App::init() {
     Serial.begin(115200);
     delay(500);
-    Serial.println("\n[M5PaperS3-Ebook] Starting...");
+    Serial.println("\n[Vink-PaperS3] Starting...");
     
     auto cfg = M5.config();
     cfg.external_display.module_display = true;
@@ -680,7 +680,7 @@ void App::onTap(int x, int y) {
                             saveGlobalSettings();
                             _tabNeedsRender[3] = true;
                             break;
-                        case 6: showMessage("M5PaperS3 阅读器 v2.0", 3000); break;
+                        case 6: showMessage("Vink-PaperS3 v2.0", 3000); break;
                     }
                 }
                 return;
@@ -1451,7 +1451,7 @@ void App::drawSleepScreen() {
         display.drawRect(280, 170, 400, 20, 0);
         display.fillRect(282, 172, (pct * 396) / 100, 16, 0);
     } else {
-        display.println("M5PaperS3 阅读器");
+        display.println("Vink-PaperS3");
     }
     
     // 电量
@@ -2142,7 +2142,7 @@ void App::handleTabSettings() {
         {"📶", "WiFi配置", _wifiConfigured ? _wifiSsid : "未配置", AppState::SETTINGS_WIFI},
         {"☁️", "Legado同步", _legadoConfigured ? _legadoHost : "未配置", AppState::SETTINGS_LEGADO},
         {"🔋", "休眠时长", String(String(_sleepTimeoutMin) + "分钟").c_str(), AppState::TAB_SETTINGS},
-        {"ℹ️", "关于", "M5PaperS3 阅读器", AppState::TAB_SETTINGS},
+        {"ℹ️", "关于", "Vink-PaperS3", AppState::TAB_SETTINGS},
     };
     int numItems = 7;
     

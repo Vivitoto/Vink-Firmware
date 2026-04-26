@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-字库生成工具：从 TTF/OTF 字体生成 M5PaperS3 电子书固件使用的二进制点阵字库
+字库生成工具：从 TTF/OTF 字体生成 Vink-PaperS3 使用的二进制点阵字库
 
 依赖：
     pip install pillow
@@ -157,7 +157,7 @@ def generate_font(input_path, output_path, size, chars):
     print(f"Done! File size: {file_size} bytes ({file_size/1024:.1f} KB)")
 
 def main():
-    parser = argparse.ArgumentParser(description='Generate bitmap font for M5PaperS3 Ebook')
+    parser = argparse.ArgumentParser(description='Generate bitmap font for Vink-PaperS3')
     parser.add_argument('--input', '-i', required=True, help='Input TTF/OTF font file')
     parser.add_argument('--output', '-o', required=True, help='Output .fnt file')
     parser.add_argument('--size', '-s', type=int, default=24, help='Font size in pixels')

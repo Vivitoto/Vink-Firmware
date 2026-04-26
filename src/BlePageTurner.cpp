@@ -49,7 +49,7 @@ bool BlePageTurner::start() {
     if (_running) return true;
     
     Serial.println("[BLE] Starting...");
-    BLEDevice::init("M5PaperS3-Reader");
+    BLEDevice::init("Vink-PaperS3");
     
     pServer = BLEDevice::createServer();
     pServer->setCallbacks(new MyServerCallbacks());

@@ -1,6 +1,6 @@
-# M5Paper S3 电子书阅读固件
+# Vink-PaperS3
 
-从零开发的电子书阅读器固件,支持 TXT 格式,自定义灰度字库,触摸屏翻页。
+Vink 项目中面向 M5Stack PaperS3 的电子书阅读固件，支持 TXT 格式、自定义灰度字库和触摸屏翻页。
 
 **默认字体:霞鹜文楷 (LXGW WenKai)** -- 一款开源可商用的优雅中文字体。
 
@@ -28,7 +28,7 @@
 ## 项目结构
 
 ```
-M5PaperS3-Ebook/
+Vink-PaperS3/
 ├── platformio.ini          # PlatformIO 配置
 ├── src/
 │   ├── main.cpp            # 程序入口
@@ -180,7 +180,7 @@ python generate_gray_font.py \
 ### 3. 编译刷入
 
 ```bash
-cd M5PaperS3-Ebook
+cd Vink/firmware/Vink-PaperS3
 pio run --target upload
 ```
 

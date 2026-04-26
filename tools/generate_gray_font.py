@@ -247,7 +247,7 @@ def generate_gray_font(input_path, output_path, size, chars):
 
 def main():
     parser = argparse.ArgumentParser(
-        description='生成 4bpp 灰度点阵字库 for M5PaperS3 Ebook',
+        description='生成 4bpp 灰度点阵字库 for Vink-PaperS3',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 示例:

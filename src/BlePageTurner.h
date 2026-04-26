@@ -19,7 +19,7 @@ public:
     int checkCommand();
     
     // 获取设备名称（用于手机扫描）
-    const char* getDeviceName() const { return "M5PaperS3-Reader"; }
+    const char* getDeviceName() const { return "Vink-PaperS3"; }
     
 public:
     bool _running;

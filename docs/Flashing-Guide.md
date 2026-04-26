@@ -1,4 +1,4 @@
-# M5PaperS3 固件烧录指南
+# Vink-PaperS3 固件烧录指南
 
 ## 准备工作
 
@@ -20,7 +20,7 @@ pip install platformio
 ### 3. 项目目录
 
 ```bash
-cd M5PaperS3-Ebook
+cd Vink/firmware/Vink-PaperS3
 ```
 
 ## 编译烧录
@@ -41,7 +41,7 @@ pio device monitor
 ### 方式二：VS Code + PlatformIO IDE
 
 1. 打开 VS Code，安装 PlatformIO IDE 插件
-2. 打开 `M5PaperS3-Ebook` 文件夹
+2. 打开 `Vink/firmware/Vink-PaperS3` 文件夹
 3. 点击左侧 PlatformIO 图标 → `Project Tasks` → `m5papers3` → `Upload`
 
 ## 首次烧录后的操作

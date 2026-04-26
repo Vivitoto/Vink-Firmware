@@ -9,7 +9,7 @@ static const char FILE_MANAGER_PAGE[] PROGMEM = R"=====(
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>M5PaperS3 文件管理</title>
+<title>Vink-PaperS3 文件管理</title>
 <style>
 :root{--bg:#f4f6f8;--card:#fff;--text:#1f2937;--muted:#6b7280;--line:#e5e7eb;--primary:#2563eb;--danger:#dc2626;--ok:#16a34a;--ink:#111827}
 *{box-sizing:border-box}body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;margin:0;background:var(--bg);color:var(--text)}
@@ -24,7 +24,7 @@ static const char FILE_MANAGER_PAGE[] PROGMEM = R"=====(
 </head>
 <body>
 <div class="wrap">
-  <div class="top"><h1>📚 M5PaperS3 管理中心</h1><div class="nav"><a href="/update">固件OTA</a><a href="#files" onclick="refreshList()">文件</a></div></div>
+  <div class="top"><h1>📚 Vink-PaperS3 管理中心</h1><div class="nav"><a href="/update">固件OTA</a><a href="#files" onclick="refreshList()">文件</a></div></div>
   <div class="card"><div id="stats" class="grid"><div class="stat">设备IP<b>加载中</b></div><div class="stat">固件空间<b>-</b></div><div class="stat">SPIFFS资源<b>-</b></div><div class="stat">运行内存<b>-</b></div></div></div>
   <div id="files" class="card">
     <div id="breadcrumb" class="breadcrumb"></div>
