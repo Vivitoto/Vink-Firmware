@@ -5,134 +5,160 @@
   "description": "面向 M5Stack PaperS3 的 Vink 电子书阅读固件。",
   "releases": [
     {
-      "version": "v1.2.8",
-      "name": "Vink-PaperS3 v1.2.8 中文界面测试",
-      "summary": "按 PaperS3 540×960 竖屏重新整理中文 UI，补齐功能分类与统一返回逻辑，并保留电源键关机修复。",
-      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v1.2.8",
-      "changelog": "## Vink-PaperS3 v1.2.8 中文界面测试\n\n### 中文界面与功能分类\n- 顶部主导航改为中文：阅读 / 书架 / 传输 / 设置。\n- 阅读页整理为继续阅读、阅读统计、最近书籍。\n- 书架页按 PaperS3 540×960 竖屏改为 2 列 × 4 行大卡片，区分文件夹与书籍。\n- 传输页按功能分组：传书、同步、外设、工具。\n- 设置页按功能分组：阅读显示、连接同步、系统。\n\n### 设置子页面\n- 排版设置、刷新策略、字体切换、WiFi 配置、Legado 同步、阅读统计改为中文大卡片界面。\n- WiFi 配置页说明 `/wifi_config.json` 的 SD 卡配置方式。\n- Legado 同步页说明 `/legado_config.json` 的配置状态。\n\n### 统一返回\n- 子页面支持左上角 `<`、右滑、上滑返回上一级。\n- 设置子页面返回设置页；阅读工具返回阅读页；传输工具返回传输页。\n\n### PaperS3 适配\n- 修正触摸分区为 540px 竖屏宽度，避免沿用旧横屏点击区域。\n- Shell UI 使用 `epd_fastest` 快刷路径，降低页面切换全刷观感。\n- 继续保留 v1.2.6 的 PaperS3 GPIO44 PMIC 关机脉冲与电源键接管逻辑。\n\n### 烧录包\n- Vink Flasher 默认使用 `full` 完整 16MB 镜像，从 `0x0` 写入。",
+      "version": "v0.2.9",
+      "name": "Vink-PaperS3 v0.2.9 Crosslink UI 中文修复",
+      "summary": "修复中文界面显示不全、屏幕方向倒置，并按参考项目梳理 PaperS3 显示/触摸/刷新/硬件联动逻辑；UI 仍保持小红书 Crosslink 风格。",
+      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.2.9",
+      "changelog": "## Vink-PaperS3 v0.2.9 Crosslink UI 中文修复\n\n### 中文显示修复\n- 主界面中文不再直接使用 `M5.Display.print()`，改为走 `FontManager` 字库绘制。\n- 顶部导航、卡片标题、设置项、传输页、阅读统计、WiFi/Legado 配置页均改为中文字体路径。\n- 修复中文文案显示不全、缺字、截断或显示为空的问题。\n\n### 屏幕方向\n- 将显示方向从 rotation 2 翻转为 rotation 0，适配实机外壳手柄朝上的握持方向。\n\n### Crosslink 风格 UI\n- UI 风格按用户提供的小红书 Crosslink 参考包调整，不照 ReadPaper 视觉风格。\n- 顶部改为状态栏 + 书签式四标签导航。\n- 阅读页改为“正在阅读”大卡片、最近书封面、阅读统计三卡片。\n- 书架页改为 3 列封面网格，空书架显示“打开SD卡”触摸动作卡。\n- 传输页改为中央大面板，分网络状态、传输/同步/外设/工具行。\n- 设置页改为中央圆角设置面板，使用紧凑行、分组标题、右侧值/入口。\n- 去掉底部装饰提示条；必要提示改为页面内触摸动作或说明文本。\n\n### PaperS3 硬件联动修复\n- 新增 `docs/PaperS3_Firmware_References.md`，整理 M5ReadPaper、Crosspoint、UniRead、PaperS3 Dashboard 等项目中可参考的显示、触摸、刷新和电源逻辑。\n- M5Unified 初始化增加 PaperS3 fallback board、output power、RTC/IMU 配置，降低自动识别失败风险。\n- 抽出固定显示方向常量 `PAPER_S3_DISPLAY_ROTATION=0`，保持手柄朝上的实机方向。\n- 触摸处理改为状态机：记录 touch-down 与最后有效坐标，释放时不再读取已失效的 post-release 坐标。\n- 增加 PaperS3 触摸坐标规范化函数，为后续 rotation 变更保留统一坐标变换入口。\n- 长按只触发一次；tap/swipe/long-press 阈值按参考项目重新收敛。\n- 顶部 Tab 点击区域与实际 Crosslink 书签式 Tab 绘制区域对齐。\n- Reader 左右滑翻页补充阅读统计与最近阅读进度更新。\n- Shell UI 提交增加刷新调度：默认 fastest，每 20 次 shell commit 做一次 quality 刷新以降低残影。\n- 休眠屏和读完提示改走中文字体绘制路径，不再依赖 M5 内置字体。\n\n### 烧录包\n- Vink Flasher 默认使用 `full` 完整 16MB 镜像，从 `0x0` 写入。",
       "assets": {
         "full": {
-          "name": "Vink-PaperS3-v1.2.8-chinese-ui-test-full-16MB.bin",
-          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v1.2.8/Vink-PaperS3-v1.2.8-chinese-ui-test-full-16MB.bin",
+          "name": "Vink-PaperS3-v0.2.9-crosslink-ui-font-fix-full-16MB.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.2.9/Vink-PaperS3-v0.2.9-crosslink-ui-font-fix-full-16MB.bin",
           "size": 16777216,
           "flashOffset": 0
         },
         "ota": {
-          "name": "Vink-PaperS3-v1.2.8-chinese-ui-test-ota.bin",
-          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v1.2.8/Vink-PaperS3-v1.2.8-chinese-ui-test-ota.bin",
+          "name": "Vink-PaperS3-v0.2.9-crosslink-ui-font-fix-ota.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.2.9/Vink-PaperS3-v0.2.9-crosslink-ui-font-fix-ota.bin",
+          "size": 1906064,
+          "flashOffset": 65536
+        },
+        "spiffs": {
+          "name": "Vink-PaperS3-v0.2.9-crosslink-ui-font-fix-spiffs.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.2.9/Vink-PaperS3-v0.2.9-crosslink-ui-font-fix-spiffs.bin",
+          "size": 4128768
+        }
+      }
+    },
+    {
+      "version": "v0.2.8",
+      "name": "Vink-PaperS3 v0.2.8 中文界面测试",
+      "summary": "按 PaperS3 540×960 竖屏重新整理中文 UI，补齐功能分类与统一返回逻辑，并保留电源键关机修复。",
+      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.2.8",
+      "changelog": "## Vink-PaperS3 v0.2.8 中文界面测试\n\n### 中文界面与功能分类\n- 顶部主导航改为中文：阅读 / 书架 / 传输 / 设置。\n- 阅读页整理为继续阅读、阅读统计、最近书籍。\n- 书架页按 PaperS3 540×960 竖屏改为 2 列 × 4 行大卡片，区分文件夹与书籍。\n- 传输页按功能分组：传书、同步、外设、工具。\n- 设置页按功能分组：阅读显示、连接同步、系统。\n\n### 设置子页面\n- 排版设置、刷新策略、字体切换、WiFi 配置、Legado 同步、阅读统计改为中文大卡片界面。\n- WiFi 配置页说明 `/wifi_config.json` 的 SD 卡配置方式。\n- Legado 同步页说明 `/legado_config.json` 的配置状态。\n\n### 统一返回\n- 子页面支持左上角 `<`、右滑、上滑返回上一级。\n- 设置子页面返回设置页；阅读工具返回阅读页；传输工具返回传输页。\n\n### PaperS3 适配\n- 修正触摸分区为 540px 竖屏宽度，避免沿用旧横屏点击区域。\n- Shell UI 使用 `epd_fastest` 快刷路径，降低页面切换全刷观感。\n- 继续保留 v0.2.6 的 PaperS3 GPIO44 PMIC 关机脉冲与电源键接管逻辑。\n\n### 烧录包\n- Vink Flasher 默认使用 `full` 完整 16MB 镜像，从 `0x0` 写入。",
+      "assets": {
+        "full": {
+          "name": "Vink-PaperS3-v0.2.8-chinese-ui-test-full-16MB.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.2.8/Vink-PaperS3-v0.2.8-chinese-ui-test-full-16MB.bin",
+          "size": 16777216,
+          "flashOffset": 0
+        },
+        "ota": {
+          "name": "Vink-PaperS3-v0.2.8-chinese-ui-test-ota.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.2.8/Vink-PaperS3-v0.2.8-chinese-ui-test-ota.bin",
           "size": 1904224,
           "flashOffset": 65536
         },
         "spiffs": {
-          "name": "Vink-PaperS3-v1.2.8-chinese-ui-test-spiffs.bin",
-          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v1.2.8/Vink-PaperS3-v1.2.8-chinese-ui-test-spiffs.bin",
+          "name": "Vink-PaperS3-v0.2.8-chinese-ui-test-spiffs.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.2.8/Vink-PaperS3-v0.2.8-chinese-ui-test-spiffs.bin",
           "size": 4128768
         }
       }
     },
     {
-      "version": "v1.2.5",
-      "name": "Vink-PaperS3 v1.2.5 High contrast UI test",
+      "version": "v0.2.5",
+      "name": "Vink-PaperS3 v0.2.5 High contrast UI test",
       "summary": "修复主界面灰色网纹，改为纯黑白高对比 UI；电源键改为开机后再按一次关机。",
-      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v1.2.5",
-      "changelog": "## Vink-PaperS3 v1.2.5 High contrast UI test\n\n### PaperS3 高对比 UI\n- 修复主 UI 直接绘制到 `M5.Display` 时误用 4bpp 颜色索引 `15/0` 的问题。\n- 主题颜色改为 `TFT_WHITE / TFT_BLACK`，避免大面积背景被电子纸抖动成灰色网纹。\n- 卡片边框加粗到 2px，主要文字保持纯黑，提高 PaperS3 屏幕可读性。\n\n### 电源键行为\n- 目标行为改为：按一次硬件开机；系统启动完成后，再按一次电源键关机。\n- 启动后前 3 秒并且电源键释放前，不响应关机事件，避免开机按键残留导致刚开机就关机。\n- 关机前保存阅读进度/统计，并停止 WiFi 上传与蓝牙翻页服务。\n- 如果 `M5.Power.powerOff()` 未真正断电，则退回 deep sleep，避免表现成重启。\n\n### 烧录包\n- Vink Flasher 默认继续使用 `full` 完整 16MB 镜像，从 `0x0` 写入。",
+      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.2.5",
+      "changelog": "## Vink-PaperS3 v0.2.5 High contrast UI test\n\n### PaperS3 高对比 UI\n- 修复主 UI 直接绘制到 `M5.Display` 时误用 4bpp 颜色索引 `15/0` 的问题。\n- 主题颜色改为 `TFT_WHITE / TFT_BLACK`，避免大面积背景被电子纸抖动成灰色网纹。\n- 卡片边框加粗到 2px，主要文字保持纯黑，提高 PaperS3 屏幕可读性。\n\n### 电源键行为\n- 目标行为改为：按一次硬件开机；系统启动完成后，再按一次电源键关机。\n- 启动后前 3 秒并且电源键释放前，不响应关机事件，避免开机按键残留导致刚开机就关机。\n- 关机前保存阅读进度/统计，并停止 WiFi 上传与蓝牙翻页服务。\n- 如果 `M5.Power.powerOff()` 未真正断电，则退回 deep sleep，避免表现成重启。\n\n### 烧录包\n- Vink Flasher 默认继续使用 `full` 完整 16MB 镜像，从 `0x0` 写入。",
       "assets": {
         "full": {
-          "name": "Vink-PaperS3-v1.2.5-high-contrast-ui-test-full-16MB.bin",
-          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v1.2.5/Vink-PaperS3-v1.2.5-high-contrast-ui-test-full-16MB.bin",
+          "name": "Vink-PaperS3-v0.2.5-high-contrast-ui-test-full-16MB.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.2.5/Vink-PaperS3-v0.2.5-high-contrast-ui-test-full-16MB.bin",
           "size": 16777216,
           "flashOffset": 0
         },
         "ota": {
-          "name": "Vink-PaperS3-v1.2.5-high-contrast-ui-test-ota.bin",
-          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v1.2.5/Vink-PaperS3-v1.2.5-high-contrast-ui-test-ota.bin",
+          "name": "Vink-PaperS3-v0.2.5-high-contrast-ui-test-ota.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.2.5/Vink-PaperS3-v0.2.5-high-contrast-ui-test-ota.bin",
           "size": 1904032,
           "flashOffset": 65536
         },
         "spiffs": {
-          "name": "Vink-PaperS3-v1.2.5-high-contrast-ui-test-spiffs.bin",
-          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v1.2.5/Vink-PaperS3-v1.2.5-high-contrast-ui-test-spiffs.bin",
+          "name": "Vink-PaperS3-v0.2.5-high-contrast-ui-test-spiffs.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.2.5/Vink-PaperS3-v0.2.5-high-contrast-ui-test-spiffs.bin",
           "size": 4128768
         }
       }
     },
     {
-      "version": "v1.2.4",
-      "name": "Vink-PaperS3 v1.2.4 BW shell test",
+      "version": "v0.2.4",
+      "name": "Vink-PaperS3 v0.2.4 BW shell test",
       "summary": "套用 ReadPaper 的 PaperS3 显示初始化路径，并临时切换黑白主界面以验证灰度网纹问题。",
-      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v1.2.4",
-      "changelog": "## Vink-PaperS3 v1.2.4 BW shell test\n\n### ReadPaper 显示路径\n- 使用 ReadPaper/PaperS3 已验证的启动参数：devkitm、OPI PSRAM、M5Unified 0.2.11、`clear_display=false`。\n- 屏幕改为 PaperS3 竖屏 framebuffer：`540x960`、`rotation=2`、`colorDepth=4`、`epd_fastest`。\n- 开机诊断页改为 `M5Canvas` + `pushSprite(0,0)` 绘制，已验证可清晰显示 Display/PSRAM 信息。\n\n### 启动容错\n- SD 卡初始化失败时不再停止启动，改为显示 `SD Card Error - continuing` 后继续进入系统，便于无 SD 调试。\n- 字体初始化失败时继续使用 fallback，避免早期 bring-up 卡死。\n\n### 黑白主界面测试\n- 将主界面临时切换为高对比黑白配色，避免 PaperS3 大面积灰度填充显示成网纹。\n- 顶部标签临时改为 ASCII 文案 `Read / Books / Send / Set`，并禁用 emoji 图标，以排除 fallback 字体/emoji 渲染干扰。\n\n### 烧录包\n- App/Vink Flasher 默认继续使用 `full` 完整 16MB 镜像，从 `0x0` 写入。",
+      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.2.4",
+      "changelog": "## Vink-PaperS3 v0.2.4 BW shell test\n\n### ReadPaper 显示路径\n- 使用 ReadPaper/PaperS3 已验证的启动参数：devkitm、OPI PSRAM、M5Unified 0.2.11、`clear_display=false`。\n- 屏幕改为 PaperS3 竖屏 framebuffer：`540x960`、`rotation=2`、`colorDepth=4`、`epd_fastest`。\n- 开机诊断页改为 `M5Canvas` + `pushSprite(0,0)` 绘制，已验证可清晰显示 Display/PSRAM 信息。\n\n### 启动容错\n- SD 卡初始化失败时不再停止启动，改为显示 `SD Card Error - continuing` 后继续进入系统，便于无 SD 调试。\n- 字体初始化失败时继续使用 fallback，避免早期 bring-up 卡死。\n\n### 黑白主界面测试\n- 将主界面临时切换为高对比黑白配色，避免 PaperS3 大面积灰度填充显示成网纹。\n- 顶部标签临时改为 ASCII 文案 `Read / Books / Send / Set`，并禁用 emoji 图标，以排除 fallback 字体/emoji 渲染干扰。\n\n### 烧录包\n- App/Vink Flasher 默认继续使用 `full` 完整 16MB 镜像，从 `0x0` 写入。",
       "assets": {
         "full": {
-          "name": "Vink-PaperS3-v1.2.4-bw-shell-test-full-16MB.bin",
-          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v1.2.4/Vink-PaperS3-v1.2.4-bw-shell-test-full-16MB.bin",
+          "name": "Vink-PaperS3-v0.2.4-bw-shell-test-full-16MB.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.2.4/Vink-PaperS3-v0.2.4-bw-shell-test-full-16MB.bin",
           "size": 16777216,
           "flashOffset": 0
         },
         "ota": {
-          "name": "Vink-PaperS3-v1.2.4-bw-shell-test-ota.bin",
-          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v1.2.4/Vink-PaperS3-v1.2.4-bw-shell-test-ota.bin",
+          "name": "Vink-PaperS3-v0.2.4-bw-shell-test-ota.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.2.4/Vink-PaperS3-v0.2.4-bw-shell-test-ota.bin",
           "size": 1904064,
           "flashOffset": 65536
         },
         "spiffs": {
-          "name": "Vink-PaperS3-v1.2.4-bw-shell-test-spiffs.bin",
-          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v1.2.4/Vink-PaperS3-v1.2.4-bw-shell-test-spiffs.bin",
+          "name": "Vink-PaperS3-v0.2.4-bw-shell-test-spiffs.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.2.4/Vink-PaperS3-v0.2.4-bw-shell-test-spiffs.bin",
           "size": 4128768
         }
       }
     },
     {
-      "version": "v1.2.0",
-      "name": "Vink-PaperS3 v1.2.0",
-      "summary": "Vink-PaperS3 v1.2.0",
-      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v1.2.0",
-      "changelog": "## Vink-PaperS3 v1.2.0\n\nVink-PaperS3 是面向 M5Stack PaperS3 的电子书阅读固件。\n\n### 完整烧录包\n- 新增 16MB 完整首刷镜像：`Vink-PaperS3-v1.2.0-full-16MB.bin`\n- 包含 bootloader、分区表、固件 app、SPIFFS 字库/Web资源\n- Vink Flasher 默认烧录完整镜像，避免只刷 app 导致资源缺失\n\n### 内置资源分区\n- 切换 16MB 分区表：app0/app1 双 6MB + SPIFFS 约 3.9MB\n- SPIFFS 内置 16/20/24px 4bpp 灰度中文字库\n- SD 卡字体优先，SPIFFS 字体回退，最后再用代码内置 fallback\n\n### Web 与 OTA\n- Web 管理页增加设备状态与 OTA 入口\n- 支持 `Vink-PaperS3-v1.2.0-ota.bin` 程序 OTA\n- 保留 `Vink-PaperS3-v1.2.0-spiffs.bin` 资源分区镜像\n\n### 显示刷新策略\n- 对标梦西游显示策略\n- 极速：DU4 快刷，每20页 GC16 全刷\n- 均衡：DU 快刷，每10页 GC16 全刷\n- 清晰：GL16 文本刷新，每5页 GC16 全刷\n\n### 文件说明\n- `Vink-PaperS3-v1.2.0-full-16MB.bin`：完整16MB首刷镜像，推荐 App/首次烧录使用\n- `Vink-PaperS3-v1.2.0-ota.bin`：仅 app 分区 OTA 使用\n- `Vink-PaperS3-v1.2.0-spiffs.bin`：字库与Web资源分区镜像",
+      "version": "v0.2.0",
+      "name": "Vink-PaperS3 v0.2.0",
+      "summary": "Vink-PaperS3 v0.2.0",
+      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.2.0",
+      "changelog": "## Vink-PaperS3 v0.2.0\n\nVink-PaperS3 是面向 M5Stack PaperS3 的电子书阅读固件。\n\n### 完整烧录包\n- 新增 16MB 完整首刷镜像：`Vink-PaperS3-v0.2.0-full-16MB.bin`\n- 包含 bootloader、分区表、固件 app、SPIFFS 字库/Web资源\n- Vink Flasher 默认烧录完整镜像，避免只刷 app 导致资源缺失\n\n### 内置资源分区\n- 切换 16MB 分区表：app0/app1 双 6MB + SPIFFS 约 3.9MB\n- SPIFFS 内置 16/20/24px 4bpp 灰度中文字库\n- SD 卡字体优先，SPIFFS 字体回退，最后再用代码内置 fallback\n\n### Web 与 OTA\n- Web 管理页增加设备状态与 OTA 入口\n- 支持 `Vink-PaperS3-v0.2.0-ota.bin` 程序 OTA\n- 保留 `Vink-PaperS3-v0.2.0-spiffs.bin` 资源分区镜像\n\n### 显示刷新策略\n- 对标梦西游显示策略\n- 极速：DU4 快刷，每20页 GC16 全刷\n- 均衡：DU 快刷，每10页 GC16 全刷\n- 清晰：GL16 文本刷新，每5页 GC16 全刷\n\n### 文件说明\n- `Vink-PaperS3-v0.2.0-full-16MB.bin`：完整16MB首刷镜像，推荐 App/首次烧录使用\n- `Vink-PaperS3-v0.2.0-ota.bin`：仅 app 分区 OTA 使用\n- `Vink-PaperS3-v0.2.0-spiffs.bin`：字库与Web资源分区镜像",
       "assets": {
         "full": {
-          "name": "Vink-PaperS3-v1.2.0-full-16MB.bin",
-          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v1.2.0/Vink-PaperS3-v1.2.0-full-16MB.bin",
+          "name": "Vink-PaperS3-v0.2.0-full-16MB.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.2.0/Vink-PaperS3-v0.2.0-full-16MB.bin",
           "size": 16777216,
           "flashOffset": 0
         },
         "ota": {
-          "name": "Vink-PaperS3-v1.2.0-ota.bin",
-          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v1.2.0/Vink-PaperS3-v1.2.0-ota.bin",
+          "name": "Vink-PaperS3-v0.2.0-ota.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.2.0/Vink-PaperS3-v0.2.0-ota.bin",
           "size": 1887888,
           "flashOffset": 65536
         },
         "spiffs": {
-          "name": "Vink-PaperS3-v1.2.0-spiffs.bin",
-          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v1.2.0/Vink-PaperS3-v1.2.0-spiffs.bin",
+          "name": "Vink-PaperS3-v0.2.0-spiffs.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.2.0/Vink-PaperS3-v0.2.0-spiffs.bin",
           "size": 4128768
         }
       }
     },
     {
-      "version": "v1.1.0",
-      "name": "Vink-PaperS3 v1.1.0",
+      "version": "v0.1.1",
+      "name": "Vink-PaperS3 v0.1.1",
       "summary": "Crosslink风格UI改版",
-      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v1.1.0",
-      "changelog": "## v1.1.0 - Crosslink风格UI改版\n\n### 全新界面\n- 📖 四标签导航：读书/书架/传输/设置\n- 🎨 浅灰白纸质感配色，墨水屏原生风格\n- 📚 书架9宫格封面展示\n- 🛜 传输中心6大功能卡片\n- ⚙️ 设置页卡片式布局+胶囊开关+滑块\n\n### 交互改进\n- 左右滑动切换标签页\n- 阅读时弹出式菜单\n- 点击封面直接打开书籍\n\n### 其他\n- 新增UITheme绘制库\n- M5PaperS3无物理按键适配",
+      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.1.1",
+      "changelog": "## v0.1.1 - Crosslink风格UI改版\n\n### 全新界面\n- 📖 四标签导航：读书/书架/传输/设置\n- 🎨 浅灰白纸质感配色，墨水屏原生风格\n- 📚 书架9宫格封面展示\n- 🛜 传输中心6大功能卡片\n- ⚙️ 设置页卡片式布局+胶囊开关+滑块\n\n### 交互改进\n- 左右滑动切换标签页\n- 阅读时弹出式菜单\n- 点击封面直接打开书籍\n\n### 其他\n- 新增UITheme绘制库\n- M5PaperS3无物理按键适配",
       "assets": {
         "ota": {
           "name": "firmware.bin",
-          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v1.1.0/firmware.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.1.1/firmware.bin",
           "size": 1834416,
           "flashOffset": 65536
         }
       }
     },
     {
-      "version": "v1.0.0",
-      "name": "Vink-PaperS3 v1.0.0",
+      "version": "v0.1.0",
+      "name": "Vink-PaperS3 v0.1.0",
       "summary": "首个电子书阅读固件版本",
-      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v1.0.0",
-      "changelog": "## Vink-PaperS3 v1.0.0\n\n### 功能特性\n- 📖 **EPUB 支持** — 逐章阅读，章末自动加载下一章\n- 🌐 **Web 文件管理器** — 通过浏览器浏览/上传/删除/创建目录\n- 🔤 **内置字体** — 500 常用汉字，SD 卡无字体时自动回退\n- ☁️ **Legado WebDav 同步** — 与阅读 App 同步阅读进度\n- 📁 **子目录浏览** — 支持多级目录结构\n- 📡 **蓝牙翻页器** — BLE HID 键盘/遥控器翻页\n- 📶 **WiFi 传书** — 手机/电脑通过浏览器上传书籍\n- 📊 **阅读统计** — 阅读时长、页数、进度追踪\n- 🔖 **书签管理** — 10 个书签位，支持导出/导入\n- 📝 **GBK 编码** — 自动识别 GBK/UTF-8/UTF-16/BIG5\n- 📑 **章节识别** — 自动识别章节标题，支持缓存\n- 😴 **休眠锁屏** — 自动休眠，低电量提醒\n- ⚡ **预加载** — 后台预渲染下一页\n- 🔄 **三级刷新** — 智能局部/全局刷新策略\n- 📄 **快速翻页** — 连续翻页 + 页码跳转",
+      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.1.0",
+      "changelog": "## Vink-PaperS3 v0.1.0\n\n### 功能特性\n- 📖 **EPUB 支持** — 逐章阅读，章末自动加载下一章\n- 🌐 **Web 文件管理器** — 通过浏览器浏览/上传/删除/创建目录\n- 🔤 **内置字体** — 500 常用汉字，SD 卡无字体时自动回退\n- ☁️ **Legado WebDav 同步** — 与阅读 App 同步阅读进度\n- 📁 **子目录浏览** — 支持多级目录结构\n- 📡 **蓝牙翻页器** — BLE HID 键盘/遥控器翻页\n- 📶 **WiFi 传书** — 手机/电脑通过浏览器上传书籍\n- 📊 **阅读统计** — 阅读时长、页数、进度追踪\n- 🔖 **书签管理** — 10 个书签位，支持导出/导入\n- 📝 **GBK 编码** — 自动识别 GBK/UTF-8/UTF-16/BIG5\n- 📑 **章节识别** — 自动识别章节标题，支持缓存\n- 😴 **休眠锁屏** — 自动休眠，低电量提醒\n- ⚡ **预加载** — 后台预渲染下一页\n- 🔄 **三级刷新** — 智能局部/全局刷新策略\n- 📄 **快速翻页** — 连续翻页 + 页码跳转",
       "assets": {
         "ota": {
           "name": "firmware.bin",
-          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v1.0.0/firmware.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.1.0/firmware.bin",
           "size": 1782640,
           "flashOffset": 65536
         }

@@ -41,7 +41,9 @@ private:
     
     // 触摸状态
     bool _touching;
+    bool _touchLongPressFired;
     int _touchStartX, _touchStartY;
+    int _touchLastX, _touchLastY;
     unsigned long _touchStartTime;
     
     // 菜单状态

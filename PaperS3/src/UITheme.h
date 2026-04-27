@@ -32,7 +32,7 @@ namespace UITheme {
     constexpr uint16_t BORDER_LIGHT = TFT_BLACK;
     
     // 尺寸常量
-    constexpr int16_t TOP_TAB_H    = 72;   // 顶部标签高度，适配 540x960 竖屏触摸
+    constexpr int16_t TOP_TAB_H    = 88;   // Crosslink 顶部状态栏 + 标签栏高度
     constexpr int16_t BOTTOM_NAV_H = 0;    // M5PaperS3 无物理按键，无底部导航栏
     constexpr int16_t CARD_RADIUS  = 10;   // 卡片圆角
     constexpr int16_t ITEM_H       = 76;   // 列表项高度

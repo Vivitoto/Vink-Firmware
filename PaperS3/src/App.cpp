@@ -4,11 +4,26 @@
 
 using namespace UITheme;
 
+static FontManager* gUiFont = nullptr;
+
+static constexpr int PAPER_S3_DISPLAY_ROTATION = 0;  // user-facing portrait, handle at top
+static constexpr uint32_t SHELL_FULL_REFRESH_EVERY = 20;
+static uint32_t gShellCommitCount = 0;
+
 static void prepareShellFrame();
 static void commitShellFrame();
 static void drawBackHeader(const char* title, const char* hint = "点 < / 右滑 / 上滑返回");
+static void drawUiText(int16_t x, int16_t y, const char* text, uint16_t color = TEXT_BLACK, uint16_t bg = BG_LIGHT);
+static void drawUiTextCentered(int16_t x, int16_t y, int16_t w, int16_t h, const char* text, uint16_t color = TEXT_BLACK);
+static void drawUiSectionTitle(int16_t x, int16_t y, const char* title);
+static void drawUiCapsuleSwitch(int16_t x, int16_t y, int16_t w, bool on);
+static void drawUiSlider(int16_t x, int16_t y, int16_t w, int16_t minVal, int16_t maxVal, int16_t current, const char* unit);
+static void drawCrosslinkStatusBar();
+static void drawBookCoverCard(int16_t x, int16_t y, int16_t w, int16_t h, const char* title, const char* type, int progress, bool dark = false);
+static void drawSmallProgress(int16_t x, int16_t y, int16_t w, int percent);
+static void drawRowIcon(int16_t x, int16_t y, const char* kind);
 
-App::App() : _state(AppState::INIT), _reader(_font), _touching(false),
+App::App() : _state(AppState::INIT), _reader(_font), _touching(false), _touchLongPressFired(false),
              _menuIndex(0), _layoutEditorIndex(0), _chapterMenuIndex(0), _chapterMenuScroll(0),
              _bookmarkMenuIndex(0), _bookmarkMenuScroll(0),
              _fontMenuIndex(0), _fontMenuScroll(0), _settingsScroll(0),
@@ -27,6 +42,7 @@ App::App() : _state(AppState::INIT), _reader(_font), _touching(false),
     _wifiConfigured = false;
     _legadoConfigured = false;
     _legadoPort = 80;
+    _touchStartX = _touchStartY = _touchLastX = _touchLastY = 0;
     for (int i = 0; i < 4; i++) _tabNeedsRender[i] = true;
 }
 
@@ -37,10 +53,16 @@ bool App::init() {
     Serial.printf("[Boot] PSRAM size=%u free=%u\n", ESP.getPsramSize(), ESP.getFreePsram());
     
     auto cfg = M5.config();
-    // Follow the proven ReadPaper/PaperS3 startup path: let M5Unified/M5GFX
-    // autodetect the built-in PaperS3 e-paper panel. Forcing the external
-    // module display path can leave M5.Display uninitialized on PaperS3.
+    // Follow the proven ReadPaper/PaperS3 startup path: use M5Unified's
+    // built-in PaperS3 board support and keep the e-paper panel stable across
+    // wake/boot. The fallback board prevents occasional autodetect misses.
     cfg.clear_display = false;
+    cfg.output_power = true;
+    cfg.internal_imu = true;
+    cfg.internal_rtc = true;
+    cfg.internal_spk = false;
+    cfg.internal_mic = false;
+    cfg.fallback_board = m5::board_t::board_M5PaperS3;
     M5.begin(cfg);
     delay(50);
     
@@ -59,6 +81,8 @@ bool App::init() {
         showMessage("字体异常，使用备用字体", 2000);
         Serial.println("[App] Font init failed, continuing with built-in fallback if available");
     }
+    // 主 UI 也必须走 FontManager，否则 M5GFX 内置字体无法完整显示中文。
+    gUiFont = &_font;
     
     if (sdReady) {
         if (!SD.exists(BOOKS_DIR)) SD.mkdir(BOOKS_DIR);
@@ -92,7 +116,10 @@ bool App::initDisplay() {
     display.powerSaveOff();
     display.setEpdMode(epd_mode_t::epd_fastest);
     display.setColorDepth(4); // ReadPaper TEXT_COLORDEPTH
-    display.setRotation(2);   // ReadPaper default portrait rotation
+    // User's PaperS3 enclosure is physically used with the handle at the top.
+    // Rotation 2 was upside down on the real device; flip 180° to the other
+    // ReadPaper-supported portrait direction.
+    display.setRotation(PAPER_S3_DISPLAY_ROTATION);
     delay(20);
 
     if (display.width() == 0 || display.height() == 0) {
@@ -113,7 +140,7 @@ bool App::initDisplay() {
     canvas.println("Vink-PaperS3");
     canvas.setTextSize(1);
     canvas.setCursor(24, 76);
-    canvas.println("v1.2.8 中文界面测试");
+    canvas.println("v0.2.9 中文显示修复");
     canvas.setCursor(24, 104);
     canvas.printf("Display %dx%d", display.width(), display.height());
     canvas.setCursor(24, 132);
@@ -523,46 +550,101 @@ void App::handleLayoutMenu() {
     display.display();
 }
 
+static void normalizePaperS3TouchPoint(int rawX, int rawY, int& outX, int& outY) {
+    // M5Unified normally returns display-rotation-aware coordinates. Keep this
+    // guard defensive: if a backend reports landscape/raw coordinates, normalize
+    // them into Vink's logical 540x960 portrait space.
+    int x = rawX;
+    int y = rawY;
+    if (x >= 0 && y >= 0 && x < SCREEN_WIDTH && y < SCREEN_HEIGHT) {
+        outX = x;
+        outY = y;
+        return;
+    }
+
+    // Raw GT911/PaperS3 coordinates may be reported in portrait and then need
+    // a transform when display rotation changes. Current requested orientation
+    // is rotation 0, so this is identity; the other cases are kept here for the
+    // next rotation change instead of scattering math through the UI.
+    switch (PAPER_S3_DISPLAY_ROTATION) {
+        case 1:
+            outX = SCREEN_HEIGHT - 1 - rawY;
+            outY = rawX;
+            break;
+        case 2:
+            outX = SCREEN_WIDTH - 1 - rawX;
+            outY = SCREEN_HEIGHT - 1 - rawY;
+            break;
+        case 3:
+            outX = rawY;
+            outY = SCREEN_WIDTH - 1 - rawX;
+            break;
+        case 0:
+        default:
+            outX = rawX;
+            outY = rawY;
+            break;
+    }
+
+    outX = constrain(outX, 0, SCREEN_WIDTH - 1);
+    outY = constrain(outY, 0, SCREEN_HEIGHT - 1);
+}
+
 void App::processTouch() {
     auto& touch = M5.Touch;
-    
+    constexpr int TAP_THRESHOLD = 26;
+    constexpr int SWIPE_THRESHOLD = 64;
+    constexpr int LONG_PRESS_MS = 750;
+    constexpr int LONG_PRESS_MOVE = 28;
+    constexpr int MAX_TAP_MS = 650;
+
     if (touch.getCount() > 0) {
         _lastActivityTime = millis();
         _sleepPending = false;
-        auto t = touch.getDetail();
-        int x = t.x;
-        int y = t.y;
-        
+        auto t = touch.getDetail(0);
+        int x = 0, y = 0;
+        normalizePaperS3TouchPoint(t.x, t.y, x, y);
+
         if (!_touching) {
             _touching = true;
-            _touchStartX = x;
-            _touchStartY = y;
+            _touchLongPressFired = false;
+            _touchStartX = _touchLastX = x;
+            _touchStartY = _touchLastY = y;
             _touchStartTime = millis();
-        } else {
-            int dx = x - _touchStartX;
-            int dy = y - _touchStartY;
-            unsigned long dt = millis() - _touchStartTime;
-            
-            if (dt > 1000 && abs(dx) < 20 && abs(dy) < 20) {
-                onLongPress(x, y);
-                _touching = false;
-                return;
-            }
+            return;
         }
-    } else {
-        if (_touching) {
-            _touching = false;
-            int dx = touch.getDetail().x - _touchStartX;
-            int dy = touch.getDetail().y - _touchStartY;
-            unsigned long dt = millis() - _touchStartTime;
-            
-            if (abs(dx) < 20 && abs(dy) < 20 && dt < 500) {
-                onTap(touch.getDetail().x, touch.getDetail().y);
-            } else if (dt < 500 && abs(dx) > 50) {
-                onSwipe(dx, dy);
-            } else if (dt < 500 && abs(dy) > 50) {
-                onVerticalSwipe(dy);
-            }
+
+        _touchLastX = x;
+        _touchLastY = y;
+        int dx = _touchLastX - _touchStartX;
+        int dy = _touchLastY - _touchStartY;
+        unsigned long dt = millis() - _touchStartTime;
+
+        if (!_touchLongPressFired && dt >= LONG_PRESS_MS && abs(dx) < LONG_PRESS_MOVE && abs(dy) < LONG_PRESS_MOVE) {
+            _touchLongPressFired = true;
+            onLongPress(_touchStartX, _touchStartY);
+        }
+        return;
+    }
+
+    if (_touching) {
+        _touching = false;
+        int dx = _touchLastX - _touchStartX;
+        int dy = _touchLastY - _touchStartY;
+        unsigned long dt = millis() - _touchStartTime;
+
+        if (_touchLongPressFired) {
+            _touchLongPressFired = false;
+            return;
+        }
+
+        int absDx = abs(dx);
+        int absDy = abs(dy);
+        if (absDx < TAP_THRESHOLD && absDy < TAP_THRESHOLD && dt <= MAX_TAP_MS) {
+            onTap(_touchStartX, _touchStartY);
+        } else if (absDx >= SWIPE_THRESHOLD || absDy >= SWIPE_THRESHOLD) {
+            if (absDx > absDy) onSwipe(dx, dy);
+            else onVerticalSwipe(dy);
         }
     }
 }
@@ -613,11 +695,12 @@ void App::onTap(int x, int y) {
     if (_state == AppState::TAB_READING || _state == AppState::TAB_LIBRARY ||
         _state == AppState::TAB_TRANSFER || _state == AppState::TAB_SETTINGS) {
         
-        // 顶部标签切换
+        // 顶部标签切换：与 Crosslink 书签式 Tab 的实际绘制区域一致。
         if (y < TOP_TAB_H) {
-            int tabW = SCREEN_WIDTH / 4;
-            int clickedTab = x / tabW;
-            if (clickedTab >= 0 && clickedTab < 4) {
+            const int tabBaseX = 20;
+            const int tabW = (SCREEN_WIDTH - 40) / 4;
+            int clickedTab = (x - tabBaseX) / tabW;
+            if (x >= tabBaseX && x <= SCREEN_WIDTH - 20 && clickedTab >= 0 && clickedTab < 4) {
                 switchTab(clickedTab);
             }
             return;
@@ -632,13 +715,17 @@ void App::onTap(int x, int y) {
         switch (_state) {
             case AppState::TAB_READING: {
                 int recentCount = _recent.getCount();
-                int cardY = contentTop() + 34;
-                if (recentCount > 0 && x >= contentLeft() && x <= contentRight() && y >= cardY && y <= cardY + 210) {
-                    const RecentBook* book = _recent.getBook(0);
-                    if (book && _reader.openBook(book->path)) {
-                        _stats.startReading(book->name);
-                        _state = AppState::READER;
-                        _reader.renderPage();
+                int cardY = contentTop() + 42;
+                if (x >= contentLeft() && x <= contentRight() && y >= cardY && y <= cardY + 178) {
+                    if (recentCount > 0) {
+                        const RecentBook* book = _recent.getBook(0);
+                        if (book && _reader.openBook(book->path)) {
+                            _stats.startReading(book->name);
+                            _state = AppState::READER;
+                            _reader.renderPage();
+                        }
+                    } else {
+                        switchTab(1);
                     }
                     return;
                 }
@@ -646,19 +733,28 @@ void App::onTap(int x, int y) {
             }
             
             case AppState::TAB_LIBRARY: {
-                int cols = 2;
-                int cardW = (contentWidth() - 14) / 2;
-                int cardH = 156;
-                int gapX = 14;
-                int gapY = 16;
-                int startX = contentLeft();
-                int cy = contentTop() + 42;
+                if (_browser.getItemCount() == 0) {
+                    if (x >= contentLeft() + 80 && x <= contentRight() - 80 && y >= contentTop() + 260 && y <= contentTop() + 328) {
+                        _browser.scan(BOOKS_DIR);
+                        _tabNeedsRender[1] = true;
+                        showMessage("已重新扫描SD卡", 800);
+                    }
+                    return;
+                }
+                const int cols = 3;
+                const int booksPerPage = 9;
+                const int gapX = 12;
+                const int gapY = 18;
+                const int cardW = (contentWidth() - 12 - gapX * 2) / 3;
+                const int cardH = 168;
+                int startX = contentLeft() + 6;
+                int cy = contentTop() + 50;
                 
                 int clickedCol = (x - startX) / (cardW + gapX);
                 int clickedRow = (y - cy) / (cardH + gapY);
-                if (clickedCol >= 0 && clickedCol < cols && clickedRow >= 0 && clickedRow < 4) {
+                if (clickedCol >= 0 && clickedCol < cols && clickedRow >= 0 && clickedRow < 3) {
                     int localIdx = clickedRow * cols + clickedCol;
-                    int idx = _libraryPage * 8 + localIdx;
+                    int idx = _libraryPage * booksPerPage + localIdx;
                     if (idx < _browser.getItemCount()) {
                         _librarySelected = idx;
                         const FileItem* item = _browser.getItem(idx);
@@ -680,19 +776,12 @@ void App::onTap(int x, int y) {
             }
             
             case AppState::TAB_TRANSFER: {
-                const int itemH = 84;
-                const int gap = 10;
-                int drawY = contentTop() + 44;
+                const int rowH = 74;
+                int panelY = contentTop() + 54;
+                int rowStart = panelY + 116;
                 int clickedIdx = -1;
-                const int groupBefore[] = {2, 3, 4};
-                for (int i = 0; i < 6; i++) {
-                    bool newGroup = (i == 0 || i == groupBefore[0] || i == groupBefore[1] || i == groupBefore[2]);
-                    if (newGroup) drawY += 26;
-                    if (y >= drawY && y <= drawY + itemH) {
-                        clickedIdx = i;
-                        break;
-                    }
-                    drawY += itemH + gap;
+                if (x >= contentLeft() + 6 && x <= contentRight() - 6 && y >= rowStart && y <= rowStart + rowH * 6) {
+                    clickedIdx = (y - rowStart) / rowH;
                 }
 
                 switch (clickedIdx) {
@@ -733,35 +822,36 @@ void App::onTap(int x, int y) {
             }
             
             case AppState::TAB_SETTINGS: {
-                const int itemH = 76;
-                const int gap = 10;
-                int drawY = contentTop() + 44 - _settingsScroll;
+                const int rowH = 64;
+                int panelY = contentTop() + 26;
+                int drawY = panelY + 74 - _settingsScroll;
                 int clickedIdx = -1;
-                const int groupBefore[] = {0, 3, 5};
-                for (int i = 0; i < 7; i++) {
-                    bool newGroup = (i == groupBefore[0] || i == groupBefore[1] || i == groupBefore[2]);
-                    if (newGroup) drawY += 26;
-                    if (y >= drawY && y <= drawY + itemH) {
+                const int groupBefore[] = {0, 2, 4, 6};
+                for (int i = 0; i < 8; i++) {
+                    bool newGroup = (i == groupBefore[0] || i == groupBefore[1] || i == groupBefore[2] || i == groupBefore[3]);
+                    if (newGroup) drawY += 34;
+                    if (y >= drawY && y <= drawY + rowH) {
                         clickedIdx = i;
                         break;
                     }
-                    drawY += itemH + gap;
+                    drawY += rowH;
                 }
 
-                if (clickedIdx >= 0 && clickedIdx < 7) {
+                if (clickedIdx >= 0 && clickedIdx < 8) {
                     switch (clickedIdx) {
-                        case 0: _layoutEditorIndex = 0; _state = AppState::SETTINGS_LAYOUT; break;
-                        case 1: _state = AppState::SETTINGS_REFRESH; break;
-                        case 2: _fontMenuIndex = 0; _fontMenuScroll = 0; _state = AppState::SETTINGS_FONT; break;
-                        case 3: _state = AppState::SETTINGS_WIFI; break;
-                        case 4: _state = AppState::SETTINGS_LEGADO; break;
-                        case 5:
+                        case 0: _fontMenuIndex = 0; _fontMenuScroll = 0; _state = AppState::SETTINGS_FONT; break;
+                        case 1: _layoutEditorIndex = 0; _state = AppState::SETTINGS_LAYOUT; break;
+                        case 2: _layoutEditorIndex = 0; _state = AppState::SETTINGS_LAYOUT; break;
+                        case 3: _state = AppState::SETTINGS_REFRESH; break;
+                        case 4: _state = AppState::SETTINGS_WIFI; break;
+                        case 5: _state = AppState::SETTINGS_LEGADO; break;
+                        case 6:
                             _sleepTimeoutMin = clamp(_sleepTimeoutMin + 5, AUTO_SLEEP_MIN_MIN, AUTO_SLEEP_MAX_MIN);
                             if (_sleepTimeoutMin > AUTO_SLEEP_MAX_MIN) _sleepTimeoutMin = AUTO_SLEEP_MIN_MIN;
                             saveGlobalSettings();
                             _tabNeedsRender[3] = true;
                             break;
-                        case 6: showMessage("Vink-PaperS3 v1.2.8", 3000); break;
+                        case 7: showMessage("Vink-PaperS3 v0.2.9", 3000); break;
                     }
                 }
                 return;
@@ -974,8 +1064,18 @@ void App::onSwipe(int dx, int dy) {
         }
         
         case AppState::READER: {
-            if (dx < -50) _reader.nextPage();
-            else if (dx > 50) _reader.prevPage();
+            if (dx < -50) {
+                if (!_reader.nextPage()) {
+                    handleEndOfBook();
+                    return;
+                }
+                _stats.recordPageTurn();
+                _recent.updateProgress(_reader.getBookPath(), _reader.getCurrentPage(), _reader.getTotalPages());
+            } else if (dx > 50) {
+                _reader.prevPage();
+                _stats.recordPageTurn();
+                _recent.updateProgress(_reader.getBookPath(), _reader.getCurrentPage(), _reader.getTotalPages());
+            }
             break;
         }
         
@@ -1406,14 +1506,8 @@ int App::clamp(int val, int minVal, int maxVal) {
 void App::showMessage(const char* msg, int durationMs) {
     auto& display = M5.Display;
     display.clear();
-    display.setTextSize(2);
-    
-    // 简单估算文本宽度: 每个字符约12px (textSize=2)
-    int w = strlen(msg) * 12;
-    int h = 16;
-    display.setCursor((SCREEN_WIDTH - w) / 2, (SCREEN_HEIGHT - h) / 2);
-    display.println(msg);
-    
+    display.fillScreen(BG_LIGHT);
+    drawUiTextCentered(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, msg, TEXT_BLACK);
     display.display();
     
     if (durationMs > 0) {
@@ -1613,62 +1707,46 @@ void App::enterSleep() {
 }
 
 void App::drawSleepScreen() {
+    prepareShellFrame();
     auto& display = M5.Display;
-    display.clear();
-    
-    // 书名
-    display.setTextSize(2);
-    display.setCursor(300, 80);
+
+    UITheme::drawCard(60, 250, SCREEN_WIDTH - 120, 300, BG_WHITE, BORDER_LIGHT);
+    drawUiTextCentered(60, 280, SCREEN_WIDTH - 120, 42, "休眠中", TEXT_BLACK);
+
     if (_reader.isOpen()) {
         String name = _reader.getBookPath();
         int lastSlash = name.lastIndexOf('/');
         if (lastSlash >= 0) name = name.substring(lastSlash + 1);
-        if (name.length() > 20) name = name.substring(0, 17) + "...";
-        display.println(name.c_str());
-        
-        // 进度条
-        int pct = (_reader.getTotalPages() > 0) ? 
-            (_reader.getCurrentPage() * 100 / _reader.getTotalPages()) : 0;
-        display.setTextSize(1);
-        display.setCursor(400, 140);
-        display.printf("阅读进度: %d%%", pct);
-        
-        display.drawRect(280, 170, 400, 20, 0);
-        display.fillRect(282, 172, (pct * 396) / 100, 16, 0);
+        if (name.length() > 22) name = name.substring(0, 20) + "..";
+        drawUiTextCentered(78, 340, SCREEN_WIDTH - 156, 36, name.c_str(), TEXT_BLACK);
+
+        int pct = (_reader.getTotalPages() > 0) ? (_reader.getCurrentPage() * 100 / _reader.getTotalPages()) : 0;
+        char progress[40];
+        snprintf(progress, sizeof(progress), "阅读进度：%d%%", pct);
+        drawUiTextCentered(78, 392, SCREEN_WIDTH - 156, 32, progress, TEXT_MID);
+        drawSmallProgress(110, 440, SCREEN_WIDTH - 220, pct);
     } else {
-        display.println("Vink-PaperS3");
+        drawUiTextCentered(78, 350, SCREEN_WIDTH - 156, 36, "Vink-PaperS3", TEXT_BLACK);
     }
-    
-    // 电量
+
     BatteryInfo bat = BatteryInfo::read();
     if (bat.valid) {
-        display.setTextSize(1);
-        display.setCursor(420, 260);
-        display.printf("电量: %d%%", bat.level);
+        char batLine[32];
+        snprintf(batLine, sizeof(batLine), "电量：%d%%", bat.level);
+        drawUiTextCentered(78, 480, SCREEN_WIDTH - 156, 32, batLine, TEXT_MID);
     }
-    
-    display.setCursor(350, 350);
-    display.println("轻触屏幕唤醒");
-    
-    display.display();
+
+    drawUiTextCentered(0, 600, SCREEN_WIDTH, 36, "轻触屏幕唤醒", TEXT_MID);
+    commitShellFrame();
 }
 
 void App::handleEndOfBook() {
-    auto& display = M5.Display;
-    display.clear();
-    
-    display.setTextSize(2);
-    display.setCursor(340, 180);
-    display.println("本书已读完");
-    
-    display.setTextSize(1);
-    display.setCursor(360, 240);
-    display.println("感谢阅读!");
-    
-    display.setCursor(300, 320);
-    display.println("点击返回书架 | 左滑继续停留");
-    
-    display.display();
+    prepareShellFrame();
+    UITheme::drawCard(60, 260, SCREEN_WIDTH - 120, 260, BG_WHITE, BORDER_LIGHT);
+    drawUiTextCentered(60, 310, SCREEN_WIDTH - 120, 48, "本书已读完", TEXT_BLACK);
+    drawUiTextCentered(60, 380, SCREEN_WIDTH - 120, 36, "感谢阅读", TEXT_MID);
+    drawUiTextCentered(60, 450, SCREEN_WIDTH - 120, 36, "点击返回书架，左滑继续停留", TEXT_MID);
+    commitShellFrame();
     
     // 等待用户操作
     unsigned long start = millis();
@@ -1676,9 +1754,10 @@ void App::handleEndOfBook() {
         M5.update();
         auto& touch = M5.Touch;
         if (touch.getCount() > 0) {
-            auto t = touch.getDetail();
-            int dx = t.x - _touchStartX;
-            if (t.x >= ZONE_RIGHT_X) {
+            auto t = touch.getDetail(0);
+            int tx = 0, ty = 0;
+            normalizePaperS3TouchPoint(t.x, t.y, tx, ty);
+            if (tx >= ZONE_RIGHT_X) {
                 // 返回书架
                 _stats.stopReading();
                 _stats.save();
@@ -1688,8 +1767,8 @@ void App::handleEndOfBook() {
                 _activeTab = 0;
                 for (int i = 0; i < 4; i++) _tabNeedsRender[i] = true;
                 return;
-            } else if (t.x < ZONE_LEFT_X + ZONE_LEFT_W) {
-                // 左滑=停留
+            } else if (tx < ZONE_LEFT_X + ZONE_LEFT_W) {
+                // 左侧触摸=停留
                 _state = AppState::READER;
                 _reader.renderPage();
                 return;
@@ -1850,26 +1929,24 @@ void App::handleReadingStats() {
     int x = contentLeft();
     int y = 120;
     UITheme::drawCard(x, y, contentWidth(), 280, BG_WHITE, BORDER_LIGHT);
-    display.setTextSize(1);
-    display.setTextColor(TEXT_BLACK, BG_WHITE);
+    char statsLine[72];
     if (_reader.isOpen()) {
         BookStats book = _stats.getCurrentBookStats();
-        display.setCursor(x + 18, y + 24);
-        display.printf("当前书翻页：%d 页", book.totalPagesRead);
-        display.setCursor(x + 18, y + 60);
-        display.printf("当前书阅读：%s", _stats.formatTime(book.totalSeconds).c_str());
-        display.setCursor(x + 18, y + 96);
-        display.printf("打开次数：%d", book.readCount);
+        snprintf(statsLine, sizeof(statsLine), "当前书翻页：%d 页", book.totalPagesRead);
+        drawUiText(x + 18, y + 24, statsLine, TEXT_BLACK, BG_WHITE);
+        snprintf(statsLine, sizeof(statsLine), "当前书阅读：%s", _stats.formatTime(book.totalSeconds).c_str());
+        drawUiText(x + 18, y + 60, statsLine, TEXT_BLACK, BG_WHITE);
+        snprintf(statsLine, sizeof(statsLine), "打开次数：%d", book.readCount);
+        drawUiText(x + 18, y + 96, statsLine, TEXT_BLACK, BG_WHITE);
     } else {
-        display.setCursor(x + 18, y + 24);
-        display.print("当前没有打开书籍");
+        drawUiText(x + 18, y + 24, "当前没有打开书籍", TEXT_BLACK, BG_WHITE);
     }
-    display.setCursor(x + 18, y + 154);
-    display.printf("累计阅读：%s", _stats.formatTime(_stats.getTotalReadingSeconds()).c_str());
-    display.setCursor(x + 18, y + 190);
-    display.printf("累计翻页：%d 页", _stats.getTotalPagesRead());
-    display.setCursor(x + 18, y + 226);
-    display.printf("今日阅读：%s / %d 页", _stats.formatTime(_stats.getTodaySeconds()).c_str(), _stats.getTodayPages());
+    snprintf(statsLine, sizeof(statsLine), "累计阅读：%s", _stats.formatTime(_stats.getTotalReadingSeconds()).c_str());
+    drawUiText(x + 18, y + 154, statsLine, TEXT_BLACK, BG_WHITE);
+    snprintf(statsLine, sizeof(statsLine), "累计翻页：%d 页", _stats.getTotalPagesRead());
+    drawUiText(x + 18, y + 190, statsLine, TEXT_BLACK, BG_WHITE);
+    snprintf(statsLine, sizeof(statsLine), "今日阅读：%s / %d 页", _stats.formatTime(_stats.getTodaySeconds()).c_str(), _stats.getTodayPages());
+    drawUiText(x + 18, y + 226, statsLine, TEXT_BLACK, BG_WHITE);
     commitShellFrame();
 }
 
@@ -1893,21 +1970,14 @@ void App::handleLegadoSync() {
     int x = contentLeft();
     int y = 124;
     UITheme::drawCard(x, y, contentWidth(), 220, BG_WHITE, BORDER_LIGHT);
-    display.setTextSize(2);
-    display.setTextColor(TEXT_BLACK, BG_WHITE);
-    display.setCursor(x + 18, y + 22);
-    display.print(_legadoConfigured ? "已配置" : "未配置");
-    display.setTextSize(1);
-    display.setCursor(x + 18, y + 76);
-    display.print(_legadoConfigured ? _legadoHost : "请在SD卡根目录放置 /legado_config.json");
+    drawUiText(x + 18, y + 22, _legadoConfigured ? "已配置" : "未配置", TEXT_BLACK, BG_WHITE);
+    drawUiText(x + 18, y + 76, _legadoConfigured ? _legadoHost : "请在SD卡根目录放置 /legado_config.json", TEXT_BLACK, BG_WHITE);
 
     if (_legadoConfigured) {
         syncLegadoProgress();
-        display.setCursor(x + 18, y + 128);
-        display.print("同步完成");
+        drawUiText(x + 18, y + 128, "同步完成", TEXT_BLACK, BG_WHITE);
     } else {
-        display.setCursor(x + 18, y + 128);
-        display.print("用于和阅读/Legado同步阅读进度");
+        drawUiText(x + 18, y + 128, "用于和阅读/Legado同步阅读进度", TEXT_BLACK, BG_WHITE);
     }
     commitShellFrame();
 }
@@ -1920,28 +1990,18 @@ void App::handleWiFiConfig() {
     int x = contentLeft();
     int y = 124;
     UITheme::drawCard(x, y, contentWidth(), 270, BG_WHITE, BORDER_LIGHT);
-    display.setTextSize(2);
-    display.setTextColor(TEXT_BLACK, BG_WHITE);
-    display.setCursor(x + 18, y + 20);
-    display.print(_wifiConfigured ? "已配置" : "未配置");
-    display.setTextSize(1);
-    display.setCursor(x + 18, y + 72);
-    display.print("请在SD卡根目录创建：");
-    display.setCursor(x + 18, y + 104);
-    display.print("/wifi_config.json");
-    display.setCursor(x + 18, y + 148);
-    display.print("{\"ssid\":\"你的WiFi\",");
-    display.setCursor(x + 18, y + 178);
-    display.print(" \"pass\":\"密码\"}");
-    display.setCursor(x + 18, y + 222);
-    display.print("保存后重启或重新进入页面生效");
+    drawUiText(x + 18, y + 20, _wifiConfigured ? "已配置" : "未配置", TEXT_BLACK, BG_WHITE);
+    drawUiText(x + 18, y + 72, "请在SD卡根目录创建：", TEXT_BLACK, BG_WHITE);
+    drawUiText(x + 18, y + 104, "/wifi_config.json", TEXT_BLACK, BG_WHITE);
+    drawUiText(x + 18, y + 148, "{\"ssid\":\"你的WiFi\",", TEXT_BLACK, BG_WHITE);
+    drawUiText(x + 18, y + 178, " \"pass\":\"密码\"}", TEXT_BLACK, BG_WHITE);
+    drawUiText(x + 18, y + 222, "保存后重启或重新进入页面生效", TEXT_BLACK, BG_WHITE);
 
     if (_wifiConfigured) {
         UITheme::drawCard(x, y + 300, contentWidth(), 90, BG_WHITE, BORDER_LIGHT);
-        display.setTextSize(1);
-        display.setTextColor(TEXT_BLACK, BG_WHITE);
-        display.setCursor(x + 18, y + 330);
-        display.printf("当前WiFi：%s", _wifiSsid);
+        char wifiLine[96];
+        snprintf(wifiLine, sizeof(wifiLine), "当前WiFi：%s", _wifiSsid);
+        drawUiText(x + 18, y + 330, wifiLine, TEXT_BLACK, BG_WHITE);
     }
     commitShellFrame();
 }
@@ -2010,33 +2070,240 @@ void App::saveLegadoConfig() {
 
 // ===== PaperS3 竖屏 UI =====
 
+static uint32_t decodeUiUTF8(const uint8_t* buf, size_t& pos, size_t len) {
+    if (pos >= len) return 0;
+    uint8_t c = buf[pos];
+    if ((c & 0x80) == 0) { pos++; return c; }
+    if ((c & 0xE0) == 0xC0 && pos + 1 < len) {
+        uint32_t ch = ((c & 0x1F) << 6) | (buf[pos + 1] & 0x3F);
+        pos += 2; return ch;
+    }
+    if ((c & 0xF0) == 0xE0 && pos + 2 < len) {
+        uint32_t ch = ((c & 0x0F) << 12) | ((buf[pos + 1] & 0x3F) << 6) | (buf[pos + 2] & 0x3F);
+        pos += 3; return ch;
+    }
+    if ((c & 0xF8) == 0xF0 && pos + 3 < len) {
+        uint32_t ch = ((c & 0x07) << 18) | ((buf[pos + 1] & 0x3F) << 12) | ((buf[pos + 2] & 0x3F) << 6) | (buf[pos + 3] & 0x3F);
+        pos += 4; return ch;
+    }
+    pos++; return c;
+}
+
+static int16_t uiTextWidth(const char* text) {
+    if (!text || !gUiFont || !gUiFont->isLoaded()) return UITheme::textWidth(text ? text : "", 1);
+    int16_t w = 0;
+    const uint8_t* bytes = reinterpret_cast<const uint8_t*>(text);
+    size_t pos = 0, len = strlen(text);
+    while (pos < len) {
+        uint32_t ch = decodeUiUTF8(bytes, pos, len);
+        uint8_t adv = gUiFont->getCharAdvance(ch);
+        w += adv > 0 ? adv : (ch < 128 ? 8 : 24);
+    }
+    return w;
+}
+
+static void drawUiGlyph(uint32_t unicode, int16_t x, int16_t y, uint16_t color) {
+    if (!gUiFont || !gUiFont->isLoaded()) return;
+    auto& display = M5.Display;
+    if (gUiFont->getFontType() == FontType::GRAY_4BPP) {
+        uint8_t width, height, advance;
+        int8_t bearingX, bearingY;
+        const uint8_t* bmp = gUiFont->getCharBitmapGray(unicode, width, height, bearingX, bearingY, advance);
+        if (!bmp || width == 0 || height == 0) return;
+        int drawX = x + bearingX;
+        int drawY = y + (gUiFont->getFontSize() - bearingY);
+        for (int row = 0; row < height && drawY + row < SCREEN_HEIGHT; row++) {
+            for (int col = 0; col < width && drawX + col < SCREEN_WIDTH; col++) {
+                if (drawX + col < 0 || drawY + row < 0) continue;
+                int srcIdx = row * ((width + 1) / 2) + col / 2;
+                uint8_t nibble = (col % 2 == 0) ? ((bmp[srcIdx] >> 4) & 0x0F) : (bmp[srcIdx] & 0x0F);
+                if (nibble > 0) display.drawPixel(drawX + col, drawY + row, color);
+            }
+        }
+    } else {
+        uint8_t width, height;
+        const uint8_t* bmp = gUiFont->getCharBitmap(unicode, width, height);
+        if (!bmp || width == 0 || height == 0) return;
+        for (int row = 0; row < height && y + row < SCREEN_HEIGHT; row++) {
+            for (int col = 0; col < width && x + col < SCREEN_WIDTH; col++) {
+                int byteIdx = row * ((width + 7) / 8) + col / 8;
+                int bitIdx = 7 - (col % 8);
+                if (bmp[byteIdx] & (1 << bitIdx)) display.drawPixel(x + col, y + row, color);
+            }
+        }
+    }
+}
+
+static void drawUiText(int16_t x, int16_t y, const char* text, uint16_t color, uint16_t bg) {
+    auto& display = M5.Display;
+    if (!text) return;
+    if (!gUiFont || !gUiFont->isLoaded()) {
+        display.setTextColor(color, bg);
+        display.setTextSize(1);
+        display.setCursor(x, y);
+        display.print(text);
+        return;
+    }
+    int16_t cx = x;
+    const uint8_t* bytes = reinterpret_cast<const uint8_t*>(text);
+    size_t pos = 0, len = strlen(text);
+    while (pos < len && cx < SCREEN_WIDTH) {
+        uint32_t ch = decodeUiUTF8(bytes, pos, len);
+        if (ch == '\n') { y += gUiFont->getFontSize() + 6; cx = x; continue; }
+        drawUiGlyph(ch, cx, y, color);
+        uint8_t adv = gUiFont->getCharAdvance(ch);
+        cx += adv > 0 ? adv : (ch < 128 ? 8 : 24);
+    }
+}
+
+static void drawUiTextCentered(int16_t x, int16_t y, int16_t w, int16_t h, const char* text, uint16_t color) {
+    int16_t tw = uiTextWidth(text);
+    int16_t th = gUiFont && gUiFont->isLoaded() ? gUiFont->getFontSize() : 16;
+    drawUiText(x + (w - tw) / 2, y + (h - th) / 2, text, color, BG_LIGHT);
+}
+
+static void drawUiSectionTitle(int16_t x, int16_t y, const char* title) {
+    drawUiText(x, y, title, TEXT_BLACK, BG_LIGHT);
+    int16_t tw = uiTextWidth(title);
+    M5.Display.drawLine(x, y + 30, x + tw, y + 30, ACCENT);
+    M5.Display.drawLine(x, y + 31, x + tw, y + 31, ACCENT);
+}
+
+static void drawUiCapsuleSwitch(int16_t x, int16_t y, int16_t w, bool on) {
+    auto& display = M5.Display;
+    int16_t h = 28;
+    int16_t r = h / 2;
+    UITheme::fillRoundRect(x, y, w, h, r, on ? ACCENT : BG_MID);
+    int16_t knobX = on ? x + w - h + 2 : x + 2;
+    UITheme::fillRoundRect(knobX, y + 2, h - 4, h - 4, r - 2, BG_WHITE);
+    drawUiText(on ? x + 8 : x + w - 24, y + 4, on ? "开" : "关", on ? BG_WHITE : TEXT_LIGHT, on ? ACCENT : BG_MID);
+}
+
+static void drawUiSlider(int16_t x, int16_t y, int16_t w, int16_t minVal, int16_t maxVal, int16_t current, const char* unit) {
+    auto& display = M5.Display;
+    int16_t trackH = 6;
+    int16_t knobR = 10;
+    display.drawRoundRect(x, y + (knobR - trackH / 2) - 1, w, trackH + 2, 4, BORDER_LIGHT);
+    int16_t filledW = maxVal == minVal ? 0 : (w * (current - minVal)) / (maxVal - minVal);
+    if (filledW > 0) display.fillRoundRect(x, y + (knobR - trackH / 2), filledW, trackH, trackH / 2, ACCENT);
+    display.fillCircle(x + filledW, y + knobR, knobR, BG_WHITE);
+    display.drawCircle(x + filledW, y + knobR, knobR, ACCENT);
+    char buf[32];
+    snprintf(buf, sizeof(buf), "%d%s", current, unit ? unit : "");
+    drawUiText(x + w + 10, y + 2, buf, TEXT_DARK, BG_LIGHT);
+}
+
+static void drawSmallProgress(int16_t x, int16_t y, int16_t w, int percent) {
+    auto& display = M5.Display;
+    if (percent < 0) percent = 0;
+    if (percent > 100) percent = 100;
+    display.drawRect(x, y, w, 6, TEXT_BLACK);
+    int fillW = max(1, (w - 2) * percent / 100);
+    if (percent > 0) display.fillRect(x + 1, y + 1, fillW, 4, TEXT_BLACK);
+}
+
+static void drawRowIcon(int16_t x, int16_t y, const char* kind) {
+    auto& display = M5.Display;
+    if (!kind) kind = "book";
+    if (strcmp(kind, "book") == 0) {
+        display.drawRoundRect(x, y, 26, 22, 3, TEXT_BLACK);
+        display.drawLine(x + 13, y + 2, x + 13, y + 20, TEXT_BLACK);
+        display.drawLine(x + 5, y + 5, x + 10, y + 3, TEXT_BLACK);
+        display.drawLine(x + 16, y + 3, x + 21, y + 5, TEXT_BLACK);
+    } else if (strcmp(kind, "wifi") == 0) {
+        display.drawCircle(x + 13, y + 16, 2, TEXT_BLACK);
+        display.drawCircle(x + 13, y + 16, 8, TEXT_BLACK);
+        display.drawCircle(x + 13, y + 16, 14, TEXT_BLACK);
+        display.fillRect(x - 3, y + 15, 32, 16, BG_LIGHT);
+    } else if (strcmp(kind, "stats") == 0) {
+        display.drawRect(x + 3, y + 10, 5, 10, TEXT_BLACK);
+        display.drawRect(x + 11, y + 5, 5, 15, TEXT_BLACK);
+        display.drawRect(x + 19, y + 1, 5, 19, TEXT_BLACK);
+    } else {
+        display.drawRoundRect(x + 2, y + 2, 22, 18, 4, TEXT_BLACK);
+        display.drawLine(x + 7, y + 7, x + 19, y + 7, TEXT_BLACK);
+        display.drawLine(x + 7, y + 12, x + 17, y + 12, TEXT_BLACK);
+    }
+}
+
+static void drawBookCoverCard(int16_t x, int16_t y, int16_t w, int16_t h, const char* title, const char* type, int progress, bool dark) {
+    auto& display = M5.Display;
+    UITheme::drawCard(x, y, w, h, dark ? BG_DARK : BG_WHITE, BORDER_LIGHT);
+    uint16_t fg = dark ? BG_WHITE : TEXT_BLACK;
+    uint16_t bg = dark ? BG_DARK : BG_WHITE;
+    // A simple monochrome cover texture: border + diagonal/photo blocks.
+    display.drawRect(x + 8, y + 8, w - 16, max(36, h - 62), fg);
+    if (!dark) {
+        display.drawLine(x + 10, y + 12, x + w - 12, y + max(34, h - 66), fg);
+        display.drawLine(x + w - 28, y + 14, x + w - 12, y + 38, fg);
+        display.fillCircle(x + w / 2, y + max(24, h / 3), 3, fg);
+    } else {
+        display.drawRect(x + 14, y + 18, w - 28, max(24, h - 82), fg);
+    }
+    if (type && strlen(type) > 0) {
+        drawUiTextCentered(x, y + h - 52, w, 22, type, fg);
+    }
+    char nameBuf[36];
+    strlcpy(nameBuf, title ? title : "书籍", sizeof(nameBuf));
+    if (strlen(nameBuf) > 18) {
+        nameBuf[16] = '.';
+        nameBuf[17] = '.';
+        nameBuf[18] = '\0';
+    }
+    drawUiTextCentered(x + 4, y + h - 30, w - 8, 20, nameBuf, fg);
+    if (progress >= 0) drawSmallProgress(x + 8, y + h - 8, w - 16, progress);
+}
+
+static void drawCrosslinkStatusBar() {
+    auto& display = M5.Display;
+    drawUiText(22, 9, "Vink e-reader", TEXT_MID, BG_LIGHT);
+#if BATTERY_ICON_ENABLED
+    BatteryInfo bat = BatteryInfo::read();
+    char batText[12];
+    if (bat.valid) {
+        snprintf(batText, sizeof(batText), "%d%%", bat.level);
+        drawUiText(SCREEN_WIDTH - 78, 9, batText, TEXT_MID, BG_LIGHT);
+    }
+    display.drawRect(SCREEN_WIDTH - 38, 11, 24, 12, TEXT_BLACK);
+    display.drawRect(SCREEN_WIDTH - 14, 14, 3, 6, TEXT_BLACK);
+    if (bat.valid) {
+        int fillW = (bat.level * 20) / 100;
+        if (fillW > 0) display.fillRect(SCREEN_WIDTH - 36, 13, fillW, 8, TEXT_BLACK);
+    }
+#endif
+    display.drawLine(20, 32, SCREEN_WIDTH - 20, 32, BORDER_LIGHT);
+}
+
 static void prepareShellFrame() {
     auto& display = M5.Display;
     display.waitDisplay();
+    display.powerSaveOff();
     display.setEpdMode(epd_mode_t::epd_fastest);
     display.fillScreen(BG_LIGHT);
 }
 
 static void commitShellFrame() {
     auto& display = M5.Display;
+    // Dashboard reference pattern: shell draws into M5GFX framebuffer freely,
+    // then performs one physical e-paper commit. Most commits use fastest mode;
+    // every N commits use quality mode to reduce accumulated ghosting.
+    if (gShellCommitCount > 0 && (gShellCommitCount % SHELL_FULL_REFRESH_EVERY) == 0) {
+        display.setEpdMode(epd_mode_t::epd_quality);
+    } else {
+        display.setEpdMode(epd_mode_t::epd_fastest);
+    }
     display.display(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+    display.waitDisplay();
+    gShellCommitCount++;
 }
 
 static void drawBackHeader(const char* title, const char* hint) {
     auto& display = M5.Display;
-    display.setTextSize(2);
-    display.setTextColor(TEXT_BLACK, BG_LIGHT);
-    display.setCursor(20, 22);
-    display.print("<");
-    display.setCursor(64, 22);
-    display.print(title);
-    display.setTextSize(1);
-    display.setTextColor(TEXT_MID, BG_LIGHT);
-    display.setCursor(20, 58);
-    display.print(hint);
+    drawUiText(20, 22, "<", TEXT_BLACK, BG_LIGHT);
+    drawUiText(64, 22, title, TEXT_BLACK, BG_LIGHT);
+    drawUiText(20, 58, hint, TEXT_MID, BG_LIGHT);
     display.drawLine(20, 82, SCREEN_WIDTH - 20, 82, BORDER);
     display.drawLine(20, 83, SCREEN_WIDTH - 20, 83, BORDER);
-    display.setTextColor(TEXT_BLACK, BG_LIGHT);
 }
 
 void App::navigateBack() {
@@ -2080,14 +2347,49 @@ void App::navigateBack() {
 
 void App::renderTopTabs() {
     auto& display = M5.Display;
+    drawCrosslinkStatusBar();
+
     const char* tabs[] = {"阅读", "书架", "传输", "设置"};
-    const char* icons[] = {nullptr, nullptr, nullptr, nullptr};
-    int16_t tabW = SCREEN_WIDTH / 4;
+    const char* icons[] = {"book", "book", "wifi", "settings"};
+    int16_t tabW = (SCREEN_WIDTH - 40) / 4;
+    int16_t baseX = 20;
+    int16_t tabY = 34;
+    int16_t tabH = 48;
 
     for (int i = 0; i < 4; i++) {
         bool active = (i == _activeTab);
-        UITheme::drawTabBookmark(i * tabW, 0, tabW, TOP_TAB_H, active, tabs[i], icons[i]);
+        int16_t x = baseX + i * tabW;
+        if (active) {
+            display.fillRoundRect(x, tabY, tabW + 6, tabH - 6, 8, ACCENT);
+            display.fillTriangle(x + tabW / 2 - 8, tabY + tabH - 6, x + tabW / 2 + 8, tabY + tabH - 6, x + tabW / 2, tabY + tabH + 2, ACCENT);
+        } else {
+            display.drawRoundRect(x, tabY, tabW + 6, tabH - 6, 8, BORDER_LIGHT);
+        }
+        if (i == 0 || i == 1) {
+            uint16_t c = active ? BG_WHITE : TEXT_MID;
+            int ix = x + 16;
+            int iy = tabY + 11;
+            display.drawRoundRect(ix, iy, 22, 18, 3, c);
+            display.drawLine(ix + 11, iy + 2, ix + 11, iy + 17, c);
+        } else if (i == 2) {
+            uint16_t c = active ? BG_WHITE : TEXT_MID;
+            int ix = x + 16;
+            int iy = tabY + 11;
+            display.drawCircle(ix + 12, iy + 16, 2, c);
+            display.drawCircle(ix + 12, iy + 16, 8, c);
+            display.drawCircle(ix + 12, iy + 16, 14, c);
+            display.fillRect(ix - 3, iy + 14, 30, 16, active ? ACCENT : BG_LIGHT);
+        } else {
+            uint16_t c = active ? BG_WHITE : TEXT_MID;
+            display.drawCircle(x + 25, tabY + 20, 9, c);
+            display.drawLine(x + 25, tabY + 8, x + 25, tabY + 13, c);
+            display.drawLine(x + 25, tabY + 27, x + 25, tabY + 32, c);
+            display.drawLine(x + 13, tabY + 20, x + 18, tabY + 20, c);
+            display.drawLine(x + 32, tabY + 20, x + 37, tabY + 20, c);
+        }
+        drawUiTextCentered(x + 38, tabY + 8, tabW - 40, 28, tabs[i], active ? BG_WHITE : TEXT_MID);
     }
+    display.drawLine(20, TOP_TAB_H - 1, SCREEN_WIDTH - 20, TOP_TAB_H - 1, BORDER_LIGHT);
 }
 
 void App::renderBottomNav() {
@@ -2115,78 +2417,80 @@ bool App::isTabState(AppState state) {
            state == AppState::TAB_SETTINGS;
 }
 
-// ===== 📖 读书主页（PaperS3 540x960 竖屏优化）=====
+// ===== 📖 读书主页（Crosslink dashboard）=====
 void App::handleTabReading() {
     static bool needsRender = true;
     if (!needsRender && !_tabNeedsRender[0]) return;
 
     auto& display = M5.Display;
-    display.setTextColor(TEXT_BLACK, BG_LIGHT);
     prepareShellFrame();
     renderTopTabs();
 
-    const int16_t x = contentLeft();
-    const int16_t w = contentWidth();
-    int16_t y = contentTop();
-
-    UITheme::drawSectionTitle(x, y, "继续阅读");
-    y += 42;
-
+    const int16_t x = contentLeft() + 6;
+    const int16_t w = contentWidth() - 12;
+    int16_t y = contentTop() + 2;
     int recentCount = _recent.getCount();
+
+    drawUiText(x, y, "正在阅读", TEXT_BLACK, BG_LIGHT);
+    y += 40;
+
     if (recentCount > 0) {
         const RecentBook* book = _recent.getBook(0);
         int pct = _recent.getProgressPercent(0);
-        UITheme::drawCard(x, y, w, 218, BG_WHITE, BORDER);
-        display.setTextSize(2);
-        display.setTextColor(TEXT_BLACK, BG_WHITE);
-        display.setCursor(x + 18, y + 22);
-        display.print(book ? book->name : "最近阅读");
-        display.setTextSize(1);
-        display.setCursor(x + 18, y + 76);
-        display.printf("阅读进度：%d%%", pct);
-        display.setCursor(x + 18, y + 108);
-        display.print("点击继续阅读");
-        display.drawRect(x + 18, y + 154, w - 36, 18, TEXT_BLACK);
-        display.fillRect(x + 20, y + 156, max(1, (w - 40) * pct / 100), 14, TEXT_BLACK);
-        display.setTextColor(TEXT_BLACK, BG_LIGHT);
+        UITheme::drawCard(x, y, w, 178, BG_WHITE, BORDER_LIGHT);
+        drawBookCoverCard(x + 16, y + 16, 112, 140, book ? book->name : "当前书籍", "TXT", pct, false);
+        drawUiText(x + 148, y + 24, book ? book->name : "当前书籍", TEXT_BLACK, BG_WHITE);
+        drawUiText(x + 148, y + 58, "本地书籍", TEXT_MID, BG_WHITE);
+        char line[64];
+        snprintf(line, sizeof(line), "当前进度 %d%%", pct);
+        drawUiText(x + 148, y + 94, line, TEXT_BLACK, BG_WHITE);
+        if (book && book->totalPages > 0) {
+            snprintf(line, sizeof(line), "#%d/%d 页", book->currentPage + 1, book->totalPages);
+            drawUiText(x + 330, y + 94, line, TEXT_BLACK, BG_WHITE);
+        }
+        drawSmallProgress(x + 148, y + 132, w - 180, pct);
     } else {
-        UITheme::drawCard(x, y, w, 218, BG_WHITE, BORDER);
-        UITheme::drawTextCentered(x, y + 46, w, 80, "暂无阅读记录", 2, TEXT_MID);
-        UITheme::drawTextCentered(x, y + 124, w, 40, "到“书架”选择一本书开始阅读", 1, TEXT_MID);
+        UITheme::drawCard(x, y, w, 178, BG_WHITE, BORDER_LIGHT);
+        drawRowIcon(x + 26, y + 30, "book");
+        drawUiText(x + 70, y + 30, "还没有正在阅读的书", TEXT_BLACK, BG_WHITE);
+        drawUiText(x + 70, y + 72, "去书架选择一本书开始阅读", TEXT_MID, BG_WHITE);
+        UITheme::drawCard(x + 70, y + 116, 180, 42, BG_WHITE, BORDER);
+        drawUiTextCentered(x + 70, y + 116, 180, 42, "打开书架", TEXT_BLACK);
     }
-    y += 252;
-
-    UITheme::drawSectionTitle(x, y, "阅读统计");
-    y += 42;
-    UITheme::drawCard(x, y, w, 122, BG_WHITE, BORDER_LIGHT);
-    display.setTextSize(1);
-    display.setTextColor(TEXT_BLACK, BG_WHITE);
-    display.setCursor(x + 18, y + 18);
-    display.printf("今日阅读：%s", _stats.formatTime(_stats.getTodaySeconds()).c_str());
-    display.setCursor(x + 18, y + 50);
-    display.printf("累计阅读：%s", _stats.formatTime(_stats.getTotalReadingSeconds()).c_str());
-    display.setCursor(x + 18, y + 82);
-    display.printf("累计翻页：%d 页", _stats.getTotalPagesRead());
-    display.setTextColor(TEXT_BLACK, BG_LIGHT);
-    y += 154;
+    y += 208;
 
     if (recentCount > 1) {
-        UITheme::drawSectionTitle(x, y, "最近书籍");
-        y += 42;
-        const int cardH = 78;
-        int maxShow = min(4, recentCount - 1);
-        for (int i = 0; i < maxShow; i++) {
+        const int coverW = (w - 24) / 3;
+        const int coverH = 174;
+        for (int i = 0; i < 3; i++) {
             const RecentBook* book = _recent.getBook(i + 1);
-            int iy = y + i * (cardH + 10);
-            UITheme::drawCard(x, iy, w, cardH, BG_WHITE, BORDER_LIGHT);
-            display.setTextSize(1);
-            display.setTextColor(TEXT_BLACK, BG_WHITE);
-            display.setCursor(x + 16, iy + 14);
-            display.print(book ? book->name : "书籍");
-            display.setTextColor(TEXT_MID, BG_WHITE);
-            display.setCursor(x + 16, iy + 44);
-            display.printf("进度 %d%%", _recent.getProgressPercent(i + 1));
+            int bx = x + i * (coverW + 12);
+            if (book) {
+                drawBookCoverCard(bx, y, coverW, coverH, book->name, "TXT", _recent.getProgressPercent(i + 1), i == 2);
+            } else {
+                UITheme::drawCard(bx, y, coverW, coverH, BG_WHITE, BORDER_LIGHT);
+            }
         }
+        y += coverH + 36;
+    }
+
+    drawUiText(x, y, "阅读统计", TEXT_BLACK, BG_LIGHT);
+    y += 42;
+    const int statGap = 12;
+    const int statW = (w - statGap * 2) / 3;
+    struct StatCard { const char* icon; const char* label; String value; const char* unit; };
+    StatCard stats[] = {
+        {"clock", "上次阅读", String(_stats.formatTime(_stats.getTodaySeconds())), ""},
+        {"stats", "累计阅读", String(_stats.formatTime(_stats.getTotalReadingSeconds())), ""},
+        {"book", "累计翻页", String(_stats.getTotalPagesRead()), "页"},
+    };
+    for (int i = 0; i < 3; i++) {
+        int sx = x + i * (statW + statGap);
+        UITheme::drawCard(sx, y, statW, 124, BG_WHITE, BORDER_LIGHT);
+        drawRowIcon(sx + 14, y + 16, stats[i].icon);
+        drawUiText(sx + 46, y + 18, stats[i].label, TEXT_MID, BG_WHITE);
+        drawUiText(sx + 16, y + 68, stats[i].value.c_str(), TEXT_BLACK, BG_WHITE);
+        if (stats[i].unit && strlen(stats[i].unit) > 0) drawUiText(sx + statW - 42, y + 72, stats[i].unit, TEXT_BLACK, BG_WHITE);
     }
 
     commitShellFrame();
@@ -2194,36 +2498,46 @@ void App::handleTabReading() {
     _tabNeedsRender[0] = false;
 }
 
-// ===== 📚 书架（2列 x 4行，适配 540 竖屏）=====
+// ===== 📚 书架（Crosslink 3列封面网格）=====
 void App::handleTabLibrary() {
     static bool needsRender = true;
     if (!needsRender && !_tabNeedsRender[1]) return;
 
     auto& display = M5.Display;
-    display.setTextColor(TEXT_BLACK, BG_LIGHT);
     prepareShellFrame();
     renderTopTabs();
 
     const int totalBooks = _browser.getItemCount();
-    const int booksPerPage = 8;
+    const int booksPerPage = 9;
     _libraryTotalPages = (totalBooks + booksPerPage - 1) / booksPerPage;
     if (_libraryTotalPages < 1) _libraryTotalPages = 1;
     if (_libraryPage >= _libraryTotalPages) _libraryPage = _libraryTotalPages - 1;
 
-    int16_t x = contentLeft();
-    int16_t y = contentTop();
-    UITheme::drawSectionTitle(x, y, "书架");
-    display.setTextSize(1);
-    display.setTextColor(TEXT_MID, BG_LIGHT);
-    display.setCursor(SCREEN_WIDTH - 96, y + 8);
-    display.printf("第 %d/%d 页", _libraryPage + 1, _libraryTotalPages);
-    y += 42;
+    int16_t x = contentLeft() + 6;
+    int16_t y = contentTop() + 2;
+    int16_t w = contentWidth() - 12;
+    drawUiText(x, y, "书架", TEXT_BLACK, BG_LIGHT);
+    drawUiText(SCREEN_WIDTH - 128, y + 4, "按名打开书库", TEXT_MID, BG_LIGHT);
+    y += 48;
 
-    const int cols = 2;
-    const int cardW = (contentWidth() - 14) / 2;
-    const int cardH = 156;
-    const int gapX = 14;
-    const int gapY = 16;
+    if (totalBooks == 0) {
+        UITheme::drawCard(x, y + 24, w, 330, BG_WHITE, BORDER_LIGHT);
+        drawRowIcon(x + w / 2 - 13, y + 76, "book");
+        drawUiTextCentered(x, y + 122, w, 42, "书架为空", TEXT_BLACK);
+        drawUiTextCentered(x, y + 170, w, 36, "请将 TXT / EPUB 放入 SD 卡 /books", TEXT_MID);
+        UITheme::drawCard(x + (w - 210) / 2, y + 236, 210, 54, BG_WHITE, BORDER);
+        drawUiTextCentered(x + (w - 210) / 2, y + 236, 210, 54, "打开SD卡", TEXT_BLACK);
+        commitShellFrame();
+        needsRender = false;
+        _tabNeedsRender[1] = false;
+        return;
+    }
+
+    const int cols = 3;
+    const int gapX = 12;
+    const int gapY = 18;
+    const int cardW = (w - gapX * 2) / 3;
+    const int cardH = 168;
     int startIdx = _libraryPage * booksPerPage;
 
     for (int i = 0; i < booksPerPage; i++) {
@@ -2231,157 +2545,126 @@ void App::handleTabLibrary() {
         if (idx >= totalBooks) break;
         const FileItem* item = _browser.getItem(idx);
         if (!item) continue;
-
         int col = i % cols;
         int row = i / cols;
         int bx = x + col * (cardW + gapX);
         int by = y + row * (cardH + gapY);
-        UITheme::drawCard(bx, by, cardW, cardH, BG_WHITE, idx == _librarySelected ? ACCENT : BORDER_LIGHT);
-
-        display.setTextSize(2);
-        display.setTextColor(TEXT_BLACK, BG_WHITE);
-        display.setCursor(bx + 14, by + 18);
-        display.print(item->isDirectory ? "文件夹" : "书籍");
-        display.setTextSize(1);
-        display.setCursor(bx + 14, by + 66);
-        String name = item->name;
-        if (name.length() > 18) name = name.substring(0, 16) + "..";
-        display.print(name);
-        display.setTextColor(TEXT_MID, BG_WHITE);
-        display.setCursor(bx + 14, by + 108);
-        display.print(item->isDirectory ? "点击打开" : "点击阅读");
-        display.setTextColor(TEXT_BLACK, BG_LIGHT);
+        drawBookCoverCard(bx, by, cardW, cardH, item->name, item->isDirectory ? "DIR" : "TXT", item->isDirectory ? -1 : 0, idx == _librarySelected);
     }
 
-    if (totalBooks == 0) {
-        UITheme::drawTextCentered(0, y + 180, SCREEN_WIDTH, 100, "书架为空", 2, TEXT_MID);
-        UITheme::drawTextCentered(0, y + 255, SCREEN_WIDTH, 50, "请将 TXT 放入 /books", 1, TEXT_MID);
-    }
+    char pageText[32];
+    snprintf(pageText, sizeof(pageText), "%d of %d", _libraryPage + 1, _libraryTotalPages);
+    drawUiTextCentered(0, SCREEN_HEIGHT - 58, SCREEN_WIDTH, 30, pageText, TEXT_MID);
 
     commitShellFrame();
     needsRender = false;
     _tabNeedsRender[1] = false;
 }
 
-// ===== 🛜 传输中心 =====
+// ===== 🛜 传输中心（Crosslink status panel）=====
 void App::handleTabTransfer() {
     static bool needsRender = true;
     if (!needsRender && !_tabNeedsRender[2]) return;
 
-    auto& display = M5.Display;
-    display.setTextColor(TEXT_BLACK, BG_LIGHT);
     prepareShellFrame();
     renderTopTabs();
 
-    int16_t x = contentLeft();
-    int16_t y = contentTop();
-    UITheme::drawSectionTitle(x, y, "传输与工具");
-    y += 44;
+    int16_t x = contentLeft() + 6;
+    int16_t y = contentTop() + 2;
+    int16_t w = contentWidth() - 12;
+    drawUiText(x, y, "连接与传输", TEXT_BLACK, BG_LIGHT);
 
-    struct TransferItem { const char* group; const char* title; const char* desc; bool enabled; };
+    int panelY = y + 52;
+    UITheme::drawCard(x, panelY, w, 650, BG_WHITE, BORDER_LIGHT);
+    drawRowIcon(x + 24, panelY + 24, "wifi");
+    drawUiText(x + 64, panelY + 24, "网络状态", TEXT_BLACK, BG_WHITE);
+    char ipLine[96];
+    if (_uploader.isRunning()) snprintf(ipLine, sizeof(ipLine), "WiFi传书已开启  IP: %s", _uploader.getIP().c_str());
+    else snprintf(ipLine, sizeof(ipLine), "WiFi传书未开启");
+    drawUiText(x + 24, panelY + 62, ipLine, TEXT_MID, BG_WHITE);
+
+    struct TransferItem { const char* title; const char* desc; bool enabled; const char* icon; };
     TransferItem items[] = {
-        {"传书", "WiFi传书", _uploader.isRunning() ? "已开启，可用浏览器上传" : "未开启，点击启动传书服务", _uploader.isRunning()},
-        {"传书", "WiFi配置", _wifiConfigured ? _wifiSsid : "未配置，点击查看配置方法", _wifiConfigured},
-        {"同步", "Legado同步", _legadoConfigured ? _legadoHost : "未配置，点击查看配置方法", _legadoConfigured},
-        {"外设", "蓝牙翻页", _ble.isRunning() ? "已开启" : "未开启", _ble.isRunning()},
-        {"工具", "阅读统计", "查看当前书籍和累计统计", true},
-        {"工具", "打开书架", "浏览SD卡中的书籍", true},
+        {"WiFi传书", _uploader.isRunning() ? "点击关闭浏览器上传服务" : "点击开启浏览器上传服务", _uploader.isRunning(), "wifi"},
+        {"WiFi配置", _wifiConfigured ? _wifiSsid : "查看 /wifi_config.json 配置方法", _wifiConfigured, "settings"},
+        {"Legado同步", _legadoConfigured ? _legadoHost : "查看 /legado_config.json 配置方法", _legadoConfigured, "book"},
+        {"蓝牙翻页", _ble.isRunning() ? "已开启，点击关闭" : "未开启，点击启动", _ble.isRunning(), "settings"},
+        {"阅读统计", "查看当前书籍和累计统计", true, "stats"},
+        {"打开书架", "浏览 SD 卡 /books 中的书籍", true, "book"},
     };
 
-    const int itemH = 84;
-    const int gap = 10;
-    const char* lastGroup = "";
+    int rowY = panelY + 116;
+    const int rowH = 74;
     for (int i = 0; i < 6; i++) {
-        if (strcmp(lastGroup, items[i].group) != 0) {
-            display.setTextSize(1);
-            display.setTextColor(TEXT_MID, BG_LIGHT);
-            display.setCursor(x, y + 4);
-            display.print(items[i].group);
-            y += 26;
-            lastGroup = items[i].group;
-        }
-        UITheme::drawCard(x, y, contentWidth(), itemH, BG_WHITE, BORDER_LIGHT);
-        display.setTextSize(2);
-        display.setTextColor(TEXT_BLACK, BG_WHITE);
-        display.setCursor(x + 18, y + 12);
-        display.print(items[i].title);
-        display.setTextSize(1);
-        display.setTextColor(TEXT_MID, BG_WHITE);
-        display.setCursor(x + 18, y + 50);
-        display.print(items[i].desc);
-        UITheme::drawCapsuleSwitch(contentRight() - 78, y + 26, 58, items[i].enabled);
-        y += itemH + gap;
+        if (i > 0) M5.Display.drawLine(x + 22, rowY - 10, x + w - 22, rowY - 10, BORDER_LIGHT);
+        drawRowIcon(x + 24, rowY + 18, items[i].icon);
+        drawUiText(x + 66, rowY + 10, items[i].title, TEXT_BLACK, BG_WHITE);
+        drawUiText(x + 66, rowY + 42, items[i].desc, TEXT_MID, BG_WHITE);
+        if (i <= 3) drawUiCapsuleSwitch(x + w - 82, rowY + 22, 58, items[i].enabled);
+        else drawUiText(x + w - 42, rowY + 24, ">", TEXT_BLACK, BG_WHITE);
+        rowY += rowH;
     }
+
+    int guideY = panelY + 584;
+    M5.Display.drawLine(x + 22, guideY - 14, x + w - 22, guideY - 14, BORDER_LIGHT);
+    drawUiText(x + 24, guideY, "触摸提示", TEXT_BLACK, BG_WHITE);
+    drawUiText(x + 24, guideY + 34, "点对应行执行；左上 < 或右滑返回子页面", TEXT_MID, BG_WHITE);
 
     commitShellFrame();
     needsRender = false;
     _tabNeedsRender[2] = false;
 }
 
-// ===== ⚙️ 设置页（大字号列表）=====
+// ===== ⚙️ 设置页（Crosslink compact settings panel）=====
 void App::handleTabSettings() {
     static bool needsRender = true;
     if (!needsRender && !_tabNeedsRender[3]) return;
 
-    auto& display = M5.Display;
-    display.setTextColor(TEXT_BLACK, BG_LIGHT);
     prepareShellFrame();
     renderTopTabs();
 
-    int16_t x = contentLeft();
-    int16_t y = contentTop();
-    UITheme::drawSectionTitle(x, y, "设置");
-    y += 44;
+    int16_t x = contentLeft() + 28;
+    int16_t y = contentTop() + 26;
+    int16_t w = contentWidth() - 56;
+    UITheme::drawCard(x, y, w, 720, BG_WHITE, BORDER_LIGHT);
 
-    struct SettingItem { const char* group; const char* title; const char* value; AppState nextState; };
+    drawUiText(x + 24, y + 24, "设置", TEXT_BLACK, BG_WHITE);
+
     RefreshStrategy rs = _reader.getRefreshStrategy();
+    char sleepText[24];
+    snprintf(sleepText, sizeof(sleepText), "%d 分钟", _sleepTimeoutMin);
+    struct SettingItem { const char* group; const char* title; const char* value; AppState nextState; };
     SettingItem items[] = {
-        {"阅读显示", "排版设置", "字号 / 边距 / 行距", AppState::SETTINGS_LAYOUT},
-        {"阅读显示", "刷新策略", rs.getLabel(), AppState::SETTINGS_REFRESH},
-        {"阅读显示", "字体切换", _fontNames[0], AppState::SETTINGS_FONT},
-        {"连接同步", "WiFi配置", _wifiConfigured ? _wifiSsid : "未配置", AppState::SETTINGS_WIFI},
-        {"连接同步", "Legado同步", _legadoConfigured ? _legadoHost : "未配置", AppState::SETTINGS_LEGADO},
-        {"系统", "休眠时间", String(String(_sleepTimeoutMin) + " 分钟").c_str(), AppState::TAB_SETTINGS},
-        {"系统", "关于", "Vink-PaperS3 v1.2.8", AppState::TAB_SETTINGS},
+        {"字体", "预设字体", _fontCount > 0 ? _fontNames[0] : "内置字体", AppState::SETTINGS_FONT},
+        {"字体", "字号", "小  中  大", AppState::SETTINGS_LAYOUT},
+        {"版式", "对齐方式", "左  中  右  齐", AppState::SETTINGS_LAYOUT},
+        {"版式", "刷新策略", rs.getLabel(), AppState::SETTINGS_REFRESH},
+        {"连接", "WiFi配置", _wifiConfigured ? _wifiSsid : "未配置", AppState::SETTINGS_WIFI},
+        {"连接", "Legado同步", _legadoConfigured ? _legadoHost : "未配置", AppState::SETTINGS_LEGADO},
+        {"系统", "休眠时间", sleepText, AppState::TAB_SETTINGS},
+        {"系统", "关于", "Vink-PaperS3 v0.2.9", AppState::TAB_SETTINGS},
     };
 
-    const int numItems = 7;
-    const int itemH = 76;
-    const int gap = 10;
-    int scrollMax = max(0, (numItems * (itemH + gap) + 90) - contentHeight() + 20);
-    if (_settingsScroll > scrollMax) _settingsScroll = scrollMax;
-    if (_settingsScroll < 0) _settingsScroll = 0;
-
+    const int numItems = 8;
+    const int rowH = 64;
+    int rowY = y + 74 - _settingsScroll;
     const char* lastGroup = "";
-    int drawY = y - _settingsScroll;
     for (int i = 0; i < numItems; i++) {
         if (strcmp(lastGroup, items[i].group) != 0) {
-            if (drawY >= contentTop() - 24 && drawY <= contentBottom()) {
-                display.setTextSize(1);
-                display.setTextColor(TEXT_MID, BG_LIGHT);
-                display.setCursor(x, drawY + 4);
-                display.print(items[i].group);
-            }
-            drawY += 26;
+            drawUiText(x + 24, rowY + 4, items[i].group, TEXT_BLACK, BG_WHITE);
+            rowY += 34;
             lastGroup = items[i].group;
         }
-        if (drawY + itemH >= contentTop() && drawY <= contentBottom()) {
-            UITheme::drawCard(x, drawY, contentWidth(), itemH, BG_WHITE, BORDER_LIGHT);
-            display.setTextSize(2);
-            display.setTextColor(TEXT_BLACK, BG_WHITE);
-            display.setCursor(x + 18, drawY + 10);
-            display.print(items[i].title);
-            display.setTextSize(1);
-            display.setTextColor(TEXT_MID, BG_WHITE);
-            display.setCursor(x + 18, drawY + 48);
-            display.print(items[i].value);
-            display.setTextSize(2);
-            display.setTextColor(TEXT_BLACK, BG_WHITE);
-            display.setCursor(contentRight() - 36, drawY + 22);
-            display.print(">");
-            display.setTextColor(TEXT_BLACK, BG_LIGHT);
+        if (rowY + rowH >= y && rowY <= y + 720) {
+            if (i == 0 || i == 3 || i == 4 || i == 6) {
+                M5.Display.fillRoundRect(x + 18, rowY + 4, w - 36, rowH - 8, 8, BG_WHITE);
+                M5.Display.drawRoundRect(x + 18, rowY + 4, w - 36, rowH - 8, 8, BORDER_LIGHT);
+            }
+            drawUiText(x + 30, rowY + 18, items[i].title, TEXT_BLACK, BG_WHITE);
+            drawUiText(x + w - 170, rowY + 18, items[i].value, TEXT_MID, BG_WHITE);
+            if (i != 1 && i != 2) drawUiText(x + w - 38, rowY + 18, ">", TEXT_BLACK, BG_WHITE);
         }
-        drawY += itemH + gap;
+        rowY += rowH;
     }
 
     commitShellFrame();
@@ -2400,24 +2683,21 @@ void App::handleReaderMenu() {
     display.fillRect(100, 60, SCREEN_WIDTH - 200, SCREEN_HEIGHT - 120, BG_LIGHT);
     UITheme::drawCard(100, 60, SCREEN_WIDTH - 200, SCREEN_HEIGHT - 120, BG_WHITE, BORDER);
     
-    display.setTextSize(2);
-    display.setTextColor(TEXT_BLACK, BG_WHITE);
-    display.setCursor(380, 75);
-    display.println("菜单");
+    drawUiTextCentered(100, 75, SCREEN_WIDTH - 200, 32, "菜单", TEXT_BLACK);
     
     const char* items[] = {
-        "📑 章节目录",
-        "🔖 添加书签",
-        "📌 我的书签",
-        "📄 页码跳转",
-        "📝 排版设置",
-        "🔤 字体切换",
-        "🔄 残影控制",
-        "📶 WiFi传书",
-        "📊 阅读统计",
-        "📡 蓝牙翻页",
-        "📚 返回书架",
-        "⚡ 关闭设备"
+        "章节目录",
+        "添加书签",
+        "我的书签",
+        "页码跳转",
+        "排版设置",
+        "字体切换",
+        "残影控制",
+        "WiFi传书",
+        "阅读统计",
+        "蓝牙翻页",
+        "返回书架",
+        "关闭设备"
     };
     int numItems = 12;
     
@@ -2430,8 +2710,7 @@ void App::handleReaderMenu() {
         } else {
             display.setTextColor(TEXT_DARK, BG_WHITE);
         }
-        display.setCursor(140, y + 4);
-        display.print(items[i]);
+        drawUiText(140, y + 4, items[i], i == _menuIndex ? TEXT_BLACK : TEXT_DARK, i == _menuIndex ? BG_MID : BG_WHITE);
     }
     display.setTextColor(TEXT_BLACK, BG_LIGHT);
     
@@ -2457,15 +2736,12 @@ void App::handleSettingsLayout() {
     int y = 108;
     for (int i = 0; i < 5; i++) {
         UITheme::drawCard(contentLeft(), y, contentWidth(), 112, BG_WHITE, i == _layoutEditorIndex ? ACCENT : BORDER_LIGHT);
-        display.setTextSize(2);
-        display.setTextColor(TEXT_BLACK, BG_WHITE);
-        display.setCursor(contentLeft() + 18, y + 14);
-        if (i == _layoutEditorIndex) display.print("* ");
-        display.print(rows[i].name);
-        UITheme::drawSlider(contentLeft() + 18, y + 64, contentWidth() - 130, rows[i].minVal, rows[i].maxVal, rows[i].value, rows[i].unit);
+        char rowTitle[40];
+        snprintf(rowTitle, sizeof(rowTitle), "%s%s", i == _layoutEditorIndex ? "* " : "", rows[i].name);
+        drawUiText(contentLeft() + 18, y + 14, rowTitle, TEXT_BLACK, BG_WHITE);
+        drawUiSlider(contentLeft() + 18, y + 64, contentWidth() - 130, rows[i].minVal, rows[i].maxVal, rows[i].value, rows[i].unit);
         y += 126;
     }
-    UITheme::drawTextCentered(0, SCREEN_HEIGHT - 54, SCREEN_WIDTH, 34, "点击切换项目，左右滑动调整", 1, TEXT_MID);
     commitShellFrame();
 }
 
@@ -2487,15 +2763,9 @@ void App::handleSettingsRefresh() {
     int y = 116;
     for (int i = 0; i < 3; i++) {
         UITheme::drawCard(contentLeft(), y, contentWidth(), 128, BG_WHITE, i == selected ? ACCENT : BORDER_LIGHT);
-        display.setTextSize(2);
-        display.setTextColor(TEXT_BLACK, BG_WHITE);
-        display.setCursor(contentLeft() + 18, y + 18);
-        display.print(labels[i]);
-        display.setTextSize(1);
-        display.setTextColor(TEXT_MID, BG_WHITE);
-        display.setCursor(contentLeft() + 18, y + 64);
-        display.print(descs[i]);
-        UITheme::drawCapsuleSwitch(contentRight() - 78, y + 44, 58, i == selected);
+        drawUiText(contentLeft() + 18, y + 18, labels[i], TEXT_BLACK, BG_WHITE);
+        drawUiText(contentLeft() + 18, y + 64, descs[i], TEXT_MID, BG_WHITE);
+        drawUiCapsuleSwitch(contentRight() - 78, y + 44, 58, i == selected);
         y += 148;
     }
     commitShellFrame();
@@ -2508,8 +2778,8 @@ void App::handleSettingsFont() {
     drawBackHeader("字体切换", "点击字体切换，点 < 返回");
 
     if (_fontCount <= 0) {
-        UITheme::drawTextCentered(0, 260, SCREEN_WIDTH, 80, "未找到字体", 2, TEXT_MID);
-        UITheme::drawTextCentered(0, 330, SCREEN_WIDTH, 50, "请将 .fnt 放入 /fonts", 1, TEXT_MID);
+        drawUiTextCentered(0, 260, SCREEN_WIDTH, 80, "未找到字体", TEXT_MID);
+        drawUiTextCentered(0, 330, SCREEN_WIDTH, 50, "请将 .fnt 放入 /fonts", TEXT_MID);
         commitShellFrame();
         return;
     }
@@ -2518,11 +2788,9 @@ void App::handleSettingsFont() {
     for (int i = 0; i < _fontCount && i < 9; i++) {
         bool isCurrent = (strcmp(_font.getCurrentFontPath(), _fontPaths[i]) == 0);
         UITheme::drawCard(contentLeft(), y, contentWidth(), 78, BG_WHITE, isCurrent ? ACCENT : BORDER_LIGHT);
-        display.setTextSize(2);
-        display.setTextColor(TEXT_BLACK, BG_WHITE);
-        display.setCursor(contentLeft() + 18, y + 22);
-        if (isCurrent) display.print("* ");
-        display.print(_fontNames[i]);
+        char fontTitle[96];
+        snprintf(fontTitle, sizeof(fontTitle), "%s%s", isCurrent ? "* " : "", _fontNames[i]);
+        drawUiText(contentLeft() + 18, y + 22, fontTitle, TEXT_BLACK, BG_WHITE);
         y += 92;
     }
     commitShellFrame();
@@ -2544,14 +2812,12 @@ void App::handleChapterList() {
     display.clear();
     display.fillScreen(BG_LIGHT);
     
-    UITheme::drawSectionTitle(20, 15, "章节目录");
+    drawUiSectionTitle(20, 15, "章节目录");
     
     int chapterCount = _reader.getChapterCount();
     if (chapterCount <= 0) {
-        UITheme::drawTextCentered(0, 200, SCREEN_WIDTH, 100, 
-            "未检测到章节", 2, TEXT_MID);
-        UITheme::drawTextCentered(0, 280, SCREEN_WIDTH, 50, 
-            "长按菜单可自动识别章节", 1, TEXT_MID);
+        drawUiTextCentered(0, 200, SCREEN_WIDTH, 100, "未检测到章节", TEXT_MID);
+        drawUiTextCentered(0, 280, SCREEN_WIDTH, 50, "长按菜单可自动识别章节", TEXT_MID);
         display.display();
         return;
     }
@@ -2580,19 +2846,17 @@ void App::handleChapterList() {
             display.setTextColor(TEXT_DARK, i == _chapterMenuIndex ? BG_MID : BG_WHITE);
         }
         
-        display.setTextSize(1);
-        display.setCursor(25, y + 10);
         String title = chapters[i].title;
         if (title.length() > 35) title = title.substring(0, 32) + "...";
-        display.printf("%d. %s", i + 1, title.c_str());
+        char chapterLine[160];
+        snprintf(chapterLine, sizeof(chapterLine), "%d. %s", i + 1, title.c_str());
+        drawUiText(25, y + 10, chapterLine, i == currentChapter ? ACCENT : TEXT_DARK, i == _chapterMenuIndex ? BG_MID : BG_WHITE);
     }
     display.setTextColor(TEXT_BLACK, BG_LIGHT);
     
-    display.setTextSize(1);
-    display.setTextColor(TEXT_MID, BG_LIGHT);
-    display.setCursor(400, SCREEN_HEIGHT - 35);
-    display.printf("%d/%d 页", currentPage + 1, totalPages);
-    display.setTextColor(TEXT_BLACK, BG_LIGHT);
+    char chapterPageText[32];
+    snprintf(chapterPageText, sizeof(chapterPageText), "%d/%d 页", currentPage + 1, totalPages);
+    drawUiText(400, SCREEN_HEIGHT - 35, chapterPageText, TEXT_MID, BG_LIGHT);
     
     renderBottomNav();
     display.display();
@@ -2604,14 +2868,12 @@ void App::handleBookmarkList() {
     display.clear();
     display.fillScreen(BG_LIGHT);
     
-    UITheme::drawSectionTitle(20, 15, "我的书签");
+    drawUiSectionTitle(20, 15, "我的书签");
     
     int bmCount = _reader.getBookmarkCount();
     if (bmCount <= 0) {
-        UITheme::drawTextCentered(0, 200, SCREEN_WIDTH, 100, 
-            "暂无书签", 2, TEXT_MID);
-        UITheme::drawTextCentered(0, 280, SCREEN_WIDTH, 50, 
-            "阅读时点击菜单 → 添加书签", 1, TEXT_MID);
+        drawUiTextCentered(0, 200, SCREEN_WIDTH, 100, "暂无书签", TEXT_MID);
+        drawUiTextCentered(0, 280, SCREEN_WIDTH, 50, "阅读时点击菜单添加书签", TEXT_MID);
         display.display();
         return;
     }
@@ -2633,20 +2895,17 @@ void App::handleBookmarkList() {
             display.fillRoundRect(10, y, SCREEN_WIDTH - 20, itemH, UITheme::CARD_RADIUS, BG_MID);
         }
         
-        display.setTextSize(1);
-        display.setTextColor(TEXT_DARK, i == _bookmarkMenuIndex ? BG_MID : BG_WHITE);
-        display.setCursor(25, y + 10);
         String name = bookmarks[i].name;
         if (name.length() > 30) name = name.substring(0, 27) + "...";
-        display.printf("%d. %s (P%d)", i + 1, name.c_str(), bookmarks[i].pageNum + 1);
+        char bookmarkLine[160];
+        snprintf(bookmarkLine, sizeof(bookmarkLine), "%d. %s (P%d)", i + 1, name.c_str(), bookmarks[i].pageNum + 1);
+        drawUiText(25, y + 10, bookmarkLine, TEXT_DARK, i == _bookmarkMenuIndex ? BG_MID : BG_WHITE);
     }
     display.setTextColor(TEXT_BLACK, BG_LIGHT);
     
-    display.setTextSize(1);
-    display.setTextColor(TEXT_MID, BG_LIGHT);
-    display.setCursor(350, SCREEN_HEIGHT - 35);
-    display.printf("%d 个书签 | %d/%d", bmCount, currentPage + 1, totalPages);
-    display.setTextColor(TEXT_BLACK, BG_LIGHT);
+    char bookmarkPageText[48];
+    snprintf(bookmarkPageText, sizeof(bookmarkPageText), "%d 个书签 | %d/%d", bmCount, currentPage + 1, totalPages);
+    drawUiText(350, SCREEN_HEIGHT - 35, bookmarkPageText, TEXT_MID, BG_LIGHT);
     
     renderBottomNav();
     display.display();
