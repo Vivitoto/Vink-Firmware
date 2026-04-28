@@ -152,6 +152,8 @@ def vink3_source_invariants(main_cpp: str) -> None:
     assert_contains(reader_book_cpp, "sortBooks", "reader library order is stable across SD directory iteration")
     assert_contains(reader_book_cpp, "detectBookFlags", "reader book service shows library progress/cache flags")
     assert_contains(reader_book_cpp, "formatBytes", "reader book entry shows source file size")
+    assert_contains(reader_book_cpp, "renderBookLoadingPage", "reader shows blocking status while first-opening large books")
+    assert_contains(reader_book_cpp, "正在分析目录", "reader explains first-open TOC analysis wait")
     assert_contains(reader_book_cpp, "读/目/页", "library explains progress/TOC/page-cache status markers")
     assert_contains(reader_book_cpp, "handleLibraryTap", "reader book service opens selected library entries")
     assert_contains(reader_book_cpp, "renderBookEntryPage", "reader book service shows a book entry action page")

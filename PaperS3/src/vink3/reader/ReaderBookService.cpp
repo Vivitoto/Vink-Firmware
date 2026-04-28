@@ -1,5 +1,6 @@
 #include "ReaderBookService.h"
 #include "ReaderTextRenderer.h"
+#include "../display/DisplayService.h"
 #include "../../Config.h"
 #include "../../TextCodec.h"
 #include <esp_heap_caps.h>
@@ -217,6 +218,15 @@ void ReaderBookService::formatBookFlags(uint8_t flags, char* out, size_t len) co
              (flags & kBookHasPageCache) ? "页" : "-");
 }
 
+void ReaderBookService::showBlockingOpenStatus(const char* stage) {
+    renderBookLoadingPage(stage);
+    g_displayService.enqueueFull(false, 100);
+    // Give the display task a chance to push the status page before a large TXT
+    // scan/conversion monopolizes the reader flow. If the display service is not
+    // ready yet, waitIdle simply times out and opening continues normally.
+    g_displayService.waitIdle(2500);
+}
+
 void ReaderBookService::getTocCachePath(char* out, size_t len) const {
     getSidecarPath(out, len, ".vink-toc");
 }
@@ -414,12 +424,14 @@ bool ReaderBookService::openBook(const char* path) {
     TextEncoding encoding = TextCodec::detect(detectFile);
     detectFile.close();
     if (encoding == TextEncoding::GBK) {
+        showBlockingOpenStatus("正在转码为 UTF-8");
         String tmp = TextCodec::convertToUTF8(path);
         if (tmp.length() > 0) strlcpy(activeTextPath_, tmp.c_str(), sizeof(activeTextPath_));
     }
 
     open_ = true;
     if (!loadTocCache()) {
+        showBlockingOpenStatus("正在分析目录");
         File f = SD.open(activeTextPath_, FILE_READ);
         if (f) {
             ChapterDetector detector;
@@ -522,6 +534,22 @@ void ReaderBookService::renderCurrent() {
     if (!renderChapterPreview(currentTocIndex_)) {
         renderTocPage(tocPage_);
     }
+}
+
+void ReaderBookService::renderBookLoadingPage(const char* stage) {
+    char body[700];
+    char sizeText[24];
+    formatBytes(bookFileSize(bookPath_), sizeText, sizeof(sizeText));
+    snprintf(body, sizeof(body),
+             "书籍：%s\n"
+             "大小：%s\n\n"
+             "%s...\n\n"
+             "首次打开大书可能需要一会儿。\n"
+             "完成后会自动进入书籍入口；以后会复用 .vink-toc 缓存。",
+             title_[0] ? title_ : "TXT",
+             sizeText,
+             stage && stage[0] ? stage : "正在打开");
+    g_readerText.renderTextPage("正在打开", body, 1, 1);
 }
 
 void ReaderBookService::renderBookEntryPage() {
