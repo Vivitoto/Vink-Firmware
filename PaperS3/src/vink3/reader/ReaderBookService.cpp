@@ -506,7 +506,7 @@ void ReaderBookService::renderLibraryPage(uint16_t page) {
         rowPtrs[rowCount] = rows[rowCount];
         rowCount++;
     }
-    g_readerText.renderListPage("书架", summary, rowPtrs, rowCount, kListFirstRowY, kListRowH, bookPage_ + 1, totalPages);
+    g_readerText.renderListPage("书架", summary, rowPtrs, rowCount, kListFirstRowY, kListRowH, bookPage_ + 1, totalPages, 1);
 }
 
 bool ReaderBookService::nextLibraryPage() {
@@ -619,7 +619,7 @@ void ReaderBookService::renderBookEntryPage() {
     snprintf(lineProgress, sizeof(lineProgress), "进度：%s", progress);
     const char* info[] = {lineTitle, lineSize, lineToc, lineCache, lineProgress, "提示：阅读中左右/上下滑动翻页"};
     const char* actions[] = {"继续阅读", "目录", "从头开始"};
-    g_readerText.renderActionPage("书籍入口", info, 6, actions, 3);
+    g_readerText.renderActionPage("书籍入口", info, 6, actions, 3, 0);
 }
 
 bool ReaderBookService::continueReading() {
@@ -770,7 +770,7 @@ void ReaderBookService::renderTocPage(uint16_t page) {
         rowPtrs[rowCount] = rows[rowCount];
         rowCount++;
     }
-    g_readerText.renderListPage(title_, summary, rowPtrs, rowCount, kTocFirstRowY, kTocRowH, page + 1, totalPages);
+    g_readerText.renderListPage(title_, summary, rowPtrs, rowCount, kTocFirstRowY, kTocRowH, page + 1, totalPages, 0);
 }
 
 size_t ReaderBookService::trimUtf8Tail(char* text, size_t len) const {

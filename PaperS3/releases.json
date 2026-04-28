@@ -5,6 +5,32 @@
   "description": "面向 M5Stack PaperS3 的 Vink 电子书阅读固件。",
   "releases": [
     {
+      "version": "v0.3.1",
+      "name": "Vink-PaperS3 v0.3.1 UI 对齐修正",
+      "summary": "基于 v0.3.0 继续修正 Shell UI 与阅读管理页布局：统一白底黑框卡片，设置项文字/右侧值/箭头严格共用同一行中心线，通知栏左侧显示系统时间、右侧显示电量百分比，书架/目录/书籍入口也显示同一套四 Tab 顶栏，并修复阅读首页书架按钮命中被当前书卡片覆盖的问题。",
+      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.3.1",
+      "changelog": "## Vink-PaperS3 v0.3.1 UI 对齐修正\n\n### UI 对齐与框线修正\n- Shell 卡片统一为白底黑框，去掉交替灰底造成的“框框乱/残影重”观感。\n- 阅读首页重新整理卡片高度和按钮位置，按钮不再贴近卡片边缘。\n- 传输页 Legado 卡片加高，`立即同步` / `配置` 按钮完整收进卡片内。\n- 设置页保持分组行布局，文字、右侧值和箭头严格按同一个 row center 计算，不再分别调 baseline。\n- 通知栏左上角改为系统时间，右上角改为电量百分比，页面标题居中显示。\n- 修复阅读首页 `书架` 按钮被外层当前书卡片 hit-test 抢先命中的问题；现在先判断可见按钮，再判断外层卡片。\n- 书架、目录、书籍入口补齐同一套四 Tab 顶栏，可点击区域和可见 UI 对齐，不再出现“有隐藏 Tab 热区但画面看不到”的问题。\n\n### 沿用 v0.3.0\n- 保留 ReadPaper 阅读核心、完整正文中文字体、GBK/GB18030 转码、TXT 目录/分页/进度/缓存闭环。\n- UI 继续优先使用固件内置简体中文 SC 字库，ReadPaper UI 子集只作为 fallback。\n\n### 烧录包\n- Vink Flasher 默认使用 full 完整 16MB 镜像，从 0x0 写入。",
+      "assets": {
+        "full": {
+          "name": "Vink-PaperS3-v0.3.1-ui-polish-full-16MB.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.3.1/Vink-PaperS3-v0.3.1-ui-polish-full-16MB.bin",
+          "size": 16777216,
+          "flashOffset": 0
+        },
+        "ota": {
+          "name": "Vink-PaperS3-v0.3.1-ui-polish-ota.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.3.1/Vink-PaperS3-v0.3.1-ui-polish-ota.bin",
+          "size": 8098144,
+          "flashOffset": 65536
+        },
+        "spiffs": {
+          "name": "Vink-PaperS3-v0.3.1-ui-polish-spiffs.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.3.1/Vink-PaperS3-v0.3.1-ui-polish-spiffs.bin",
+          "size": 4128768
+        }
+      }
+    },
+    {
       "version": "v0.3.0",
       "name": "Vink-PaperS3 v0.3.0 ReadPaper 阅读核心",
       "summary": "v0.3.0 引入基于 ReadPaper V1.7.6 思路重构的阅读核心：完整正文中文字体、GBK/GB18030 转码、TXT 目录识别、书架选书、目录/分页/进度/缓存闭环，并针对大体积网络 TXT 增加目录噪声过滤和首次处理提示。",

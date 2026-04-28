@@ -313,6 +313,27 @@ size_t ReaderTextRenderer::measurePageBytes(const char* text, size_t len, const 
     return pos;
 }
 
+void ReaderTextRenderer::drawShellTabs(int activeTab, const ReaderRenderOptions& options) {
+    static constexpr const char* kLabels[] = {"阅读", "书架", "同步", "设置"};
+    static constexpr int16_t kTabX0 = 18;
+    static constexpr int16_t kTabsY = 76;
+    static constexpr int16_t kTabW = 120;
+    static constexpr int16_t kTabsH = 64;
+    static constexpr int16_t kTabGap = 8;
+    const uint16_t fg = options.dark ? TFT_WHITE : TFT_BLACK;
+    const uint16_t bg = options.dark ? TFT_BLACK : TFT_WHITE;
+    for (int i = 0; i < 4; ++i) {
+        const int16_t x = kTabX0 + i * (kTabW + kTabGap);
+        const bool selected = i == activeTab;
+        canvas_->fillRoundRect(x, kTabsY, kTabW, kTabsH, 16, selected ? fg : bg);
+        canvas_->drawRoundRect(x, kTabsY, kTabW, kTabsH, 16, fg);
+        const char* label = kLabels[i];
+        const int16_t tx = x + (kTabW - textWidth(label)) / 2;
+        const int16_t ty = kTabsY + (kTabsH - fontSize()) / 2;
+        drawText(tx, ty, label, selected ? bg : fg);
+    }
+}
+
 void ReaderTextRenderer::renderTextPage(const char* title, const char* body, uint16_t page, uint16_t totalPages, const ReaderRenderOptions& options) {
     if (!canvas_) return;
     if (!ready()) loadDefaultFont();
@@ -349,16 +370,18 @@ void ReaderTextRenderer::renderTextPage(const char* title, const char* body, uin
     drawText(kPaperS3Width - options.marginRight - textWidth(footer), kPaperS3Height - 34, footer, mid);
 }
 
-void ReaderTextRenderer::renderListPage(const char* title, const char* summary, const char* const* rows, int rowCount, int16_t rowY, int16_t rowH, uint16_t page, uint16_t totalPages, const ReaderRenderOptions& options) {
+void ReaderTextRenderer::renderListPage(const char* title, const char* summary, const char* const* rows, int rowCount, int16_t rowY, int16_t rowH, uint16_t page, uint16_t totalPages, int activeTab, const ReaderRenderOptions& options) {
     if (!canvas_) return;
     if (!ready()) loadDefaultFont();
     canvas_->fillSprite(options.dark ? TFT_BLACK : TFT_WHITE);
     const uint16_t fg = options.dark ? TFT_WHITE : TFT_BLACK;
     const uint16_t mid = options.dark ? 0xC618 : 0x8410;
 
-    drawText(options.marginLeft, 28, title ? title : "列表", mid);
-    canvas_->drawFastHLine(options.marginLeft, 64, kPaperS3Width - options.marginLeft - options.marginRight, mid);
-    if (summary && summary[0]) drawText(options.marginLeft, 86, summary, mid);
+    drawText(options.marginLeft, 22, title ? title : "列表", fg);
+    drawText(kPaperS3Width - options.marginRight - textWidth("v0.3.1"), 22, "v0.3.1", mid);
+    canvas_->drawFastHLine(options.marginLeft, 61, kPaperS3Width - options.marginLeft - options.marginRight, fg);
+    drawShellTabs(activeTab, options);
+    if (summary && summary[0]) drawText(options.marginLeft, 160, summary, mid);
 
     const int16_t maxWidth = kPaperS3Width - options.marginLeft - options.marginRight;
     for (int i = 0; rows && i < rowCount; ++i) {
@@ -381,7 +404,7 @@ void ReaderTextRenderer::renderListPage(const char* title, const char* summary, 
     drawText(kPaperS3Width - options.marginRight - textWidth(footer), kPaperS3Height - 34, footer, mid);
 }
 
-void ReaderTextRenderer::renderActionPage(const char* title, const char* const* infoLines, int infoCount, const char* const* actions, int actionCount, const ReaderRenderOptions& options) {
+void ReaderTextRenderer::renderActionPage(const char* title, const char* const* infoLines, int infoCount, const char* const* actions, int actionCount, int activeTab, const ReaderRenderOptions& options) {
     if (!canvas_) return;
     if (!ready()) loadDefaultFont();
     canvas_->fillSprite(options.dark ? TFT_BLACK : TFT_WHITE);
@@ -389,17 +412,19 @@ void ReaderTextRenderer::renderActionPage(const char* title, const char* const* 
     const uint16_t bg = options.dark ? TFT_BLACK : TFT_WHITE;
     const uint16_t mid = options.dark ? 0xC618 : 0x8410;
 
-    drawText(options.marginLeft, 28, title ? title : "操作", mid);
-    canvas_->drawFastHLine(options.marginLeft, 64, kPaperS3Width - options.marginLeft - options.marginRight, mid);
+    drawText(options.marginLeft, 22, title ? title : "操作", fg);
+    drawText(kPaperS3Width - options.marginRight - textWidth("v0.3.1"), 22, "v0.3.1", mid);
+    canvas_->drawFastHLine(options.marginLeft, 61, kPaperS3Width - options.marginLeft - options.marginRight, fg);
+    drawShellTabs(activeTab, options);
 
     const int16_t maxWidth = kPaperS3Width - options.marginLeft - options.marginRight;
     const int16_t lineHeight = fontSize() + options.lineGap;
-    int16_t y = options.marginTop;
-    for (int i = 0; infoLines && i < infoCount && y < 470; ++i) {
+    int16_t y = 160;
+    for (int i = 0; infoLines && i < infoCount && y < 510; ++i) {
         const char* lineText = infoLines[i] ? infoLines[i] : "";
         size_t start = 0;
         int wraps = 0;
-        while (lineText[start] && wraps < 2 && y < 470) {
+        while (lineText[start] && wraps < 2 && y < 510) {
             size_t end = findWrapBreak(lineText, start, maxWidth);
             if (end <= start) break;
             char line[256];
@@ -417,7 +442,7 @@ void ReaderTextRenderer::renderActionPage(const char* title, const char* const* 
     static constexpr int16_t kButtonX = 70;
     static constexpr int16_t kButtonW = 400;
     static constexpr int16_t kButtonH = 64;
-    static constexpr int16_t kButtonY[] = {540, 640, 740};
+    static constexpr int16_t kButtonY[] = {560, 660, 760};
     const int drawCount = min(actionCount, static_cast<int>(sizeof(kButtonY) / sizeof(kButtonY[0])));
     for (int i = 0; actions && i < drawCount; ++i) {
         const int16_t by = kButtonY[i];
