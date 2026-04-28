@@ -26,7 +26,12 @@ Vink should preserve that model, but centralize Vink-specific hitboxes in `VinkU
 
 ### 1. Reader tab
 
-Purpose: current reading session and in-book actions.
+Purpose: current reading session, in-book actions, and immediate reading adjustments.
+
+Rule of thumb:
+
+- Current-book/current-reading adjustments belong here.
+- Global defaults belong in Settings.
 
 ReadPaper features that fit here:
 
@@ -42,17 +47,20 @@ ReadPaper features that fit here:
 - Current-page screenshot action.
 - Quick reader menu actions:
   - refresh/current page
-  - font scale quick adjustment
+  - current reading font scale quick adjustment
+  - current reading render quality/refresh action
   - display label toggle
   - underline/draw-bottom toggle
-  - vertical text toggle
+  - vertical text toggle for current book
   - keep original simplified/traditional setting for current book
+  - current book reindex after layout/font-affecting changes
 
 Vink UI shape:
 
 - Main card: current book / progress / resume button.
 - Secondary cards: TOC, bookmarks, stats, reader tools.
 - Reader menu should be a Vink overlay or subpage, not ReadPaper's original menu panel.
+- Reading quick settings should be reachable from the reading page without leaving the book.
 
 Implementation notes:
 
@@ -167,17 +175,17 @@ Purpose: persistent configuration.
 
 ReadPaper features that fit here:
 
-- Display mode / refresh strategy.
-- Dark mode.
-- Fast refresh toggle.
+- Global display mode / default refresh strategy.
+- Global dark mode default.
+- Global fast refresh default.
 - Rotation / auto-rotation.
-- Font selection.
-- Font scale percentage.
-- Font render tradeoff / quality.
-- Horizontal/vertical text default.
-- Simplified/traditional conversion mode.
-- Label position / mark theme / page style.
-- Auto-read speed.
+- Default font selection.
+- Default font scale percentage.
+- Default font render tradeoff / quality.
+- Default horizontal/vertical text preference.
+- Default simplified/traditional conversion mode.
+- Label position / mark theme / page style defaults.
+- Auto-read default speed.
 - Main menu file count.
 - Sleep/shutdown timers.
 - WiFi credentials.
@@ -196,6 +204,7 @@ Implementation notes:
 
 - State handlers: `handleSettings()`, plus subpages for display/reading/network/system.
 - Config should be Vink-owned, but can copy ReadPaper's `GlobalConfig` fields where practical.
+- Do not force all reading options into Settings. If the option is commonly changed while reading, expose it in Reader/ReaderMenu too and let Settings define only the default.
 
 ## Things That Do Not Fit Cleanly
 

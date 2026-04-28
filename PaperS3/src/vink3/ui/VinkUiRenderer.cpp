@@ -123,8 +123,8 @@ void VinkUiRenderer::renderReaderHome() {
     drawButton(304, 292, 180, 44, "Library");
     drawCard(28, 370, 224, 132, "TOC", "Chapters / goto page");
     drawCard(288, 370, 224, 132, "Marks", "Bookmark / screenshot");
-    drawCard(28, 532, 484, 220, "Reader tools", "Auto-read, refresh, font scale, vertical text");
-    drawFooterHint("Reader: ReadPaper reading/menu logic adapted to Vink cards");
+    drawCard(28, 532, 484, 220, "Reading settings", "Auto-read, refresh, font scale, vertical, zh");
+    drawFooterHint("Reader: current-book settings stay near the text");
 }
 
 void VinkUiRenderer::renderLibrary() {
@@ -166,7 +166,7 @@ void VinkUiRenderer::renderSettings() {
     drawStatusBar("Settings");
     drawTabs(SystemState::Settings);
     drawCard(28, kContentY, 484, 132, "Display", "Refresh, dark, rotation, quality");
-    drawCard(28, 318, 484, 132, "Reading", "Font, scale, vertical, zh convert");
+    drawCard(28, 318, 484, 132, "Reading defaults", "Default font, scale, vertical, zh convert");
     drawCard(28, 476, 484, 132, "Network", "WiFi, WebDAV, Legado endpoint");
     drawCard(28, 634, 484, 132, "System", "Battery, sleep, version, debug");
     drawFooterHint("Settings: persistent ReadPaper/Vink config");
