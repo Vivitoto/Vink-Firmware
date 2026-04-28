@@ -7,6 +7,7 @@ using namespace UITheme;
 static FontManager* gUiFont = nullptr;
 static M5Canvas* gShellCanvas = nullptr;
 static bool gShellFrameActive = false;
+static bool gLastShellCommitOk = false;
 
 static LovyanGFX& uiDrawTarget() {
     return (gShellFrameActive && gShellCanvas) ? static_cast<LovyanGFX&>(*gShellCanvas) : static_cast<LovyanGFX&>(M5.Display);
@@ -16,9 +17,10 @@ static constexpr int PAPER_S3_DISPLAY_ROTATION = 0;  // user-facing portrait, ha
 static constexpr uint32_t SHELL_FULL_REFRESH_EVERY = 6;
 static uint32_t gShellCommitCount = 0;
 
+static bool ensureShellCanvas();
 static void prepareShellFrame();
-static void commitShellFrame();
-static void commitTopTabsFeedback(int activeTab);
+static bool waitShellDisplayReady(uint32_t timeoutMs);
+static bool commitShellFrame();
 static void drawBackHeader(const char* title, const char* hint = "点 < / 右滑 / 上滑返回");
 static void drawUiText(int16_t x, int16_t y, const char* text, uint16_t color = TEXT_BLACK, uint16_t bg = BG_LIGHT);
 static void drawUiTextCentered(int16_t x, int16_t y, int16_t w, int16_t h, const char* text, uint16_t color = TEXT_BLACK);
@@ -33,7 +35,7 @@ static void drawSlotIcon(int16_t x, int16_t y, const char* kind, uint16_t color 
 static void drawRowIcon(int16_t x, int16_t y, const char* kind);
 static void drawIconLabel(int16_t x, int16_t y, const char* icon, const char* label, uint16_t bg = BG_WHITE);
 
-App::App() : _state(AppState::INIT), _reader(_font), _touching(false), _touchLongPressFired(false), _touchConsumed(false),
+App::App() : _state(AppState::INIT), _reader(_font), _touching(false), _touchLongPressFired(false), _touchConsumed(false), _touchWaitRelease(false),
              _menuIndex(0), _layoutEditorIndex(0), _chapterMenuIndex(0), _chapterMenuScroll(0),
              _bookmarkMenuIndex(0), _bookmarkMenuScroll(0),
              _fontMenuIndex(0), _fontMenuScroll(0), _settingsScroll(0),
@@ -42,7 +44,7 @@ App::App() : _state(AppState::INIT), _reader(_font), _touching(false), _touchLon
              _lastActivityTime(0), _sleepPending(false), _powerButtonArmed(false),
              _toastVisible(false), _toastDirty(false), _toastClearDirty(false),
              _toastDrawn(false), _toastDrawState(AppState::INIT), _toastUntil(0),
-             _shutdownInProgress(false), _sdReady(false), _powerButtonPressStart(0),
+             _shutdownInProgress(false), _sdReady(false), _pageNeedsRender(true), _lastRenderedState(AppState::INIT), _powerButtonPressStart(0),
              _sleepTimeoutMin(AUTO_SLEEP_DEFAULT_MIN),
              _fontCount(0) {
     memset(_gotoPageInput, 0, sizeof(_gotoPageInput));
@@ -63,7 +65,11 @@ App::App() : _state(AppState::INIT), _reader(_font), _touching(false), _touchLon
     _sdReady = false;
     _legadoPort = 80;
     _touchStartX = _touchStartY = _touchLastX = _touchLastY = 0;
+    _touchSuppressUntil = 0;
     _touchConsumed = false;
+    _touchWaitRelease = false;
+    _pageNeedsRender = true;
+    _lastRenderedState = AppState::INIT;
     for (int i = 0; i < 4; i++) _tabNeedsRender[i] = true;
 }
 
@@ -154,6 +160,14 @@ bool App::initDisplay() {
     }
     Serial.printf("[Display] %dx%d\n", display.width(), display.height());
 
+    // Allocate the Shell canvas before SD/font/cache work can fragment PSRAM.
+    // Reference PaperS3 readers keep a global framebuffer/canvas alive for the
+    // UI lifetime; lazy allocation on first menu paint makes the riskiest page
+    // transition also depend on a large PSRAM allocation.
+    if (!ensureShellCanvas()) {
+        Serial.println("[Display] Shell canvas preallocation failed; will retry before first shell frame");
+    }
+
     // Keep boot display non-blocking. v0.2.13 could remain on this diagnostic
     // screen on real PaperS3 because startup called pushSprite() + display() +
     // waitDisplay() before the app state machine was alive. The first real shell
@@ -186,12 +200,15 @@ bool App::initSD() {
 }
 
 bool App::initFont() {
-    // Shell/UI uses a fixed bundled font and never reads SD card fonts.
-    // Only reading content uses `_font` and may be switched later from the
-    // reader/font settings. This avoids SD font shadowing breaking the system UI.
-    bool uiOk = _uiFont.loadBundledFont(FONT_FILE_20) || _uiFont.loadBundledFont(FONT_FILE_16);
+    // Shell/UI must be boring and robust: use the built-in PROGMEM 1bpp font,
+    // not the SPIFFS/SD file-backed gray font. The real device showed that after
+    // repeated taps the line/card geometry stayed intact while text turned into
+    // dense garbage or disappeared, which points at the file-backed UI font path
+    // or its PSRAM/index state being corrupted. Reading content still uses the
+    // richer bundled/SD font path below.
+    bool uiOk = _uiFont.loadBuiltinFont();
     if (uiOk) {
-        Serial.printf("[Font] Fixed bundled UI font active: %s\n", _uiFont.getCurrentFontPath());
+        Serial.printf("[Font] Fixed built-in safe UI font active: %s\n", _uiFont.getCurrentFontPath());
     }
 
     bool readerOk = _font.loadBundledFont(FONT_FILE_24) || _font.loadBundledFont(FONT_FILE_20) || _font.loadBundledFont(FONT_FILE_16);
@@ -219,6 +236,19 @@ void App::run() {
         checkBleCommands();
         _uploader.handleClient();
         serviceToast();
+
+        // Tab pages already have per-tab dirty flags. Non-tab Shell pages used to
+        // render every 8ms, which kept the e-paper queue busy and made menus feel
+        // frozen after entering them. Render those pages once per state/gesture,
+        // and keep dirty if the physical commit was skipped.
+        bool isShellSubpage = !isTabState(_state) && _state != AppState::INIT && _state != AppState::READER;
+        bool shouldRenderSubpage = _pageNeedsRender || _state != _lastRenderedState;
+        if (isShellSubpage && !shouldRenderSubpage) {
+            delay(8);
+            continue;
+        }
+        if (isShellSubpage) gLastShellCommitOk = false;
+        AppState renderState = _state;
         
         switch (_state) {
             case AppState::INIT:
@@ -274,6 +304,14 @@ void App::run() {
                 break;
             default:
                 break;
+        }
+        if (isShellSubpage) {
+            if (gLastShellCommitOk && _state == renderState) {
+                _lastRenderedState = _state;
+                _pageNeedsRender = false;
+            } else {
+                _pageNeedsRender = true;
+            }
         }
         // Keep touch polling snappy. M5Unified examples update input every loop;
         // a 50ms sleep made tap-release detection feel sticky on PaperS3.
@@ -361,13 +399,41 @@ static void normalizePaperS3TouchPoint(int rawX, int rawY, int& outX, int& outY)
 
 void App::processTouch() {
     auto& touch = M5.Touch;
+    constexpr uint32_t TRANSITION_TOUCH_SUPPRESS_MS = 180;
     constexpr int TAP_THRESHOLD = 26;
     constexpr int SWIPE_THRESHOLD = 64;
     constexpr int LONG_PRESS_MS = 750;
     constexpr int LONG_PRESS_MOVE = 28;
     constexpr int MAX_TAP_MS = 650;
 
-    if (touch.getCount() > 0) {
+    int touchCount = touch.getCount();
+    if (_touchSuppressUntil || _touchWaitRelease) {
+        // Reference PaperS3 projects suppress stale touches after state
+        // transitions/wake. A pure time delay is not enough: if the user's finger
+        // stays down longer than the cooldown, that same press can become a fresh
+        // tap on the newly rendered page. Wait for both the cooldown and a full
+        // release before accepting touch input again.
+        bool cooldownDone = (!_touchSuppressUntil || millis() >= _touchSuppressUntil);
+        if (!cooldownDone || touchCount > 0) {
+            _touching = false;
+            _touchLongPressFired = false;
+            _touchConsumed = false;
+            if (cooldownDone) _touchSuppressUntil = 0;
+            _touchWaitRelease = true;
+            return;
+        }
+        _touchSuppressUntil = 0;
+        _touchWaitRelease = false;
+    }
+
+    if (touchCount > 0) {
+        if (!_touching && M5.Display.displayBusy()) {
+            // Ignore new touches while the EPD queue is still committing the
+            // previous frame. Accepting tab/actions here can enqueue overlapping
+            // full-screen commits and make glyphs disappear or the panel appear
+            // stuck after rapid repeated taps.
+            return;
+        }
         _lastActivityTime = millis();
         _sleepPending = false;
         auto t = touch.getDetail(0);
@@ -391,7 +457,10 @@ void App::processTouch() {
                 int clickedTab = (x - tabBaseX) / tabW;
                 if (x >= tabBaseX && x <= SCREEN_WIDTH - 20 && clickedTab >= 0 && clickedTab < 4 && clickedTab != _activeTab) {
                     switchTab(clickedTab);
-                    commitTopTabsFeedback(_activeTab);
+                    // Do not submit a separate top-tab partial refresh here.
+                    // Rapid taps could make that partial commit overlap with the
+                    // following full-page shell commit. The next main-loop pass
+                    // renders the selected tab as one serialized full frame.
                     _touchConsumed = true;
                 }
             }
@@ -406,6 +475,7 @@ void App::processTouch() {
 
         if (!_touchLongPressFired && dt >= LONG_PRESS_MS && abs(dx) < LONG_PRESS_MOVE && abs(dy) < LONG_PRESS_MOVE) {
             _touchLongPressFired = true;
+            _pageNeedsRender = true;
             onLongPress(_touchStartX, _touchStartY);
         }
         return;
@@ -423,11 +493,17 @@ void App::processTouch() {
             return;
         }
 
+        if (M5.Display.displayBusy()) {
+            return;
+        }
+
         int absDx = abs(dx);
         int absDy = abs(dy);
         if (absDx < TAP_THRESHOLD && absDy < TAP_THRESHOLD && dt <= MAX_TAP_MS) {
+            _pageNeedsRender = true;
             onTap(_touchStartX, _touchStartY);
         } else if (absDx >= SWIPE_THRESHOLD || absDy >= SWIPE_THRESHOLD) {
+            _pageNeedsRender = true;
             if (absDx > absDy) onSwipe(dx, dy);
             else onVerticalSwipe(dy);
         }
@@ -669,7 +745,7 @@ void App::onTap(int x, int y) {
                             saveGlobalSettings();
                             _tabNeedsRender[3] = true;
                             break;
-                        case 7: showToast("Vink-PaperS3 v0.2.13", 1800); break;
+                        case 7: showToast("Vink-PaperS3 v0.2.15", 1800); break;
                     }
                 }
                 return;
@@ -702,7 +778,10 @@ void App::onTap(int x, int y) {
                 const FileItem* item = _browser.getSelectedItem();
                 if (item && item->isDirectory) {
                     if (_browser.enterDirectory(_browser.getSelectedIndex())) {
-                        _browser.render();
+                        _activeTab = 1;
+                        _state = AppState::TAB_LIBRARY;
+                        _tabNeedsRender[1] = true;
+                        handleTabLibrary();
                     } else {
                         showToast("进入目录失败", 1200);
                     }
@@ -865,10 +944,16 @@ void App::onSwipe(int dx, int dy) {
         case AppState::FILE_BROWSER: {
             if (dy > 30) {
                 _browser.selectNext();
-                _browser.render();
+                _activeTab = 1;
+                _state = AppState::TAB_LIBRARY;
+                _tabNeedsRender[1] = true;
+                handleTabLibrary();
             } else if (dy < -30) {
                 _browser.selectPrev();
-                _browser.render();
+                _activeTab = 1;
+                _state = AppState::TAB_LIBRARY;
+                _tabNeedsRender[1] = true;
+                handleTabLibrary();
             }
             break;
         }
@@ -1314,11 +1399,25 @@ int App::clamp(int val, int minVal, int maxVal) {
 }
 
 void App::showMessage(const char* msg, int durationMs) {
-    auto& display = uiDrawTarget();
+    auto& display = M5.Display;
+    while (display.displayBusy()) {
+        M5.update();
+        delay(8);
+        yield();
+    }
+    display.waitDisplay();
+
+    bool oldFrameActive = gShellFrameActive;
+    gShellFrameActive = false;
+    UITheme::setDrawTarget(nullptr);
+
     display.clear();
     display.fillScreen(BG_LIGHT);
     drawUiTextCentered(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, msg, TEXT_BLACK);
     display.display();
+
+    gShellFrameActive = oldFrameActive;
+    UITheme::setDrawTarget((oldFrameActive && gShellCanvas) ? static_cast<LovyanGFX*>(gShellCanvas) : nullptr);
     
     if (durationMs > 0) {
         delay(durationMs);
@@ -1339,6 +1438,7 @@ bool App::drawToastNow() {
     if (!_toastVisible || !_toastDirty || !_toastText[0]) return false;
     auto& display = M5.Display;
     if (display.displayBusy()) return false;
+    display.waitDisplay();
 
     const int16_t x = 72;
     const int16_t y = SCREEN_HEIGHT - 72;
@@ -1365,19 +1465,25 @@ bool App::drawToastNow() {
 
 bool App::clearToastNow() {
     if (!_toastClearDirty) return false;
-    if (!_toastDrawn || _state != _toastDrawState || _toastDrawState == AppState::READER) {
-        _toastClearDirty = false;
+    // Do not erase toast with a blank partial rectangle. On e-paper that can
+    // delete underlying card/text pixels and look like the old "text vanished"
+    // failure. Instead, ask the active page to redraw itself through its normal
+    // Shell/Reader pipeline.
+    _toastClearDirty = false;
+    if (!_toastDrawn || _state != _toastDrawState) {
         _toastDrawn = false;
         return false;
     }
-    auto& display = M5.Display;
-    if (display.displayBusy()) return false;
-    const int16_t y = SCREEN_HEIGHT - 84;
-    display.setEpdMode(epd_mode_t::epd_fastest);
-    display.fillRect(48, y, SCREEN_WIDTH - 96, 64, BG_LIGHT);
-    display.display(48, y, SCREEN_WIDTH - 96, 64);
-    _toastClearDirty = false;
+
     _toastDrawn = false;
+    if (isTabState(_state)) {
+        int tab = constrain(_activeTab, 0, 3);
+        _tabNeedsRender[tab] = true;
+    } else if (_state == AppState::READER && _reader.isOpen()) {
+        _reader.renderPage();
+    } else {
+        _pageNeedsRender = true;
+    }
     return true;
 }
 
@@ -1703,17 +1809,31 @@ void App::wakeUp() {
     Serial.println("[Sleep] Woken up");
     _lastActivityTime = millis();
     _sleepPending = false;
+    _pageNeedsRender = true;
+    _touchSuppressUntil = millis() + 300;
+    _touching = false;
+    _touchLongPressFired = false;
+    _touchConsumed = false;
+    _touchWaitRelease = true;
     
     M5.Touch.begin(&M5.Display);
     
     if (_state == AppState::READER && _reader.isOpen()) {
         _reader.renderPage();
     } else if (isTabState(_state)) {
-        _browser.render();
+        if (_activeTab < 0 || _activeTab > 3) _activeTab = 0;
+        _tabNeedsRender[_activeTab] = true;
+        switch (_activeTab) {
+            case 0: _state = AppState::TAB_READING; handleTabReading(); break;
+            case 1: _state = AppState::TAB_LIBRARY; handleTabLibrary(); break;
+            case 2: _state = AppState::TAB_TRANSFER; handleTabTransfer(); break;
+            case 3: _state = AppState::TAB_SETTINGS; handleTabSettings(); break;
+        }
     } else {
-        auto& display = uiDrawTarget();
-        display.clear();
-        display.display();
+        _state = AppState::TAB_READING;
+        _activeTab = 0;
+        _tabNeedsRender[0] = true;
+        handleTabReading();
     }
 }
 
@@ -2226,6 +2346,24 @@ static void drawCrosslinkStatusBar() {
     display.drawLine(20, 32, SCREEN_WIDTH - 20, 32, BORDER_LIGHT);
 }
 
+static bool ensureShellCanvas() {
+    if (gShellCanvas && gShellCanvas->getBuffer()) return true;
+    auto& display = M5.Display;
+    if (!gShellCanvas) {
+        gShellCanvas = new M5Canvas(&display);
+    }
+    if (!gShellCanvas) return false;
+    gShellCanvas->setPsram(true);
+    gShellCanvas->setColorDepth(4);
+    if (!gShellCanvas->createSprite(SCREEN_WIDTH, SCREEN_HEIGHT)) {
+        Serial.println("[Shell] Failed to allocate shell canvas");
+        delete gShellCanvas;
+        gShellCanvas = nullptr;
+        return false;
+    }
+    return true;
+}
+
 static void prepareShellFrame() {
     auto& display = M5.Display;
     // Do not block on every touch before drawing the next shell page. The EPD
@@ -2234,17 +2372,7 @@ static void prepareShellFrame() {
     display.powerSaveOff();
     display.setEpdMode(epd_mode_t::epd_fastest);
 
-    if (!gShellCanvas) {
-        gShellCanvas = new M5Canvas(&display);
-        if (gShellCanvas) {
-            gShellCanvas->setColorDepth(4);
-            if (!gShellCanvas->createSprite(SCREEN_WIDTH, SCREEN_HEIGHT)) {
-                Serial.println("[Shell] Failed to allocate shell canvas, falling back to direct draw");
-                delete gShellCanvas;
-                gShellCanvas = nullptr;
-            }
-        }
-    }
+    ensureShellCanvas();
 
     gShellFrameActive = (gShellCanvas != nullptr);
     UITheme::setDrawTarget(gShellFrameActive ? static_cast<LovyanGFX*>(gShellCanvas) : nullptr);
@@ -2253,8 +2381,31 @@ static void prepareShellFrame() {
     target.fillScreen(BG_LIGHT);
 }
 
-static void commitShellFrame() {
+static bool waitShellDisplayReady(uint32_t timeoutMs) {
     auto& display = M5.Display;
+    const uint32_t start = millis();
+    while (display.displayBusy() && millis() - start < timeoutMs) {
+        M5.update();
+        delay(8);
+        yield();
+    }
+    if (display.displayBusy()) {
+        Serial.printf("[Shell] EPD queue still busy after %lu ms; skip overlapping shell commit\n",
+                      (unsigned long)(millis() - start));
+        return false;
+    }
+    display.waitDisplay();
+    return true;
+}
+
+static bool commitShellFrame() {
+    gLastShellCommitOk = false;
+    auto& display = M5.Display;
+    if (!waitShellDisplayReady(3500)) {
+        UITheme::setDrawTarget(nullptr);
+        gShellFrameActive = false;
+        return false;
+    }
     // Draw the whole shell into an off-screen M5Canvas first, then push once.
     // Direct glyph drawing on PaperS3 visibly refreshes one character at a time
     // and later display commits can lose those glyph pixels.
@@ -2277,74 +2428,8 @@ static void commitShellFrame() {
         gShellFrameActive = false;
     }
     gShellCommitCount++;
-}
-
-static void commitTopTabsFeedback(int activeTab) {
-    auto& display = M5.Display;
-    if (display.displayBusy()) return;
-
-    bool oldFrameActive = gShellFrameActive;
-    gShellFrameActive = false;
-    UITheme::setDrawTarget(nullptr);
-
-    display.setEpdMode(epd_mode_t::epd_fastest);
-    display.fillRect(0, 0, SCREEN_WIDTH, TOP_TAB_H, BG_LIGHT);
-
-    char timeText[12];
-    formatStatusTime(timeText, sizeof(timeText));
-    drawUiText(22, 8, timeText, TEXT_MID, BG_LIGHT);
-#if BATTERY_ICON_ENABLED
-    BatteryInfo bat = BatteryInfo::read();
-    const int16_t iconX = SCREEN_WIDTH - 44;
-    const int16_t iconY = 10;
-    char batText[12];
-    if (bat.valid) {
-        snprintf(batText, sizeof(batText), "%d%%", bat.level);
-        drawUiTextRight(iconX - 10, 8, batText, TEXT_MID, BG_LIGHT);
-    }
-    display.drawRect(iconX, iconY + 2, 26, 13, TEXT_BLACK);
-    display.drawRect(iconX + 26, iconY + 6, 3, 5, TEXT_BLACK);
-    if (bat.valid) {
-        int fillW = (bat.level * 22) / 100;
-        if (fillW > 0) display.fillRect(iconX + 2, iconY + 4, fillW, 9, TEXT_BLACK);
-    }
-#endif
-    display.drawLine(20, 32, SCREEN_WIDTH - 20, 32, BORDER_LIGHT);
-
-    const char* tabs[] = {"阅读", "书架", "传输", "设置"};
-    const char* icons[] = {"book", "shelf", "send", "settings"};
-    int16_t gap = 8;
-    int16_t tabW = (SCREEN_WIDTH - 48 - gap * 3) / 4;
-    int16_t baseX = 24;
-    int16_t tabY = 50;
-    int16_t boxH = 32;
-    for (int i = 0; i < 4; i++) {
-        bool active = (i == activeTab);
-        int16_t boxX = baseX + i * (tabW + gap);
-        uint16_t c = active ? BG_WHITE : TEXT_MID;
-        uint16_t iconBg = active ? ACCENT : BG_LIGHT;
-        if (active) {
-            display.fillRoundRect(boxX, tabY, tabW, boxH, 8, ACCENT);
-            display.fillTriangle(boxX + tabW / 2 - 8, tabY + boxH, boxX + tabW / 2 + 8, tabY + boxH, boxX + tabW / 2, tabY + boxH + 7, ACCENT);
-        } else {
-            display.drawRoundRect(boxX, tabY, tabW, boxH, 8, BORDER_LIGHT);
-        }
-        int16_t labelW = uiTextWidth(tabs[i]);
-        const int16_t iconW = 30;
-        const int16_t innerGap = 7;
-        int16_t groupW = iconW + innerGap + labelW;
-        int16_t ix = boxX + (tabW - groupW) / 2;
-        int16_t iy = tabY + (boxH - iconW) / 2;
-        int16_t labelX = ix + iconW + innerGap;
-        int16_t labelY = tabY + (boxH - (gUiFont && gUiFont->isLoaded() ? gUiFont->getFontSize() : 16)) / 2 - 2;
-        drawSlotIcon(ix, iy, icons[i], c, iconBg);
-        drawUiText(labelX, labelY, tabs[i], active ? BG_WHITE : TEXT_MID, active ? ACCENT : BG_LIGHT);
-    }
-    display.drawLine(20, TOP_TAB_H - 1, SCREEN_WIDTH - 20, TOP_TAB_H - 1, BORDER_LIGHT);
-    display.display(0, 0, SCREEN_WIDTH, TOP_TAB_H);
-
-    gShellFrameActive = oldFrameActive;
-    UITheme::setDrawTarget((oldFrameActive && gShellCanvas) ? static_cast<LovyanGFX*>(gShellCanvas) : nullptr);
+    gLastShellCommitOk = true;
+    return true;
 }
 
 static void drawBackHeader(const char* title, const char* hint) {
@@ -2361,6 +2446,12 @@ static void drawBackHeader(const char* title, const char* hint) {
 
 
 void App::navigateBack() {
+    _pageNeedsRender = true;
+    _touchSuppressUntil = millis() + 180;
+    _touching = false;
+    _touchLongPressFired = false;
+    _touchConsumed = true;
+    _touchWaitRelease = true;
     switch (_state) {
         case AppState::SETTINGS_LAYOUT:
         case AppState::SETTINGS_REFRESH:
@@ -2447,6 +2538,12 @@ void App::renderBottomNav() {
 }
 
 void App::switchTab(int tab) {
+    _pageNeedsRender = true;
+    _touchSuppressUntil = millis() + 180;
+    _touching = false;
+    _touchLongPressFired = false;
+    _touchConsumed = true;
+    _touchWaitRelease = true;
     if (tab < 0) tab = 0;
     if (tab > 3) tab = 3;
     _activeTab = tab;
@@ -2471,8 +2568,8 @@ void App::handleTabReading() {
     static bool needsRender = true;
     if (!needsRender && !_tabNeedsRender[0]) return;
 
-    auto& display = uiDrawTarget();
     prepareShellFrame();
+    auto& display = uiDrawTarget();
     renderTopTabs();
 
     const int16_t x = contentLeft() - 2;
@@ -2564,9 +2661,10 @@ void App::handleTabReading() {
         drawUiTextCentered(cx, y, chipW, 38, chips[i], TEXT_BLACK);
     }
 
-    commitShellFrame();
-    needsRender = false;
-    _tabNeedsRender[0] = false;
+    if (commitShellFrame()) {
+        needsRender = false;
+        _tabNeedsRender[0] = false;
+    }
 }
 
 // ===== 📚 书架（Crosslink cover grid）=====
@@ -2574,8 +2672,8 @@ void App::handleTabLibrary() {
     static bool needsRender = true;
     if (!needsRender && !_tabNeedsRender[1]) return;
 
-    auto& display = uiDrawTarget();
     prepareShellFrame();
+    auto& display = uiDrawTarget();
     renderTopTabs();
 
     static bool libraryScanned = false;
@@ -2617,9 +2715,10 @@ void App::handleTabLibrary() {
         drawUiText(x + 66, actionY + 50, "请将 TXT / EPUB 放入 SD 卡 /books", TEXT_MID, BG_WHITE);
         UITheme::drawCard(x + w - 160, actionY + 66, 136, 38, BG_WHITE, BORDER);
         drawUiTextCentered(x + w - 160, actionY + 66, 136, 38, "打开SD卡", TEXT_BLACK);
-        commitShellFrame();
-        needsRender = false;
-        _tabNeedsRender[1] = false;
+        if (commitShellFrame()) {
+            needsRender = false;
+            _tabNeedsRender[1] = false;
+        }
         return;
     }
 
@@ -2638,9 +2737,10 @@ void App::handleTabLibrary() {
     snprintf(pageText, sizeof(pageText), "%d of %d", _libraryPage + 1, _libraryTotalPages);
     drawUiTextCentered(0, SCREEN_HEIGHT - 58, SCREEN_WIDTH, 30, pageText, TEXT_MID);
 
-    commitShellFrame();
-    needsRender = false;
-    _tabNeedsRender[1] = false;
+    if (commitShellFrame()) {
+        needsRender = false;
+        _tabNeedsRender[1] = false;
+    }
 }
 
 // ===== 🛜 传输中心（Crosslink status panel）=====
@@ -2702,9 +2802,10 @@ void App::handleTabTransfer() {
     drawUiText(x + 22, guideY + 14, "触摸提示", TEXT_BLACK, BG_WHITE);
     drawUiText(x + 22, guideY + 42, "点卡片执行；右滑返回子页面", TEXT_MID, BG_WHITE);
 
-    commitShellFrame();
-    needsRender = false;
-    _tabNeedsRender[2] = false;
+    if (commitShellFrame()) {
+        needsRender = false;
+        _tabNeedsRender[2] = false;
+    }
 }
 
 // ===== ⚙️ 设置页（full-height Crosslink settings）=====
@@ -2738,7 +2839,7 @@ void App::handleTabSettings() {
         {"阅读", "正文字体", _fontCount > 0 ? _fontNames[0] : "内置字体", "字号", "小    中    大", false, true},
         {"版式", "对齐方式", "左    中    右    齐", "刷新策略", rs.getLabel(), true, false},
         {"连接", "WiFi配置", _wifiConfigured ? _wifiSsid : "未配置", "Legado同步", _legadoConfigured ? _legadoHost : "未配置", false, false},
-        {"系统", "休眠时间", sleepText, "关于", "Vink-PaperS3 / v0.2.13", false, false},
+        {"系统", "休眠时间", sleepText, "关于", "Vink-PaperS3 / v0.2.15", false, false},
     };
 
     const int cardGap = 14;
@@ -2779,24 +2880,19 @@ void App::handleTabSettings() {
     // leaving a visually accidental blank area.
     drawUiTextCentered(0, SCREEN_HEIGHT - 42, SCREEN_WIDTH, 24, "右滑返回 · 点击条目进入", TEXT_MID);
 
-    commitShellFrame();
-    needsRender = false;
-    _tabNeedsRender[3] = false;
+    if (commitShellFrame()) {
+        needsRender = false;
+        _tabNeedsRender[3] = false;
+    }
 }
 
 // ===== 阅读弹出菜单（半透明遮罩）=====
 void App::handleReaderMenu() {
-    auto& display = uiDrawTarget();
-    
-    // 如果菜单已经显示过，不需要重绘（底层阅读页还在）
-    // 这里只做一次性绘制
-    
-    // 半透明遮罩（墨水屏模拟：用浅灰填充区域）
-    display.fillRect(100, 60, SCREEN_WIDTH - 200, SCREEN_HEIGHT - 120, BG_LIGHT);
-    UITheme::drawCard(100, 60, SCREEN_WIDTH - 200, SCREEN_HEIGHT - 120, BG_WHITE, BORDER);
-    
-    drawUiTextCentered(100, 75, SCREEN_WIDTH - 200, 32, "菜单", TEXT_BLACK);
-    
+    prepareShellFrame();
+    drawBackHeader("阅读菜单", "点 < / 右滑返回阅读");
+
+    const int16_t x = contentLeft();
+    const int16_t w = contentWidth();
     const char* items[] = {
         "章节目录",
         "添加书签",
@@ -2811,28 +2907,24 @@ void App::handleReaderMenu() {
         "返回书架",
         "关闭设备"
     };
-    int numItems = 12;
-    
-    display.setTextSize(1);
+    const int numItems = 12;
+    const int rowH = 50;
+    const int gap = 8;
+    int y = 106;
     for (int i = 0; i < numItems; i++) {
-        int y = 110 + i * 32;
-        int rowX = 120;
-        int rowY = y - 2;
-        int rowW = SCREEN_WIDTH - 240;
-        int rowH = 28;
-        if (i == _menuIndex) {
-            display.fillRoundRect(rowX, rowY, rowW, rowH, 6, BG_MID);
-        }
-        drawUiTextCentered(rowX, rowY, rowW, rowH, items[i], i == _menuIndex ? TEXT_BLACK : TEXT_DARK);
+        uint16_t border = (i == _menuIndex) ? ACCENT : BORDER_LIGHT;
+        UITheme::drawCard(x, y, w, rowH, BG_WHITE, border);
+        drawUiText(x + 18, y + 14, items[i], i == _menuIndex ? TEXT_BLACK : TEXT_DARK, BG_WHITE);
+        if (i == _menuIndex) drawUiTextRight(x + w - 18, y + 14, "当前", TEXT_MID, BG_WHITE);
+        y += rowH + gap;
+        if (y > SCREEN_HEIGHT - 70) break;
     }
-    display.setTextColor(TEXT_BLACK, BG_LIGHT);
-    
-    display.display();
+    drawUiTextCentered(0, SCREEN_HEIGHT - 44, SCREEN_WIDTH, 24, "上下滑选择 · 点击执行", TEXT_MID);
+    commitShellFrame();
 }
 
 // ===== 排版设置（卡片式 + 滑块）=====
 void App::handleSettingsLayout() {
-    auto& display = uiDrawTarget();
     prepareShellFrame();
     drawBackHeader("排版设置", "点 < / 右滑 / 上滑返回");
 
@@ -2859,7 +2951,6 @@ void App::handleSettingsLayout() {
 
 // ===== 残影控制（胶囊开关式）=====
 void App::handleSettingsRefresh() {
-    auto& display = uiDrawTarget();
     prepareShellFrame();
     drawBackHeader("刷新策略", "点击档位切换，点 < 返回");
 
@@ -2885,7 +2976,6 @@ void App::handleSettingsRefresh() {
 
 // ===== 字体切换（列表式）=====
 void App::handleSettingsFont() {
-    auto& display = uiDrawTarget();
     prepareShellFrame();
     drawBackHeader("正文字体", "仅影响阅读正文，点 < 返回");
 

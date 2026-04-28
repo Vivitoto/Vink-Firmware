@@ -46,15 +46,19 @@ private:
     char _toastText[96];
     bool _shutdownInProgress;
     bool _sdReady;
+    bool _pageNeedsRender;
+    AppState _lastRenderedState;
     unsigned long _powerButtonPressStart;
     
     // 触摸状态
     bool _touching;
     bool _touchLongPressFired;
     bool _touchConsumed;
+    bool _touchWaitRelease;
     int _touchStartX, _touchStartY;
     int _touchLastX, _touchLastY;
     unsigned long _touchStartTime;
+    unsigned long _touchSuppressUntil;
     
     // 菜单状态
     int _menuIndex;           // 主菜单选中项

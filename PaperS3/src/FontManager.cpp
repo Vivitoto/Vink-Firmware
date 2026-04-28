@@ -136,9 +136,11 @@ bool FontManager::loadBuiltinFont() {
     }
 
     size_t indexSize = _header_1bpp.charCount * sizeof(CharIndex_1bpp);
-    _index_1bpp = (CharIndex_1bpp*)heap_caps_malloc(indexSize, MALLOC_CAP_SPIRAM);
+    // Built-in fallback is small and is used by Shell/UI; keep its index in
+    // internal RAM first so full-screen PSRAM canvas churn cannot corrupt UI text.
+    _index_1bpp = (CharIndex_1bpp*)heap_caps_malloc(indexSize, MALLOC_CAP_INTERNAL);
     if (!_index_1bpp) {
-        _index_1bpp = (CharIndex_1bpp*)heap_caps_malloc(indexSize, MALLOC_CAP_INTERNAL);
+        _index_1bpp = (CharIndex_1bpp*)heap_caps_malloc(indexSize, MALLOC_CAP_SPIRAM);
     }
     if (!_index_1bpp) {
         Serial.println("[Font] Failed to alloc builtin index");
@@ -147,9 +149,9 @@ bool FontManager::loadBuiltinFont() {
     }
     memcpy_P(_index_1bpp, BUILTIN_FONT_INDEX, indexSize);
 
-    _bitmapBuffer = (uint8_t*)heap_caps_malloc(512, MALLOC_CAP_SPIRAM);
+    _bitmapBuffer = (uint8_t*)heap_caps_malloc(512, MALLOC_CAP_INTERNAL);
     if (!_bitmapBuffer) {
-        _bitmapBuffer = (uint8_t*)heap_caps_malloc(512, MALLOC_CAP_INTERNAL);
+        _bitmapBuffer = (uint8_t*)heap_caps_malloc(512, MALLOC_CAP_SPIRAM);
     }
     if (!_bitmapBuffer) {
         Serial.println("[Font] Failed to alloc builtin bitmap buffer");
@@ -172,7 +174,8 @@ bool FontManager::loadBitmapFont() {
         return false;
     }
     
-    if (strncmp(_header_1bpp.magic, "FNT", 3) != 0 || _header_1bpp.charCount == 0) {
+    if (strncmp(_header_1bpp.magic, "FNT", 3) != 0 || _header_1bpp.version != 1 ||
+        _header_1bpp.charCount == 0 || _header_1bpp.charCount > 20000) {
         Serial.println("[Font] Invalid 1bpp header");
         _file.close();
         return false;
@@ -180,6 +183,13 @@ bool FontManager::loadBitmapFont() {
 
     // 在 PSRAM 中分配索引表
     size_t indexSize = _header_1bpp.charCount * sizeof(CharIndex_1bpp);
+    size_t fileSize = _file.size();
+    size_t dataStart = sizeof(FontHeader_1bpp) + indexSize;
+    if (dataStart >= fileSize) {
+        Serial.println("[Font] Invalid 1bpp file size");
+        _file.close();
+        return false;
+    }
     _index_1bpp = (CharIndex_1bpp*)heap_caps_malloc(indexSize, MALLOC_CAP_SPIRAM);
     if (!_index_1bpp) {
         Serial.println("[Font] Failed to alloc 1bpp index in PSRAM");
@@ -194,6 +204,18 @@ bool FontManager::loadBitmapFont() {
         return false;
     }
     
+    for (uint32_t i = 0; i < _header_1bpp.charCount; ++i) {
+        const CharIndex_1bpp& ci = _index_1bpp[i];
+        size_t bitmapSize = ((ci.width + 7) / 8) * ci.height;
+        if (ci.width == 0 || ci.height == 0 || ci.width > 80 || ci.height > 80 ||
+            bitmapSize == 0 || bitmapSize > 512 || ci.offset < dataStart ||
+            (size_t)ci.offset + bitmapSize > fileSize) {
+            Serial.printf("[Font] Invalid 1bpp glyph index at %u\n", (unsigned)i);
+            unload();
+            return false;
+        }
+    }
+
     // 分配临时点阵缓冲区（最大支持 64x64 = 512 bytes for 1bpp）
     _bitmapBuffer = (uint8_t*)heap_caps_malloc(512, MALLOC_CAP_SPIRAM);
     if (!_bitmapBuffer) {
@@ -217,7 +239,9 @@ bool FontManager::loadGrayFont() {
         return false;
     }
     
-    if (strncmp(_header_gray.magic, "GRAY", 4) != 0 || _header_gray.charCount == 0) {
+    if (strncmp(_header_gray.magic, "GRAY", 4) != 0 || _header_gray.version != 1 ||
+        _header_gray.charCount == 0 || _header_gray.charCount > 20000 ||
+        _header_gray.bitmapSize == 0) {
         Serial.println("[Font] Invalid gray header");
         _file.close();
         return false;
@@ -225,6 +249,13 @@ bool FontManager::loadGrayFont() {
 
     // 在 PSRAM 中分配索引表
     size_t indexSize = _header_gray.charCount * sizeof(CharIndex_gray);
+    size_t fileSize = _file.size();
+    size_t dataStart = sizeof(FontHeader_gray) + indexSize;
+    if (dataStart >= fileSize || dataStart + _header_gray.bitmapSize != fileSize) {
+        Serial.println("[Font] Invalid gray file size");
+        _file.close();
+        return false;
+    }
     _index_gray = (CharIndex_gray*)heap_caps_malloc(indexSize, MALLOC_CAP_SPIRAM);
     if (!_index_gray) {
         Serial.println("[Font] Failed to alloc gray index in PSRAM");
@@ -239,6 +270,19 @@ bool FontManager::loadGrayFont() {
         return false;
     }
     
+    for (uint32_t i = 0; i < _header_gray.charCount; ++i) {
+        const CharIndex_gray& ci = _index_gray[i];
+        size_t rowBytes = (ci.width + 1) / 2;
+        size_t bitmapSize = rowBytes * ci.height;
+        if (ci.width == 0 || ci.height == 0 || ci.width > 96 || ci.height > 96 ||
+            ci.advance > 96 || bitmapSize == 0 || bitmapSize > 2048 ||
+            ci.offset < dataStart || (size_t)ci.offset + bitmapSize > fileSize) {
+            Serial.printf("[Font] Invalid gray glyph index at %u\n", (unsigned)i);
+            unload();
+            return false;
+        }
+    }
+
     // 分配临时点阵缓冲区（最大支持 64x64 4bpp = 2048 bytes）
     _bitmapBuffer = (uint8_t*)heap_caps_malloc(2048, MALLOC_CAP_SPIRAM);
     if (!_bitmapBuffer) {
@@ -371,14 +415,20 @@ const uint8_t* FontManager::getCharBitmap(uint32_t unicode, uint8_t& outWidth, u
     outWidth = ci.width;
     outHeight = ci.height;
     
+    if (ci.width == 0 || ci.height == 0 || ci.width > 80 || ci.height > 80) {
+        outWidth = 0; outHeight = 0; return nullptr;
+    }
     size_t bitmapSize = ((ci.width + 7) / 8) * ci.height;
-    if (bitmapSize > 512) bitmapSize = 512; // 安全检查
+    if (bitmapSize == 0 || bitmapSize > 512) {
+        outWidth = 0; outHeight = 0; return nullptr;
+    }
     
     if (_builtinLoaded) {
         memcpy_P(_bitmapBuffer, _builtinBitmapData + ci.offset, bitmapSize);
     } else {
-        _file.seek(ci.offset);
-        _file.read(_bitmapBuffer, bitmapSize);
+        if (!_file.seek(ci.offset) || _file.read(_bitmapBuffer, bitmapSize) != bitmapSize) {
+            outWidth = 0; outHeight = 0; return nullptr;
+        }
     }
     
     return _bitmapBuffer;
@@ -408,13 +458,19 @@ const uint8_t* FontManager::getCharBitmapGray(uint32_t unicode, uint8_t& outWidt
     outBearingY = ci.bearingY;
     outAdvance = ci.advance;
     
+    if (ci.width == 0 || ci.height == 0 || ci.width > 96 || ci.height > 96 || ci.advance > 96) {
+        outWidth = 0; outHeight = 0; outBearingX = outBearingY = outAdvance = 0; return nullptr;
+    }
     // 4bpp: 每行字节数 = (width + 1) / 2
     size_t rowBytes = (ci.width + 1) / 2;
     size_t bitmapSize = rowBytes * ci.height;
-    if (bitmapSize > 2048) bitmapSize = 2048; // 安全检查
+    if (bitmapSize == 0 || bitmapSize > 2048) {
+        outWidth = 0; outHeight = 0; outBearingX = outBearingY = outAdvance = 0; return nullptr;
+    }
     
-    _file.seek(ci.offset);
-    _file.read(_bitmapBuffer, bitmapSize);
+    if (!_file.seek(ci.offset) || _file.read(_bitmapBuffer, bitmapSize) != bitmapSize) {
+        outWidth = 0; outHeight = 0; outBearingX = outBearingY = outAdvance = 0; return nullptr;
+    }
     
     return _bitmapBuffer;
 }

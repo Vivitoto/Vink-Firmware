@@ -5,6 +5,32 @@
   "description": "面向 M5Stack PaperS3 的 Vink 电子书阅读固件。",
   "releases": [
     {
+      "version": "v0.2.15",
+      "name": "Vink-PaperS3 v0.2.15 连点卡死修复",
+      "summary": "基于 v0.2.14 修复多次点击后 UI 字体变乱码/消失、页面卡死的问题：Shell UI 改用 PROGMEM 内置安全字体，撤出 SPIFFS 灰度字库路径；Shell 全屏提交改为物理 EPD 串行；提交失败不再清除页面 dirty 标记，并修复 canvas/direct display 混用风险。",
+      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.2.15",
+      "changelog": "### 显示与字体稳定性修复\n- 修复 v0.2.14 多次点击后可能出现 UI 字变成密集条纹/乱码、文字消失、页面卡住的问题。\n- Shell/UI 文本不再使用 SPIFFS 文件背后的灰度字库，改为 PROGMEM 内置 1bpp 安全字体，避免文件 seek/read 或 PSRAM 字形缓存异常影响系统 UI。\n- 内置 UI 字体索引和临时字形缓冲优先放入 internal RAM，减少全屏 PSRAM Canvas 刷新时的状态污染风险。\n- FontManager 增加字库头、索引、glyph offset/size 和实际 read length 校验；读不到完整字形时直接跳过，不再复用旧 `_bitmapBuffer` 导致乱码。\n- Shell 全屏提交前不只检查 `displayBusy()`，还调用 `waitDisplay()` 等待真实 e-paper 刷新完成，避免物理面板仍忙时继续提交。\n- `commitShellFrame()` 改为返回提交是否成功；若 EPD 忙导致本帧未提交，不清除 tab dirty 标记，下一轮继续重绘，避免“看起来卡死在旧页面”。\n- 移除顶部 Tab touch-down 的局部刷新函数，避免局部 Tab commit 与随后全屏 commit 重叠。\n- 修复部分页面在 `prepareShellFrame()` 前拿到 draw target 引用，导致少量线条可能画到实体 display 而非 canvas 的混用风险。\n- Toast 局部显示/清除也补充 `waitDisplay()`，避免提示条局部刷新和 Shell 全屏刷新交错。\n- Toast 清除不再用白块局部擦除底部区域，改为标记当前页面/Reader 重绘，避免擦掉底层卡片或文字。\n- 全屏 `showMessage()` 强制走实体 display 并在提交前等待 EPD，不再受当前 Shell Canvas target 影响。\n- 阅读菜单从旧式 direct display 覆盖层改成 Shell Canvas 全页菜单，移除最后一个容易混入 Shell 的旧直刷 UI 入口。\n- 唤醒后不再调用旧 `FileBrowser::render()` 直刷页面，改为恢复当前 Tab 并走 Shell Canvas 渲染。\n- 旧 `FILE_BROWSER` 兼容路径里的目录切换/滑动刷新不再调用 `_browser.render()`，避免遗留直刷代码被误触发。\n- 关于页 toast 版本号修正为 `v0.2.15`。\n\n### 沿用 v0.2.14\n- 保留启动阶段非阻塞修复、SD 状态保护、延后书库/字体扫描、SPIFFS 非格式化挂载。\n- 保留 v0.2.13 的 Reader Canvas、正文排版和分页缓存优化。\n- 参考 Crosspoint / PaperS3 Dashboard 的触摸转场处理，新增 Tab/返回/唤醒后的短暂触摸抑制，避免同一次手指 release 被新页面误判为点击。\n- 子菜单页新增统一 dirty 渲染门闩：阅读菜单、章节、书签、跳转、设置子页等不再每 8ms 重复整屏提交，避免菜单打开后 EPD 一直忙导致触摸慢/假卡。\n- Shell Canvas 提前在显示初始化阶段预分配，降低首次进入菜单时因 PSRAM 碎片导致 canvas 分配失败并退回直画的风险。\n- Toast 消失时对子页面显式标记重绘，配合一次性渲染门闩恢复底图。\n- 转场触摸抑制升级为“冷却时间 + 等待手指完全抬起”，避免长按超过冷却时间后同一根手指 release 被新页面误判为点击。\n",
+      "assets": {
+        "full": {
+          "name": "Vink-PaperS3-v0.2.15-shell-commit-guard-full-16MB.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.2.15/Vink-PaperS3-v0.2.15-shell-commit-guard-full-16MB.bin",
+          "size": 16777216,
+          "flashOffset": 0
+        },
+        "ota": {
+          "name": "Vink-PaperS3-v0.2.15-shell-commit-guard-ota.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.2.15/Vink-PaperS3-v0.2.15-shell-commit-guard-ota.bin",
+          "size": 1901120,
+          "flashOffset": 65536
+        },
+        "spiffs": {
+          "name": "Vink-PaperS3-v0.2.15-shell-commit-guard-spiffs.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.2.15/Vink-PaperS3-v0.2.15-shell-commit-guard-spiffs.bin",
+          "size": 4128768
+        }
+      }
+    },
+    {
       "version": "v0.2.14",
       "name": "Vink-PaperS3 v0.2.14 启动卡住修复",
       "summary": "基于 v0.2.13 修复 PaperS3 刷写后反复停留/刷新启动诊断页的问题：移除启动阶段阻塞式 e-paper 提交，延后书库/字体扫描到 UI 之后，启动配置读取受 SD 状态保护，并避免 SPIFFS 失败时自动格式化。",
