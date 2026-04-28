@@ -1,10 +1,47 @@
 #include "StateMachine.h"
 #include "../display/DisplayService.h"
+#include "../sync/LegadoService.h"
 #include "../ui/VinkUiRenderer.h"
 
 namespace vink3 {
 
 StateMachine g_stateMachine;
+
+namespace {
+SystemState tabStateForAction(UiAction action) {
+    switch (action) {
+        case UiAction::TabReader: return SystemState::Reader;
+        case UiAction::TabLibrary: return SystemState::Library;
+        case UiAction::TabTransfer: return SystemState::Transfer;
+        case UiAction::TabSettings: return SystemState::Settings;
+        default: return SystemState::Home;
+    }
+}
+
+void renderState(SystemState state) {
+    switch (state) {
+        case SystemState::Home:
+        case SystemState::Reader:
+            g_uiRenderer.renderReaderHome();
+            break;
+        case SystemState::Library:
+            g_uiRenderer.renderLibrary();
+            break;
+        case SystemState::Transfer:
+            g_uiRenderer.renderTransfer();
+            break;
+        case SystemState::Settings:
+            g_uiRenderer.renderSettings();
+            break;
+        case SystemState::LegadoSync:
+            g_uiRenderer.renderLegadoSync("Legado sync service ready");
+            break;
+        default:
+            g_uiRenderer.renderHome(state);
+            break;
+    }
+}
+} // namespace
 
 bool StateMachine::begin(uint8_t queueLen) {
     if (!queue_) {
@@ -47,33 +84,97 @@ void StateMachine::taskLoop() {
 void StateMachine::handle(const Message& message) {
     switch (message.type) {
         case MessageType::BootComplete:
-            state_ = SystemState::Home;
-            g_uiRenderer.renderHome(state_);
+            state_ = SystemState::Reader;
+            renderState(state_);
             g_displayService.enqueueFull(false, 100);
             break;
 
         case MessageType::Tap:
-            // Initial v0.3 Vink shell hit zones. This is deliberately simple; the
-            // important part is ReadPaper-style state ownership rather than UI-loop mutation.
-            if (state_ == SystemState::Home) {
-                if (message.touch.y >= 408 && message.touch.y < 520) {
+        {
+            const UiAction action = g_uiRenderer.hitTest(state_, message.touch.x, message.touch.y);
+            switch (action) {
+                case UiAction::TabReader:
+                case UiAction::TabLibrary:
+                case UiAction::TabTransfer:
+                case UiAction::TabSettings:
+                    state_ = tabStateForAction(action);
+                    renderState(state_);
+                    g_displayService.enqueueFull(false, 100);
+                    break;
+
+                case UiAction::OpenLibrary:
+                    state_ = SystemState::Library;
+                    renderState(state_);
+                    g_displayService.enqueueFull(false, 100);
+                    break;
+
+                case UiAction::OpenTransfer:
+                    state_ = SystemState::Transfer;
+                    renderState(state_);
+                    g_displayService.enqueueFull(false, 100);
+                    break;
+
+                case UiAction::OpenSettings:
+                    state_ = SystemState::Settings;
+                    renderState(state_);
+                    g_displayService.enqueueFull(false, 100);
+                    break;
+
+                case UiAction::StartLegadoSync:
+                {
+                    // Keep the ReadPaper-like event path: UI hit-test creates an action,
+                    // state posts a service-level sync message, service reports result.
                     state_ = SystemState::LegadoSync;
-                    g_uiRenderer.renderLegadoSync("Legado sync service ready");
-                } else {
-                    g_uiRenderer.renderHome(state_);
+                    g_uiRenderer.renderLegadoSync("Starting Legado sync...");
+                    g_displayService.enqueueFull(false, 100);
+                    Message start;
+                    start.type = MessageType::LegadoSyncStart;
+                    start.timestampMs = millis();
+                    post(start, 20);
+                    break;
                 }
-                g_displayService.enqueueFull(false, 100);
-            } else {
-                state_ = SystemState::Home;
-                g_uiRenderer.renderHome(state_);
-                g_displayService.enqueueFull(false, 100);
+
+                case UiAction::OpenCurrentBook:
+                    state_ = SystemState::Reader;
+                    g_uiRenderer.renderReaderHome();
+                    g_displayService.enqueueFull(false, 100);
+                    break;
+
+                case UiAction::BackHome:
+                case UiAction::None:
+                default:
+                    break;
             }
+            break;
+        }
+
+        case MessageType::SwipeLeft:
+            if (state_ == SystemState::Reader) state_ = SystemState::Library;
+            else if (state_ == SystemState::Library) state_ = SystemState::Transfer;
+            else if (state_ == SystemState::Transfer) state_ = SystemState::Settings;
+            renderState(state_);
+            g_displayService.enqueueFull(false, 100);
+            break;
+
+        case MessageType::SwipeRight:
+            if (state_ == SystemState::Settings) state_ = SystemState::Transfer;
+            else if (state_ == SystemState::Transfer) state_ = SystemState::Library;
+            else if (state_ == SystemState::Library) state_ = SystemState::Reader;
+            renderState(state_);
+            g_displayService.enqueueFull(false, 100);
             break;
 
         case MessageType::LegadoSyncStart:
             state_ = SystemState::LegadoSync;
             g_uiRenderer.renderLegadoSync("Syncing reading progress...");
             g_displayService.enqueueFull(false, 100);
+            // Placeholder until real HTTP API integration; keep result asynchronous via state message.
+            {
+                Message done;
+                done.type = MessageType::LegadoSyncDone;
+                done.timestampMs = millis();
+                post(done, 20);
+            }
             break;
 
         case MessageType::LegadoSyncDone:

@@ -350,3 +350,19 @@ Next port work should move beyond the scaffold into the larger ReadPaper subsyst
 2. Port/adapt latest `src/text/bin_font_print.*`, `font_decoder.*`, `font_buffer.*`, `font_color_mapper.*`, and `zh_conv.*` into a Vink text engine instead of keeping the old Vink built-in font path.
 3. Port the latest ReadPaper book/page pipeline only after the font engine is stable.
 4. Integrate Legado progress sync on top of Vink reader events, not inside UI drawing.
+
+## 2026-04-28 UI / Click Logic Rebuild Note
+
+The first v0.3 Vink shell has been restructured to make UI refactoring closer to ReadPaper's existing click model:
+
+- `VinkUiRenderer` now owns both layout and hit-testing through `UiAction hitTest(SystemState, x, y)`.
+- `StateMachine` no longer hard-codes raw UI rectangles directly. It asks the renderer for a semantic `UiAction`, then changes state or starts a service.
+- Top-level shell now has four tabs: Reader, Library, Transfer/Sync, Settings.
+- Swipe left/right cycles tabs through the state machine.
+- Legado starts from a UI action and reports through state-machine messages, keeping service logic out of UI drawing.
+
+Difficulty assessment:
+
+- UI shell refactor itself is moderate/low difficulty now that layout + hit-test are centralized.
+- Reusing ReadPaper's click logic is practical at the state-handler/action level, not by copying its exact UI coordinates.
+- The harder parts are below/behind the UI: robust CJK font rendering, book/page pipeline, and true Legado progress conflict handling.
