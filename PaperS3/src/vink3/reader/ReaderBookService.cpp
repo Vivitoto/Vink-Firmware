@@ -62,12 +62,17 @@ void ReaderBookService::setTitleFromPath(const char* path) {
 }
 
 void ReaderBookService::getTocCachePath(char* out, size_t len) const {
-    uint32_t hash = 2166136261UL;
-    for (const char* p = bookPath_; p && *p; ++p) {
-        hash ^= static_cast<uint8_t>(*p);
-        hash *= 16777619UL;
+    // Keep generated TOC next to the book for easier file management:
+    //   /books/foo.txt -> /books/foo.vink-toc
+    // Use the original book path, not the temporary UTF-8 conversion path.
+    strlcpy(out, bookPath_, len);
+    char* slash = strrchr(out, '/');
+    char* dot = strrchr(out, '.');
+    if (dot && (!slash || dot > slash)) {
+        strlcpy(dot, ".vink-toc", len - static_cast<size_t>(dot - out));
+    } else {
+        strlcat(out, ".vink-toc", len);
     }
-    snprintf(out, len, "%s/v3toc_%08lx.cache", PROGRESS_DIR, static_cast<unsigned long>(hash));
 }
 
 bool ReaderBookService::loadTocCache() {

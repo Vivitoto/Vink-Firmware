@@ -150,7 +150,7 @@ def vink3_source_invariants(main_cpp: str) -> None:
     assert_contains(reader_book_cpp, "ReaderBookService", "v0.3 has reader book service for opening TXT books")
     assert_contains(reader_book_cpp, "ChapterDetector", "reader book service detects TXT table of contents")
     assert_contains(reader_book_cpp, "TextCodec::convertToUTF8", "reader book service converts GBK TXT before TOC detection")
-    assert_contains(reader_book_cpp, "v3toc_", "reader book service caches generated TOC")
+    assert_contains(reader_book_cpp, ".vink-toc", "reader book service stores TOC cache beside the source book")
     assert_contains(full_font_h, "g_readpaper_full_font_data", "v0.3 full ReadPaper font is compiled as PROGMEM")
     assert_contains(partitions_csv, "0xC00000", "v0.3 partition table has a large single app slot for full ReadPaper font")
     assert_not_contains(partitions_csv, "app1", "v0.3 partition table drops dual OTA app1 to fit full ReadPaper font")
