@@ -1,5 +1,6 @@
 #include "VinkUiRenderer.h"
 #include "../ReadPaper176.h"
+#include "../text/CjkTextRenderer.h"
 
 namespace vink3 {
 
@@ -39,6 +40,7 @@ bool inRect(int16_t x, int16_t y, int16_t rx, int16_t ry, int16_t rw, int16_t rh
 bool VinkUiRenderer::begin(M5Canvas* canvas) {
     if (!canvas) return false;
     canvas_ = canvas;
+    g_cjkText.begin(canvas_);
     return true;
 }
 
@@ -51,12 +53,8 @@ void VinkUiRenderer::clear() {
 void VinkUiRenderer::drawStatusBar(const char* title) {
     canvas_->fillRect(0, 0, kPaperS3Width, kStatusH, TFT_WHITE);
     canvas_->drawFastHLine(kMargin, kStatusH - 1, kPaperS3Width - kMargin * 2, TFT_BLACK);
-    canvas_->setTextDatum(middle_left);
-    canvas_->setTextSize(2);
-    canvas_->drawString(title ? title : "Vink", kMargin, 32);
-    canvas_->setTextDatum(middle_right);
-    canvas_->setTextSize(1);
-    canvas_->drawString("v0.3.0", kPaperS3Width - kMargin, 32);
+    g_cjkText.drawText(kMargin, 22, title ? title : "Vink", TFT_BLACK);
+    g_cjkText.drawRight(kPaperS3Width - kMargin, 22, "v0.3.0", kGrayText);
 }
 
 void VinkUiRenderer::drawTabs(SystemState active) {
@@ -73,8 +71,7 @@ void VinkUiRenderer::drawTabs(SystemState active) {
             canvas_->drawRoundRect(x, kTabsY, kTabW, kTabsH, 16, TFT_BLACK);
             canvas_->setTextColor(TFT_BLACK, fill);
         }
-        canvas_->setTextDatum(middle_center);
-        canvas_->drawString(kTabs[i].label, x + kTabW / 2, kTabsY + kTabsH / 2);
+        g_cjkText.drawCentered(x, kTabsY, kTabW, kTabsH, kTabs[i].label, selected ? TFT_WHITE : TFT_BLACK);
     }
     canvas_->setTextColor(TFT_BLACK, TFT_WHITE);
 }
@@ -83,40 +80,26 @@ void VinkUiRenderer::drawCard(int16_t x, int16_t y, int16_t w, int16_t h, const 
     const uint16_t fill = ((y / 100) % 2 == 0) ? kGrayLight : kGrayMid;
     canvas_->fillRoundRect(x, y, w, h, 18, fill);
     canvas_->drawRoundRect(x, y, w, h, 18, TFT_BLACK);
-    canvas_->setTextDatum(top_left);
-    canvas_->setTextSize(2);
-    canvas_->drawString(title ? title : "", x + 22, y + 18);
-    canvas_->setTextSize(1);
+    g_cjkText.drawText(x + 22, y + 18, title ? title : "", TFT_BLACK);
     if (body && body[0]) {
-        canvas_->setTextColor(kGrayText, fill);
-        canvas_->drawString(body, x + 22, y + 58);
-        canvas_->setTextColor(TFT_BLACK, TFT_WHITE);
+        g_cjkText.drawText(x + 22, y + 58, body, kGrayText);
     }
 }
 
 void VinkUiRenderer::drawButton(int16_t x, int16_t y, int16_t w, int16_t h, const char* label) {
     canvas_->drawRoundRect(x, y, w, h, h / 2, TFT_BLACK);
-    canvas_->setTextDatum(middle_center);
-    canvas_->setTextSize(1);
-    canvas_->drawString(label ? label : "", x + w / 2, y + h / 2);
+    g_cjkText.drawCentered(x, y, w, h, label ? label : "", TFT_BLACK);
 }
 
 void VinkUiRenderer::drawFooterHint(const char* hint) {
-    canvas_->setTextDatum(middle_center);
-    canvas_->setTextSize(1);
-    canvas_->setTextColor(kGrayText, TFT_WHITE);
-    canvas_->drawString(hint ? hint : "点击标签或卡片", kPaperS3Width / 2, kPaperS3Height - 28);
-    canvas_->setTextColor(TFT_BLACK, TFT_WHITE);
+    g_cjkText.drawCentered(0, kPaperS3Height - 42, kPaperS3Width, 28, hint ? hint : "点击标签或卡片", kGrayText);
 }
 
 void VinkUiRenderer::renderBoot() {
     if (!canvas_) return;
     clear();
-    canvas_->setTextDatum(middle_center);
-    canvas_->setTextSize(3);
-    canvas_->drawString("Vink", 270, 410);
-    canvas_->setTextSize(1);
-    canvas_->drawString("v0.3.0 · ReadPaper V1.7.6 底层", 270, 470);
+    g_cjkText.drawCentered(0, 390, kPaperS3Width, 48, "Vink", TFT_BLACK);
+    g_cjkText.drawCentered(0, 460, kPaperS3Width, 28, "v0.3.0 · ReadPaper V1.7.6 底层", kGrayText);
 }
 
 void VinkUiRenderer::renderHome(SystemState state) {
@@ -149,9 +132,7 @@ void VinkUiRenderer::renderLibrary() {
             const int16_t y = kContentY + row * 150;
             canvas_->fillRoundRect(x, y, 130, 118, 12, (row + col) % 2 == 0 ? kGrayMid : kGrayLight);
             canvas_->drawRoundRect(x, y, 130, 118, 12, TFT_BLACK);
-            canvas_->setTextDatum(middle_center);
-            canvas_->setTextSize(1);
-            canvas_->drawString("书籍", x + 65, y + 59);
+            g_cjkText.drawCentered(x, y, 130, 118, "书籍", TFT_BLACK);
         }
     }
     drawCard(28, 648, 484, 132, "书架来源", "SD / 最近阅读 / Legado 远程书架");

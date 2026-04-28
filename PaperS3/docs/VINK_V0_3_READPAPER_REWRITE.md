@@ -366,3 +366,25 @@ Difficulty assessment:
 - UI shell refactor itself is moderate/low difficulty now that layout + hit-test are centralized.
 - Reusing ReadPaper's click logic is practical at the state-handler/action level, not by copying its exact UI coordinates.
 - The harder parts are below/behind the UI: robust CJK font rendering, book/page pipeline, and true Legado progress conflict handling.
+
+## 2026-04-28 CJK UI Text Gate
+
+The v0.3 UI is Simplified Chinese, so it must not depend on M5GFX `drawString()` for Chinese labels.
+
+Findings from ReadPaper V1.7.6 font analysis:
+
+- Full ReadPaper `src/text/lite.cpp` embeds a generated font of about 7.3MB (`g_progmem_font_size = 7342411`).
+- Current Vink PaperS3 OTA app slot is `0x600000` (6MB), so the full ReadPaper PROGMEM font cannot fit without changing the partition/release strategy.
+- Full `lite.bin` also does not fit the current ~4MB SPIFFS partition.
+- Therefore the safe path is staged:
+  1. UI text first: use a small bundled CJK bitmap renderer and ban `drawString()` in `VinkUiRenderer`.
+  2. Generate a ReadPaper-format subset font for Vink UI strings.
+  3. Later decide whether the full reader font lives on SD, in a larger non-OTA partition layout, or as a subset/cache pipeline.
+
+Implemented first-stage gate:
+
+- Added `src/vink3/text/CjkTextRenderer.*`.
+- `VinkUiRenderer` now routes UI labels through `g_cjkText` instead of `canvas_->drawString()`.
+- Smoke test checks that `VinkUiRenderer.cpp` does not contain `drawString` and that CJK rendering uses bundled bitmap font before fallback.
+
+This is not yet the full ReadPaper `bin_font_print` text/page engine. It is the minimal UI-safe bridge needed before porting ReadPaper's larger text subsystem.
