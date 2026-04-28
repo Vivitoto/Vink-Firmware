@@ -28,14 +28,32 @@ public:
     void renderTextPage(const char* title, const char* body, uint16_t page, uint16_t totalPages, const ReaderRenderOptions& options = ReaderRenderOptions{});
 
 private:
+    struct ReadPaperGlyph {
+        uint16_t unicode = 0;
+        uint16_t width = 0;
+        uint8_t bitmapW = 0;
+        uint8_t bitmapH = 0;
+        int8_t xOffset = 0;
+        int8_t yOffset = 0;
+        uint32_t bitmapOffset = 0;
+        uint32_t bitmapSize = 0;
+    };
+
     static uint32_t decodeUtf8(const uint8_t* buf, size_t& pos, size_t len);
+    bool beginReadPaperFullFont();
+    bool findReadPaperGlyph(uint32_t unicode, ReadPaperGlyph& out) const;
     uint8_t charAdvance(uint32_t unicode) const;
     int16_t textWidth(const char* text) const;
     void drawGlyph(uint32_t unicode, int16_t x, int16_t y, uint16_t color);
+    void drawReadPaperGlyph(const ReadPaperGlyph& glyph, int16_t x, int16_t y, uint16_t color);
+    uint16_t pixelColorForNibble(uint8_t nibble, uint16_t color) const;
     void drawText(int16_t x, int16_t y, const char* text, uint16_t color = TFT_BLACK);
     size_t findWrapBreak(const char* text, size_t start, int16_t maxWidth) const;
 
     M5Canvas* canvas_ = nullptr;
+    bool readPaperFullReady_ = false;
+    uint32_t readPaperCharCount_ = 0;
+    uint8_t readPaperFontHeight_ = 0;
     FontManager font_;
 };
 

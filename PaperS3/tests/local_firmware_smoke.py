@@ -121,6 +121,8 @@ def vink3_source_invariants(main_cpp: str) -> None:
     ui_cpp = read("src/vink3/ui/VinkUiRenderer.cpp")
     cjk_cpp = read("src/vink3/text/CjkTextRenderer.cpp")
     reader_cpp = read("src/vink3/reader/ReaderTextRenderer.cpp")
+    partitions_csv = read("custom_16MB.csv")
+    full_font_h = read("src/vink3/text/ReadPaperFullFont.h")
     upstream = read("src/vink3/ReadPaper176.h")
 
     assert_contains(main_cpp, "xTaskCreatePinnedToCore", "v0.3 main starts a ReadPaper-style pinned MainTask")
@@ -139,7 +141,10 @@ def vink3_source_invariants(main_cpp: str) -> None:
     assert_contains(cjk_cpp, "beginReadPaperSubset", "v0.3 CJK renderer uses ReadPaper subset font before fallback")
     assert_contains(cjk_cpp, "loadBundledFont", "v0.3 CJK renderer still has bundled bitmap fallback")
     assert_contains(reader_cpp, "ReaderTextRenderer", "v0.3 has a separate reader body renderer")
-    assert_contains(reader_cpp, "loadBundledFont(FONT_FILE_24)", "reader body renderer prefers larger bundled body font")
+    assert_contains(reader_cpp, "beginReadPaperFullFont", "reader body renderer uses full ReadPaper PROGMEM font")
+    assert_contains(full_font_h, "g_readpaper_full_font_data", "v0.3 full ReadPaper font is compiled as PROGMEM")
+    assert_contains(partitions_csv, "0xC00000", "v0.3 partition table has a large single app slot for full ReadPaper font")
+    assert_not_contains(partitions_csv, "app1", "v0.3 partition table drops dual OTA app1 to fit full ReadPaper font")
     assert_not_contains(ui_cpp, "drawString", "v0.3 UI renderer must not use M5GFX drawString for Chinese")
 
     ui_sources = [

@@ -1,6 +1,12 @@
 #include "ReaderTextRenderer.h"
 #include "../../Config.h"
 #include "../ReadPaper176.h"
+#include "../text/ReadPaperFullFont.h"
+
+namespace {
+constexpr uint32_t kReadPaperHeaderSize = 134;
+constexpr uint32_t kReadPaperEntrySize = 20;
+}
 
 namespace vink3 {
 
@@ -13,7 +19,14 @@ bool ReaderTextRenderer::begin(M5Canvas* canvas) {
 
 bool ReaderTextRenderer::loadDefaultFont() {
     // Reader body font is intentionally separate from the UI subset font.
-    // Prefer bundled larger CJK font, then allow future SD/ReadPaper font cache.
+    // v0.3 uses ReadPaper's complete PROGMEM Book font, enabled by the larger
+    // single-app partition. Bundled fonts remain only as emergency fallback.
+    if (beginReadPaperFullFont()) {
+        Serial.printf("[vink3][reader] ReadPaper full PROGMEM font loaded: glyphs=%lu size=%lu\n",
+                      static_cast<unsigned long>(readPaperCharCount_),
+                      static_cast<unsigned long>(g_readpaper_full_font_size));
+        return true;
+    }
     if (font_.loadBundledFont(FONT_FILE_24)) {
         Serial.println("[vink3][reader] bundled 24px reader font loaded");
         return true;
@@ -36,10 +49,11 @@ bool ReaderTextRenderer::loadFont(const char* path) {
 }
 
 bool ReaderTextRenderer::ready() const {
-    return canvas_ && font_.isLoaded();
+    return canvas_ && (readPaperFullReady_ || font_.isLoaded());
 }
 
 uint16_t ReaderTextRenderer::fontSize() const {
+    if (readPaperFullReady_) return readPaperFontHeight_;
     return font_.isLoaded() ? font_.getFontSize() : 24;
 }
 
@@ -63,7 +77,49 @@ uint32_t ReaderTextRenderer::decodeUtf8(const uint8_t* buf, size_t& pos, size_t 
     return c;
 }
 
+bool ReaderTextRenderer::beginReadPaperFullFont() {
+    if (!g_readpaper_full_font_available || g_readpaper_full_font_size < kReadPaperHeaderSize) return false;
+    readPaperCharCount_ = readpaperFullU32(0);
+    readPaperFontHeight_ = readpaperFullByte(4);
+    const uint8_t version = readpaperFullByte(5);
+    if (readPaperCharCount_ == 0 || readPaperFontHeight_ == 0 || version != 3) return false;
+    const uint32_t entriesEnd = kReadPaperHeaderSize + readPaperCharCount_ * kReadPaperEntrySize;
+    if (entriesEnd >= g_readpaper_full_font_size) return false;
+    readPaperFullReady_ = true;
+    return true;
+}
+
+bool ReaderTextRenderer::findReadPaperGlyph(uint32_t unicode, ReadPaperGlyph& out) const {
+    if (!readPaperFullReady_ || unicode > 0xFFFF) return false;
+    int32_t lo = 0;
+    int32_t hi = static_cast<int32_t>(readPaperCharCount_) - 1;
+    while (lo <= hi) {
+        int32_t mid = lo + (hi - lo) / 2;
+        uint32_t off = kReadPaperHeaderSize + static_cast<uint32_t>(mid) * kReadPaperEntrySize;
+        uint16_t cp = readpaperFullU16(off);
+        if (cp == unicode) {
+            out.unicode = cp;
+            out.width = readpaperFullU16(off + 2);
+            out.bitmapW = readpaperFullByte(off + 4);
+            out.bitmapH = readpaperFullByte(off + 5);
+            out.xOffset = readpaperFullI8(off + 6);
+            out.yOffset = readpaperFullI8(off + 7);
+            out.bitmapOffset = readpaperFullU32(off + 8);
+            out.bitmapSize = readpaperFullU32(off + 12);
+            return out.bitmapOffset + out.bitmapSize <= g_readpaper_full_font_size;
+        }
+        if (cp < unicode) lo = mid + 1;
+        else hi = mid - 1;
+    }
+    return false;
+}
+
 uint8_t ReaderTextRenderer::charAdvance(uint32_t unicode) const {
+    if (readPaperFullReady_) {
+        ReadPaperGlyph glyph;
+        if (findReadPaperGlyph(unicode, glyph) && glyph.width > 0) return glyph.width;
+        return unicode < 128 ? 8 : fontSize();
+    }
     if (!font_.isLoaded()) return unicode < 128 ? 8 : 24;
     uint8_t adv = const_cast<FontManager&>(font_).getCharAdvance(unicode);
     return adv > 0 ? adv : (unicode < 128 ? 8 : fontSize());
@@ -83,8 +139,68 @@ int16_t ReaderTextRenderer::textWidth(const char* text) const {
     return w;
 }
 
+uint16_t ReaderTextRenderer::pixelColorForNibble(uint8_t nibble, uint16_t color) const {
+    if (color == TFT_WHITE) return TFT_WHITE;
+    if (color != TFT_BLACK) return color;
+    if (nibble >= 11) return TFT_BLACK;
+    if (nibble >= 6) return 0x8410;
+    return 0xC618;
+}
+
+void ReaderTextRenderer::drawReadPaperGlyph(const ReadPaperGlyph& glyph, int16_t x, int16_t y, uint16_t color) {
+    if (!canvas_) return;
+    const int16_t drawX = x + glyph.xOffset;
+    const int16_t drawY = y + (readPaperFontHeight_ - glyph.yOffset);
+    uint32_t pixelIdx = 0;
+    uint8_t bitPos = 0;
+    uint32_t bytePos = 0;
+    const uint32_t totalPixels = static_cast<uint32_t>(glyph.bitmapW) * glyph.bitmapH;
+
+    auto nextBit = [&]() -> int {
+        if (bytePos >= glyph.bitmapSize) return -1;
+        uint8_t current = readpaperFullByte(glyph.bitmapOffset + bytePos);
+        int bit = (current >> (7 - bitPos)) & 0x01;
+        bitPos++;
+        if (bitPos >= 8) {
+            bitPos = 0;
+            bytePos++;
+        }
+        return bit;
+    };
+
+    while (pixelIdx < totalPixels && bytePos < glyph.bitmapSize) {
+        int first = nextBit();
+        if (first < 0) break;
+        uint8_t pixel = 0;
+        if (first == 0) {
+            pixel = 0;
+        } else {
+            int second = nextBit();
+            if (second < 0) break;
+            pixel = second == 0 ? 10 : 11;
+        }
+
+        if (pixel != 0) {
+            const int16_t px = drawX + static_cast<int16_t>(pixelIdx % glyph.bitmapW);
+            const int16_t py = drawY + static_cast<int16_t>(pixelIdx / glyph.bitmapW);
+            if (px >= 0 && px < kPaperS3Width && py >= 0 && py < kPaperS3Height) {
+                canvas_->drawPixel(px, py, pixelColorForNibble(pixel, color));
+            }
+        }
+        pixelIdx++;
+    }
+}
+
 void ReaderTextRenderer::drawGlyph(uint32_t unicode, int16_t x, int16_t y, uint16_t color) {
-    if (!canvas_ || !font_.isLoaded()) return;
+    if (!canvas_) return;
+    if (readPaperFullReady_) {
+        ReadPaperGlyph glyph;
+        if (findReadPaperGlyph(unicode, glyph)) {
+            drawReadPaperGlyph(glyph, x, y, color);
+            return;
+        }
+    }
+    if (!font_.isLoaded()) return;
     if (font_.getFontType() == FontType::GRAY_4BPP) {
         uint8_t width = 0, height = 0, advance = 0;
         int8_t bearingX = 0, bearingY = 0;
@@ -194,8 +310,8 @@ void ReaderTextRenderer::renderTextPage(const char* title, const char* body, uin
 
 void ReaderTextRenderer::renderPlaceholderPage() {
     static const char* sample =
-        "这是 Vink v0.3 的正文渲染层。界面文字使用 ReadPaper UI 子集字体，正文阅读使用独立的阅读字体路径。\n"
-        "下一步会把本地 TXT、分页、书签和 Legado 进度映射接到这里，避免 UI 字体和正文阅读互相污染。";
+        "这是 Vink v0.3 的正文渲染层。界面文字使用 ReadPaper UI 子集字体，正文阅读使用完整 ReadPaper Book PROGMEM 字体。\n"
+        "下一步会把本地 TXT、分页、书签和 Legado 进度映射接到这里；中文覆盖不再依赖按书抽子集。";
     renderTextPage("示例正文", sample, 1, 1);
 }
 
