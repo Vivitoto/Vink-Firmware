@@ -16,7 +16,9 @@ bool ReaderBookService::begin() {
         pageStarts_ = static_cast<uint32_t*>(heap_caps_calloc(kMaxChapterPages, sizeof(uint32_t), MALLOC_CAP_SPIRAM));
         if (!pageStarts_) pageStarts_ = static_cast<uint32_t*>(calloc(kMaxChapterPages, sizeof(uint32_t)));
     }
-    ensureSdReady();
+    // Keep boot non-blocking: SD is initialized lazily when the user opens the
+    // library/book path. Previous PaperS3 releases showed that SD work during
+    // startup can make the device look stuck if the card is absent or slow.
     return true;
 }
 

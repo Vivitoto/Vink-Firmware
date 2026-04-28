@@ -53,7 +53,11 @@ bool VinkRuntime::beginHardware() {
     M5.Display.powerSaveOff();
     M5.Display.setEpdMode(kLowRefresh);
     M5.Display.setColorDepth(kTextColorDepth);
-    M5.Display.setRotation(3);
+    // Vink's user-facing PaperS3 portrait orientation is rotation 0 (handle/top
+    // direction matches the existing Crosslink shell and touch geometry). The
+    // v0.3 canvas is 540x960, so using ReadPaper's alternate rotation here can
+    // clip/rotate the framebuffer and make the device appear unresponsive.
+    M5.Display.setRotation(0);
 
     if (!SPIFFS.begin(false)) {
         Serial.println("[vink3][boot] SPIFFS mount failed; continuing without formatting");

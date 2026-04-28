@@ -132,6 +132,7 @@ def vink3_source_invariants(main_cpp: str) -> None:
 
     assert_contains(main_cpp, "xTaskCreatePinnedToCore", "v0.3 main starts a ReadPaper-style pinned MainTask")
     assert_contains(runtime_cpp, "kReadPaperUpstreamVersion", "v0.3 runtime records ReadPaper upstream baseline")
+    assert_contains(runtime_cpp, "M5.Display.setRotation(0)", "v0.3 PaperS3 display rotation matches Vink portrait touch geometry")
     assert_contains(upstream, "V1.7.6", "v0.3 baseline is ReadPaper V1.7.6")
     assert_contains(upstream, "e910d29", "v0.3 baseline records latest remote commit")
     assert_contains(display_h, "DisplayRequest", "v0.3 display queue has ReadPaper-style request struct")
@@ -148,6 +149,7 @@ def vink3_source_invariants(main_cpp: str) -> None:
     assert_contains(reader_cpp, "ReaderTextRenderer", "v0.3 has a separate reader body renderer")
     assert_contains(reader_cpp, "beginReadPaperFullFont", "reader body renderer uses full ReadPaper PROGMEM font")
     assert_contains(reader_book_cpp, "ReaderBookService", "v0.3 has reader book service for opening TXT books")
+    assert_contains(reader_book_cpp, "SD is initialized lazily", "reader book service does not block boot on SD initialization")
     assert_contains(reader_book_cpp, "scanBooks", "reader book service scans /books into a library list")
     assert_contains(reader_book_cpp, "sortBooks", "reader library order is stable across SD directory iteration")
     assert_contains(reader_book_cpp, "detectBookFlags", "reader book service shows library progress/cache flags")
