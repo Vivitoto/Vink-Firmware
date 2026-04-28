@@ -140,10 +140,18 @@ void StateMachine::handle(const Message& message) {
                 }
 
                 case UiAction::OpenCurrentBook:
+                {
+                    const bool fromLibrary = state_ == SystemState::Library;
                     state_ = SystemState::ReaderMenu;
-                    g_readerBook.renderOpenOrHelp();
+                    if (fromLibrary) {
+                        g_readerBook.handleLibraryTap(message.touch.x, message.touch.y);
+                        g_readerBook.renderCurrent();
+                    } else {
+                        g_readerBook.renderOpenOrHelp();
+                    }
                     g_displayService.enqueueFull(false, 100);
                     break;
+                }
 
                 case UiAction::None:
                     if (state_ == SystemState::ReaderMenu && g_readerBook.handleTap(message.touch.x, message.touch.y)) {

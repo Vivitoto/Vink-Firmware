@@ -100,6 +100,8 @@ void ReaderBookService::closeCurrent() {
     currentTocIndex_ = -1;
     pageCount_ = 0;
     currentPage_ = 0;
+    hasProgress_ = false;
+    showingBookEntry_ = false;
     showingToc_ = true;
     bookPath_[0] = '\0';
     activeTextPath_[0] = '\0';
@@ -228,6 +230,7 @@ bool ReaderBookService::loadProgress() {
     if (!buildChapterPages(chapter)) return false;
     currentTocIndex_ = chapter;
     currentPage_ = page < pageCount_ ? page : 0;
+    hasProgress_ = true;
     showingToc_ = false;
     Serial.printf("[vink3][book] progress loaded: chapter=%u page=%u\n", chapter, page);
     return true;
@@ -339,7 +342,8 @@ bool ReaderBookService::openBook(const char* path) {
             saveTocCache();
         }
     }
-    loadProgress();
+    hasProgress_ = loadProgress();
+    showingBookEntry_ = true;
     return true;
 }
 
@@ -411,6 +415,10 @@ void ReaderBookService::renderCurrent() {
         renderOpenOrHelp();
         return;
     }
+    if (showingBookEntry_) {
+        renderBookEntryPage();
+        return;
+    }
     if (showingToc_) {
         renderTocPage(tocPage_);
         return;
@@ -424,7 +432,57 @@ void ReaderBookService::renderCurrent() {
     }
 }
 
+void ReaderBookService::renderBookEntryPage() {
+    if (!open_) {
+        renderOpenOrHelp();
+        return;
+    }
+    char body[900];
+    char progress[160];
+    const char* chapterTitle = (currentTocIndex_ >= 0 && currentTocIndex_ < tocCount_) ? toc_[currentTocIndex_].title.c_str() : "尚未开始";
+    if (hasProgress_) {
+        snprintf(progress, sizeof(progress), "%s · 第 %d 页", chapterTitle, currentPage_ + 1);
+    } else {
+        strlcpy(progress, "无", sizeof(progress));
+    }
+    snprintf(body, sizeof(body),
+             "书籍：%s\n"
+             "进度：%s\n\n"
+             "继续阅读\n"
+             "目录\n"
+             "从头开始\n\n"
+             "提示：点选操作；阅读中左右/上下滑动翻页。",
+             title_,
+             progress);
+    g_readerText.renderTextPage("书籍入口", body, 1, 1);
+}
+
+bool ReaderBookService::continueReading() {
+    showingBookEntry_ = false;
+    showingToc_ = false;
+    if (hasProgress_ && currentTocIndex_ >= 0 && pageCount_ > 0) {
+        return renderCurrentReadingPage();
+    }
+    if (tocCount_ > 0) return openTocEntry(0);
+    showingToc_ = true;
+    renderTocPage(0);
+    return true;
+}
+
+bool ReaderBookService::restartReading() {
+    showingBookEntry_ = false;
+    showingToc_ = false;
+    hasProgress_ = false;
+    currentPage_ = 0;
+    currentTocIndex_ = -1;
+    if (tocCount_ > 0) return openTocEntry(0);
+    showingToc_ = true;
+    renderTocPage(0);
+    return true;
+}
+
 bool ReaderBookService::nextPage() {
+    if (showingBookEntry_) return continueReading();
     if (showingToc_) return nextTocPage();
     if (!open_ || pageCount_ <= 0) return false;
     if (currentPage_ + 1 < pageCount_) {
@@ -438,6 +496,7 @@ bool ReaderBookService::nextPage() {
 }
 
 bool ReaderBookService::prevPage() {
+    if (showingBookEntry_) return false;
     if (showingToc_) return prevTocPage();
     if (!open_ || pageCount_ <= 0) return false;
     if (currentPage_ > 0) {
@@ -471,9 +530,26 @@ bool ReaderBookService::prevTocPage() {
 
 bool ReaderBookService::handleTap(int16_t x, int16_t y) {
     if (!open_) return false;
+    if (showingBookEntry_) {
+        if (y >= 190 && y < 270) return continueReading();
+        if (y >= 300 && y < 380) {
+            showingBookEntry_ = false;
+            showingToc_ = true;
+            renderTocPage(tocPage_);
+            return true;
+        }
+        if (y >= 410 && y < 490) return restartReading();
+        return false;
+    }
     if (!showingToc_) {
-        // Tap upper-left area to return to TOC while chapter preview paging is still being built.
+        // Tap upper-left area to return to the book entry while reading.
         if (x < 170 && y < 90) {
+            showingBookEntry_ = true;
+            showingToc_ = false;
+            renderBookEntryPage();
+            return true;
+        }
+        if (x < 210 && y >= 90 && y < 150) {
             showingToc_ = true;
             renderTocPage(tocPage_);
             return true;

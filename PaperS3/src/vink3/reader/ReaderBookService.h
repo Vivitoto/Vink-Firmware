@@ -17,6 +17,7 @@ public:
 
     void renderOpenOrHelp();
     void renderCurrent();
+    void renderBookEntryPage();
     void renderLibraryPage(uint16_t page = 0);
     bool nextLibraryPage();
     bool prevLibraryPage();
@@ -61,6 +62,8 @@ private:
     bool buildChapterPages(int index);
     bool renderCurrentReadingPage();
     bool renderChapterPreview(int index);
+    bool continueReading();
+    bool restartReading();
     uint32_t chapterContentStart(int index);
     uint32_t chapterEndOffset(int index);
     size_t trimUtf8Tail(char* text, size_t len) const;
@@ -82,6 +85,8 @@ private:
     int currentTocIndex_ = -1;
     int pageCount_ = 0;
     int currentPage_ = 0;
+    bool hasProgress_ = false;
+    bool showingBookEntry_ = false;
     bool showingToc_ = true;
 };
 
