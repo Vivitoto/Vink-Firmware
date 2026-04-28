@@ -121,8 +121,12 @@ def vink3_source_invariants(main_cpp: str) -> None:
     ui_cpp = read("src/vink3/ui/VinkUiRenderer.cpp")
     cjk_cpp = read("src/vink3/text/CjkTextRenderer.cpp")
     reader_cpp = read("src/vink3/reader/ReaderTextRenderer.cpp")
+    chapter_cpp = read("src/ChapterDetector.cpp")
+    codec_cpp = read("src/TextCodec.cpp")
+    toc_tool = read("tools/detect_txt_toc.py")
     partitions_csv = read("custom_16MB.csv")
     full_font_h = read("src/vink3/text/ReadPaperFullFont.h")
+    gbk_table_h = read("src/vink3/text/GbkUnicodeTable.h")
     upstream = read("src/vink3/ReadPaper176.h")
 
     assert_contains(main_cpp, "xTaskCreatePinnedToCore", "v0.3 main starts a ReadPaper-style pinned MainTask")
@@ -145,6 +149,11 @@ def vink3_source_invariants(main_cpp: str) -> None:
     assert_contains(full_font_h, "g_readpaper_full_font_data", "v0.3 full ReadPaper font is compiled as PROGMEM")
     assert_contains(partitions_csv, "0xC00000", "v0.3 partition table has a large single app slot for full ReadPaper font")
     assert_not_contains(partitions_csv, "app1", "v0.3 partition table drops dual OTA app1 to fit full ReadPaper font")
+    assert_contains(gbk_table_h, "gbkToUnicode", "v0.3 includes full ReadPaper-derived GBK Unicode lookup")
+    assert_contains(codec_cpp, "vink3::gbkToUnicode", "TextCodec uses full GBK lookup before legacy table")
+    assert_contains(chapter_cpp, "U'四'", "chapter detector parses full Chinese numerals")
+    assert_contains(chapter_cpp, "0xE3", "chapter detector trims ideographic leading spaces")
+    assert_contains(toc_tool, "detect_toc", "host TXT TOC detector exists for large novel validation")
     assert_not_contains(ui_cpp, "drawString", "v0.3 UI renderer must not use M5GFX drawString for Chinese")
 
     ui_sources = [

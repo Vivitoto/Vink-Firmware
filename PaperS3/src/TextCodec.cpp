@@ -1,6 +1,7 @@
 #include "TextCodec.h"
 #include "GBKTable.h"
 #include "Config.h"
+#include "vink3/text/GbkUnicodeTable.h"
 
 // ===== 编码检测 =====
 
@@ -152,20 +153,21 @@ bool TextCodec::isGBKRange(uint8_t first, uint8_t second) {
 // ===== GBK → Unicode 查表 =====
 
 uint16_t TextCodec::gbkToUnicode(uint8_t first, uint8_t second) {
-    // 我们的表覆盖 0xA1~0xD7
+    uint16_t unicode = vink3::gbkToUnicode((static_cast<uint16_t>(first) << 8) | second);
+    if (unicode != 0) return unicode;
+
+    // Legacy compact GB2312 table fallback. The full ReadPaper-derived table above
+    // covers novel text such as 庆余年 (澹/朕/眸/嫔/嗯 etc.); keep this as a safety net.
     if (first < GBK_ZONE_START || first >= GBK_ZONE_START + GBK_ZONE_COUNT) {
         return 0;
     }
     if (second < 0xA1 || second > 0xFE) {
         return 0;
     }
-    
     int zone = first - GBK_ZONE_START;
     int pos  = second - 0xA1;
     int idx  = zone * GBK_POS_PER_ZONE + pos;
-    
     if (idx < 0 || idx >= GBK_TABLE_SIZE) return 0;
-    
     return pgm_read_word(&GBK_UNICODE_TABLE[idx]);
 }
 

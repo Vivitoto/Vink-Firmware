@@ -104,8 +104,30 @@ int ChapterDetector::detect(File& file, ChapterDetectResult* results, int maxRes
 }
 
 bool ChapterDetector::matchLine(const char* line, int lineLen, ChapterDetectResult& out) {
+    // Trim ASCII whitespace and common full-width/ideographic spaces. TXT novel
+    // chapter headings often start with two U+3000 spaces after GBK→UTF-8 conversion.
+    while (lineLen > 0) {
+        if (*line == ' ' || *line == '\t') {
+            line++;
+            lineLen--;
+            continue;
+        }
+        if (lineLen >= 3 &&
+            static_cast<uint8_t>(line[0]) == 0xE3 &&
+            static_cast<uint8_t>(line[1]) == 0x80 &&
+            static_cast<uint8_t>(line[2]) == 0x80) {
+            line += 3;
+            lineLen -= 3;
+            continue;
+        }
+        break;
+    }
+    while (lineLen > 0 && (line[lineLen - 1] == ' ' || line[lineLen - 1] == '\t' || line[lineLen - 1] == '\r')) {
+        lineLen--;
+    }
+
     // 截断过长的行（标题通常不超过50字）
-    if (lineLen > 200) return false;
+    if (lineLen <= 0 || lineLen > 200) return false;
     
     // 尝试各种匹配器
     if (matchChineseChapter(line, lineLen, out)) return true;
@@ -353,8 +375,14 @@ bool ChapterDetector::matchSimpleNumber(const char* line, int len, ChapterDetect
         if (isdigit(line[i])) {
             num = num * 10 + (line[i] - '0');
             numLen++;
-        } else if (line[i] == '.' || line[i] == '、' || line[i] == ' ') {
-            // 允许标点和空格
+        } else if (line[i] == '.' || line[i] == ' ') {
+            // 允许 ASCII 标点和空格
+        } else if (i + 2 < len &&
+                   static_cast<uint8_t>(line[i]) == 0xE3 &&
+                   static_cast<uint8_t>(line[i + 1]) == 0x80 &&
+                   static_cast<uint8_t>(line[i + 2]) == 0x81) {
+            // UTF-8 '、'
+            i += 2;
         } else {
             return false;  // 包含非数字非标点字符
         }
@@ -395,75 +423,91 @@ bool ChapterDetector::matchSpecialMark(const char* line, int len, ChapterDetectR
 }
 
 int ChapterDetector::chineseToNumber(const char* str, int len) {
-    int result = 0;
-    int temp = 0;
-    
+    int total = 0;
+    int section = 0;
+    int number = 0;
+
+    auto nextCodepoint = [](const char* s, int n, int& pos) -> uint32_t {
+        if (pos >= n) return 0;
+        uint8_t c = static_cast<uint8_t>(s[pos]);
+        if (c < 0x80) {
+            pos++;
+            return c;
+        }
+        if ((c & 0xE0) == 0xC0 && pos + 1 < n) {
+            uint32_t cp = ((c & 0x1F) << 6) | (static_cast<uint8_t>(s[pos + 1]) & 0x3F);
+            pos += 2;
+            return cp;
+        }
+        if ((c & 0xF0) == 0xE0 && pos + 2 < n) {
+            uint32_t cp = ((c & 0x0F) << 12) |
+                          ((static_cast<uint8_t>(s[pos + 1]) & 0x3F) << 6) |
+                          (static_cast<uint8_t>(s[pos + 2]) & 0x3F);
+            pos += 3;
+            return cp;
+        }
+        pos++;
+        return c;
+    };
+
+    auto digitValue = [](uint32_t cp) -> int {
+        switch (cp) {
+            case U'零': case U'〇': return 0;
+            case U'一': return 1;
+            case U'二': case U'两': return 2;
+            case U'三': return 3;
+            case U'四': return 4;
+            case U'五': return 5;
+            case U'六': return 6;
+            case U'七': return 7;
+            case U'八': return 8;
+            case U'九': return 9;
+            default: return -1;
+        }
+    };
+
     for (int i = 0; i < len; ) {
-        // UTF-8 中文数字处理
-        if ((unsigned char)str[i] == 0xE4) {  // 中文数字通常以 0xE4 开头
-            // 零
-            if (i + 2 < len && str[i+1] == 0xB8 && str[i+2] == 0x80) {  // 一
-                temp += 1;
-                i += 3;
-            } else if (i + 2 < len && str[i+1] == 0xBA && str[i+2] == 0x8C) {  // 二
-                temp += 2;
-                i += 3;
-            } else if (i + 2 < len && str[i+1] == 0xB8 && str[i+2] == 0x89) {  // 三
-                temp += 3;
-                i += 3;
-            } else if (i + 2 < len && str[i+1] == 0x9B && str[i+2] == 0x9B) {  // 四 (UTF-8: E5 9B 9B)
-                temp += 4;
-                i += 3;
-            } else if (i + 2 < len && str[i+1] == 0xBA && str[i+2] == 0x94) {  // 五
-                temp += 5;
-                i += 3;
-            } else if (i + 2 < len && str[i+1] == 0xB8 && str[i+2] == 0xAD) {  // 六
-                temp += 6;
-                i += 3;
-            } else if (i + 2 < len && str[i+1] == 0xB8 && str[i+2] == 0x83) {  // 七
-                temp += 7;
-                i += 3;
-            } else if (i + 2 < len && str[i+1] == 0xB9 && str[i+2] == 0x96) {  // 八
-                temp += 8;
-                i += 3;
-            } else if (i + 2 < len && str[i+1] == 0xB9 && str[i+2] == 0x92) {  // 九
-                temp += 9;
-                i += 3;
-            } else if (i + 2 < len && str[i+1] == 0xB9 && str[i+2] == 0xA9) {  // 十
-                if (temp == 0) temp = 1;
-                temp *= 10;
-                i += 3;
-            } else if (i + 2 < len && str[i+1] == 0xBE && str[i+2] == 0xA9) {  // 百
-                if (temp == 0) temp = 1;
-                result += temp * 100;
-                temp = 0;
-                i += 3;
-            } else if (i + 2 < len && str[i+1] == 0x8D && str[i+2] == 0x83) {  // 千
-                if (temp == 0) temp = 1;
-                result += temp * 1000;
-                temp = 0;
-                i += 3;
-            } else if (i + 2 < len && str[i+1] == 0xB8 && str[i+2] == 0x87) {  // 万
-                result += temp * 10000;
-                temp = 0;
-                i += 3;
-            } else {
-                i += 3;  // 跳过未知字符
+        uint32_t cp = nextCodepoint(str, len, i);
+        if (cp >= '0' && cp <= '9') {
+            int n = cp - '0';
+            while (i < len) {
+                int before = i;
+                uint32_t next = nextCodepoint(str, len, i);
+                if (next < '0' || next > '9') {
+                    i = before;
+                    break;
+                }
+                n = n * 10 + static_cast<int>(next - '0');
             }
-        } else if (isdigit(str[i])) {
-            // 阿拉伯数字混合
-            int num = 0;
-            while (i < len && isdigit(str[i])) {
-                num = num * 10 + (str[i] - '0');
-                i++;
-            }
-            temp += num;
-        } else {
-            i++;
+            number = n;
+            continue;
+        }
+
+        int digit = digitValue(cp);
+        if (digit >= 0) {
+            number = digit;
+            continue;
+        }
+
+        int unit = 0;
+        if (cp == U'十') unit = 10;
+        else if (cp == U'百') unit = 100;
+        else if (cp == U'千') unit = 1000;
+        else if (cp == U'万') {
+            total += (section + number) * 10000;
+            section = 0;
+            number = 0;
+            continue;
+        }
+
+        if (unit > 0) {
+            if (number == 0) number = 1;
+            section += number * unit;
+            number = 0;
         }
     }
-    
-    result += temp;
+
+    int result = total + section + number;
     return result > 0 ? result : -1;
 }
 
