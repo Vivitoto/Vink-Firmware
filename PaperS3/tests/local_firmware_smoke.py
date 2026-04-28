@@ -132,7 +132,8 @@ def vink3_source_invariants(main_cpp: str) -> None:
     assert_contains(state_cpp, "xQueueReceive", "v0.3 state machine is queue-driven")
     assert_contains(legado_cpp, "LegadoService", "v0.3 Legado integration is isolated as a service")
     assert_contains(ui_cpp, "CjkTextRenderer", "v0.3 UI routes text through CJK renderer")
-    assert_contains(cjk_cpp, "loadBundledFont", "v0.3 CJK renderer uses bundled bitmap font before fallback")
+    assert_contains(cjk_cpp, "beginReadPaperSubset", "v0.3 CJK renderer uses ReadPaper subset font before fallback")
+    assert_contains(cjk_cpp, "loadBundledFont", "v0.3 CJK renderer still has bundled bitmap fallback")
     assert_not_contains(ui_cpp, "drawString", "v0.3 UI renderer must not use M5GFX drawString for Chinese")
 
     ui_sources = [

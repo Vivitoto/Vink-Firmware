@@ -1,8 +1,15 @@
 #include "CjkTextRenderer.h"
+#include "ReadPaperUiFont.h"
 #include "../../Config.h"
 #include "../ReadPaper176.h"
+#include <pgmspace.h>
 
 namespace vink3 {
+
+namespace {
+constexpr uint32_t kReadPaperHeaderSize = 134;
+constexpr uint32_t kReadPaperEntrySize = 20;
+}
 
 CjkTextRenderer g_cjkText;
 
@@ -10,7 +17,14 @@ bool CjkTextRenderer::begin(M5Canvas* canvas) {
     canvas_ = canvas;
     if (!canvas_) return false;
 
-    // UI should be independent of SD card fonts. Prefer bundled SPIFFS CJK fonts.
+    if (beginReadPaperSubset()) {
+        Serial.printf("[vink3][cjk] ReadPaper V3 UI subset loaded: glyphs=%lu size=%lu\n",
+                      static_cast<unsigned long>(readPaperCharCount_),
+                      static_cast<unsigned long>(g_readpaper_ui_font_size));
+        return true;
+    }
+
+    // Fallback only. UI should be independent of SD card fonts.
     if (font_.loadBundledFont(FONT_FILE_20)) {
         Serial.println("[vink3][cjk] bundled 20px UI font loaded");
         return true;
@@ -29,11 +43,72 @@ bool CjkTextRenderer::begin(M5Canvas* canvas) {
 }
 
 bool CjkTextRenderer::ready() const {
-    return canvas_ && font_.isLoaded();
+    return canvas_ && (readPaperSubsetReady_ || font_.isLoaded());
 }
 
 uint16_t CjkTextRenderer::fontSize() const {
+    if (readPaperSubsetReady_) return readPaperFontHeight_;
     return font_.isLoaded() ? font_.getFontSize() : 16;
+}
+
+uint8_t CjkTextRenderer::rpByte(uint32_t offset) {
+    if (offset >= g_readpaper_ui_font_size) return 0;
+    return pgm_read_byte(&g_readpaper_ui_font_data[offset]);
+}
+
+uint16_t CjkTextRenderer::rpU16(uint32_t offset) {
+    uint8_t b0 = rpByte(offset);
+    uint8_t b1 = rpByte(offset + 1);
+    return static_cast<uint16_t>(b0) | (static_cast<uint16_t>(b1) << 8);
+}
+
+uint32_t CjkTextRenderer::rpU32(uint32_t offset) {
+    uint32_t b0 = rpByte(offset);
+    uint32_t b1 = rpByte(offset + 1);
+    uint32_t b2 = rpByte(offset + 2);
+    uint32_t b3 = rpByte(offset + 3);
+    return b0 | (b1 << 8) | (b2 << 16) | (b3 << 24);
+}
+
+int8_t CjkTextRenderer::rpI8(uint32_t offset) {
+    return static_cast<int8_t>(rpByte(offset));
+}
+
+bool CjkTextRenderer::beginReadPaperSubset() {
+    if (!g_readpaper_ui_font_available || g_readpaper_ui_font_size < kReadPaperHeaderSize) return false;
+    readPaperCharCount_ = rpU32(0);
+    readPaperFontHeight_ = rpByte(4);
+    const uint8_t version = rpByte(5);
+    if (readPaperCharCount_ == 0 || readPaperFontHeight_ == 0 || version != 3) return false;
+    const uint32_t entriesEnd = kReadPaperHeaderSize + readPaperCharCount_ * kReadPaperEntrySize;
+    if (entriesEnd >= g_readpaper_ui_font_size) return false;
+    readPaperSubsetReady_ = true;
+    return true;
+}
+
+bool CjkTextRenderer::findReadPaperGlyph(uint32_t unicode, ReadPaperGlyph& out) const {
+    if (!readPaperSubsetReady_ || unicode > 0xFFFF) return false;
+    int32_t lo = 0;
+    int32_t hi = static_cast<int32_t>(readPaperCharCount_) - 1;
+    while (lo <= hi) {
+        int32_t mid = lo + (hi - lo) / 2;
+        uint32_t off = kReadPaperHeaderSize + static_cast<uint32_t>(mid) * kReadPaperEntrySize;
+        uint16_t cp = rpU16(off);
+        if (cp == unicode) {
+            out.unicode = cp;
+            out.width = rpU16(off + 2);
+            out.bitmapW = rpByte(off + 4);
+            out.bitmapH = rpByte(off + 5);
+            out.xOffset = rpI8(off + 6);
+            out.yOffset = rpI8(off + 7);
+            out.bitmapOffset = rpU32(off + 8);
+            out.bitmapSize = rpU32(off + 12);
+            return out.bitmapOffset + out.bitmapSize <= g_readpaper_ui_font_size;
+        }
+        if (cp < unicode) lo = mid + 1;
+        else hi = mid - 1;
+    }
+    return false;
 }
 
 uint32_t CjkTextRenderer::decodeUtf8(const uint8_t* buf, size_t& pos, size_t len) {
@@ -58,7 +133,6 @@ uint32_t CjkTextRenderer::decodeUtf8(const uint8_t* buf, size_t& pos, size_t len
 
 int16_t CjkTextRenderer::textWidth(const char* text) {
     if (!text) return 0;
-    if (!font_.isLoaded()) return strlen(text) * 8;
 
     int16_t w = 0;
     const uint8_t* bytes = reinterpret_cast<const uint8_t*>(text);
@@ -66,8 +140,19 @@ int16_t CjkTextRenderer::textWidth(const char* text) {
     const size_t len = strlen(text);
     while (pos < len) {
         uint32_t ch = decodeUtf8(bytes, pos, len);
-        uint8_t adv = font_.getCharAdvance(ch);
-        w += adv > 0 ? adv : (ch < 128 ? 8 : fontSize());
+        if (readPaperSubsetReady_) {
+            ReadPaperGlyph glyph;
+            if (findReadPaperGlyph(ch, glyph)) {
+                w += glyph.width > 0 ? glyph.width : (ch < 128 ? 8 : fontSize());
+            } else {
+                w += ch < 128 ? 8 : fontSize();
+            }
+        } else if (font_.isLoaded()) {
+            uint8_t adv = font_.getCharAdvance(ch);
+            w += adv > 0 ? adv : (ch < 128 ? 8 : fontSize());
+        } else {
+            w += ch < 128 ? 8 : fontSize();
+        }
     }
     return w;
 }
@@ -75,15 +160,67 @@ int16_t CjkTextRenderer::textWidth(const char* text) {
 uint16_t CjkTextRenderer::pixelColorForNibble(uint8_t nibble, uint16_t color) const {
     if (color == TFT_WHITE) return TFT_WHITE;
     if (color != TFT_BLACK) return color;
-    // Basic grayscale mapping for 4bpp antialias pixels on PaperS3.
     if (nibble >= 11) return TFT_BLACK;
-    if (nibble >= 6) return 0x8410;  // mid gray
-    return 0xC618;                   // light gray
+    if (nibble >= 6) return 0x8410;
+    return 0xC618;
+}
+
+void CjkTextRenderer::drawReadPaperGlyph(const ReadPaperGlyph& glyph, int16_t x, int16_t y, uint16_t color) {
+    if (!canvas_) return;
+    const int16_t drawX = x + glyph.xOffset;
+    const int16_t drawY = y + (readPaperFontHeight_ - glyph.yOffset);
+    uint32_t pixelIdx = 0;
+    uint8_t bitPos = 0;
+    uint32_t bytePos = 0;
+    const uint32_t totalPixels = static_cast<uint32_t>(glyph.bitmapW) * glyph.bitmapH;
+
+    auto nextBit = [&]() -> int {
+        if (bytePos >= glyph.bitmapSize) return -1;
+        uint8_t current = rpByte(glyph.bitmapOffset + bytePos);
+        int bit = (current >> (7 - bitPos)) & 0x01;
+        bitPos++;
+        if (bitPos >= 8) {
+            bitPos = 0;
+            bytePos++;
+        }
+        return bit;
+    };
+
+    while (pixelIdx < totalPixels && bytePos < glyph.bitmapSize) {
+        int first = nextBit();
+        if (first < 0) break;
+        uint8_t pixel = 0; // white / transparent
+        if (first == 0) {
+            pixel = 0;
+        } else {
+            int second = nextBit();
+            if (second < 0) break;
+            pixel = second == 0 ? 10 : 11;
+        }
+
+        if (pixel != 0) {
+            const int16_t px = drawX + static_cast<int16_t>(pixelIdx % glyph.bitmapW);
+            const int16_t py = drawY + static_cast<int16_t>(pixelIdx / glyph.bitmapW);
+            if (px >= 0 && px < kPaperS3Width && py >= 0 && py < kPaperS3Height) {
+                canvas_->drawPixel(px, py, pixelColorForNibble(pixel, color));
+            }
+        }
+        pixelIdx++;
+    }
 }
 
 void CjkTextRenderer::drawGlyph(uint32_t unicode, int16_t x, int16_t y, uint16_t color) {
-    if (!canvas_ || !font_.isLoaded()) return;
+    if (!canvas_) return;
 
+    if (readPaperSubsetReady_) {
+        ReadPaperGlyph glyph;
+        if (findReadPaperGlyph(unicode, glyph)) {
+            drawReadPaperGlyph(glyph, x, y, color);
+            return;
+        }
+    }
+
+    if (!font_.isLoaded()) return;
     if (font_.getFontType() == FontType::GRAY_4BPP) {
         uint8_t width = 0, height = 0, advance = 0;
         int8_t bearingX = 0, bearingY = 0;
@@ -123,7 +260,7 @@ void CjkTextRenderer::drawGlyph(uint32_t unicode, int16_t x, int16_t y, uint16_t
 
 void CjkTextRenderer::drawText(int16_t x, int16_t y, const char* text, uint16_t color) {
     if (!canvas_ || !text) return;
-    if (!font_.isLoaded()) {
+    if (!readPaperSubsetReady_ && !font_.isLoaded()) {
         canvas_->setTextColor(color, TFT_WHITE);
         canvas_->setTextSize(1);
         canvas_->setCursor(x, y);
@@ -144,8 +281,13 @@ void CjkTextRenderer::drawText(int16_t x, int16_t y, const char* text, uint16_t 
             continue;
         }
         drawGlyph(ch, cx, cy, color);
-        uint8_t adv = font_.getCharAdvance(ch);
-        cx += adv > 0 ? adv : (ch < 128 ? 8 : fontSize());
+        if (readPaperSubsetReady_) {
+            ReadPaperGlyph glyph;
+            cx += findReadPaperGlyph(ch, glyph) && glyph.width > 0 ? glyph.width : (ch < 128 ? 8 : fontSize());
+        } else {
+            uint8_t adv = font_.getCharAdvance(ch);
+            cx += adv > 0 ? adv : (ch < 128 ? 8 : fontSize());
+        }
     }
 }
 

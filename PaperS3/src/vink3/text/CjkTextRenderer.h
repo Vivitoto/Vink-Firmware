@@ -6,8 +6,8 @@
 namespace vink3 {
 
 // v0.3 UI text renderer. It avoids M5GFX drawString for UTF-8 Chinese and uses
-// the bundled CJK bitmap font path instead. This is the minimal safe bridge while
-// the larger ReadPaper text/book engine is being ported.
+// a small ReadPaper V3 UI subset font first, then bundled Vink bitmap fonts as
+// fallback while the larger ReadPaper text/book engine is being ported.
 class CjkTextRenderer {
 public:
     bool begin(M5Canvas* canvas);
@@ -19,11 +19,32 @@ public:
     void drawRight(int16_t rightX, int16_t y, const char* text, uint16_t color = TFT_BLACK);
 
 private:
+    struct ReadPaperGlyph {
+        uint16_t unicode = 0;
+        uint16_t width = 0;
+        uint8_t bitmapW = 0;
+        uint8_t bitmapH = 0;
+        int8_t xOffset = 0;
+        int8_t yOffset = 0;
+        uint32_t bitmapOffset = 0;
+        uint32_t bitmapSize = 0;
+    };
+
     static uint32_t decodeUtf8(const uint8_t* buf, size_t& pos, size_t len);
+    static uint8_t rpByte(uint32_t offset);
+    static uint16_t rpU16(uint32_t offset);
+    static uint32_t rpU32(uint32_t offset);
+    static int8_t rpI8(uint32_t offset);
+    bool beginReadPaperSubset();
+    bool findReadPaperGlyph(uint32_t unicode, ReadPaperGlyph& out) const;
     void drawGlyph(uint32_t unicode, int16_t x, int16_t y, uint16_t color);
+    void drawReadPaperGlyph(const ReadPaperGlyph& glyph, int16_t x, int16_t y, uint16_t color);
     uint16_t pixelColorForNibble(uint8_t nibble, uint16_t color) const;
 
     M5Canvas* canvas_ = nullptr;
+    bool readPaperSubsetReady_ = false;
+    uint32_t readPaperCharCount_ = 0;
+    uint8_t readPaperFontHeight_ = 0;
     FontManager font_;
 };
 
