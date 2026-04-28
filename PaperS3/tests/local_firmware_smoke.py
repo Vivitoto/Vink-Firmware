@@ -149,6 +149,8 @@ def vink3_source_invariants(main_cpp: str) -> None:
     assert_contains(reader_cpp, "beginReadPaperFullFont", "reader body renderer uses full ReadPaper PROGMEM font")
     assert_contains(reader_book_cpp, "ReaderBookService", "v0.3 has reader book service for opening TXT books")
     assert_contains(reader_book_cpp, "scanBooks", "reader book service scans /books into a library list")
+    assert_contains(reader_book_cpp, "detectBookFlags", "reader book service shows library progress/cache flags")
+    assert_contains(reader_book_cpp, "读/目/页", "library explains progress/TOC/page-cache status markers")
     assert_contains(reader_book_cpp, "handleLibraryTap", "reader book service opens selected library entries")
     assert_contains(reader_book_cpp, "renderBookEntryPage", "reader book service shows a book entry action page")
     assert_contains(reader_book_cpp, "ChapterDetector", "reader book service detects TXT table of contents")

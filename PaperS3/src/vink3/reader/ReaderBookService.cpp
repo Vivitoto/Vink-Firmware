@@ -44,7 +44,7 @@ bool ReaderBookService::ensureTocBuffer() {
 }
 
 bool ReaderBookService::ensureBookBuffers() {
-    if (bookPaths_ && bookTitles_) return true;
+    if (bookPaths_ && bookTitles_ && bookFlags_) return true;
     if (!bookPaths_) {
         bookPaths_ = static_cast<char (*)[160]>(heap_caps_calloc(kMaxBooks, sizeof(*bookPaths_), MALLOC_CAP_SPIRAM));
         if (!bookPaths_) bookPaths_ = static_cast<char (*)[160]>(calloc(kMaxBooks, sizeof(*bookPaths_)));
@@ -53,7 +53,11 @@ bool ReaderBookService::ensureBookBuffers() {
         bookTitles_ = static_cast<char (*)[72]>(heap_caps_calloc(kMaxBooks, sizeof(*bookTitles_), MALLOC_CAP_SPIRAM));
         if (!bookTitles_) bookTitles_ = static_cast<char (*)[72]>(calloc(kMaxBooks, sizeof(*bookTitles_)));
     }
-    if (!bookPaths_ || !bookTitles_) {
+    if (!bookFlags_) {
+        bookFlags_ = static_cast<uint8_t*>(heap_caps_calloc(kMaxBooks, sizeof(uint8_t), MALLOC_CAP_SPIRAM));
+        if (!bookFlags_) bookFlags_ = static_cast<uint8_t*>(calloc(kMaxBooks, sizeof(uint8_t)));
+    }
+    if (!bookPaths_ || !bookTitles_ || !bookFlags_) {
         Serial.println("[vink3][book] failed to allocate library buffers");
         return false;
     }
@@ -82,6 +86,7 @@ bool ReaderBookService::scanBooks() {
             strlcpy(bookTitles_[bookCount_], name, sizeof(bookTitles_[bookCount_]));
             char* dot = strrchr(bookTitles_[bookCount_], '.');
             if (dot) *dot = '\0';
+            bookFlags_[bookCount_] = detectBookFlags(bookPaths_[bookCount_]);
             bookCount_++;
         }
         f = dir.openNextFile();
@@ -120,7 +125,14 @@ void ReaderBookService::getSidecarPath(char* out, size_t len, const char* suffix
     // Keep generated metadata next to the book for easier file management:
     //   /books/foo.txt -> /books/foo.vink-toc / foo.vink-progress / foo.vink-pages
     // Use the original book path, not the temporary UTF-8 conversion path.
-    strlcpy(out, bookPath_, len);
+    getSidecarPathForBook(out, len, bookPath_, suffix);
+}
+
+void ReaderBookService::getSidecarPathForBook(char* out, size_t len, const char* bookPath, const char* suffix) const {
+    if (!out || len == 0) return;
+    out[0] = '\0';
+    if (!bookPath || !bookPath[0]) return;
+    strlcpy(out, bookPath, len);
     char* slash = strrchr(out, '/');
     char* dot = strrchr(out, '.');
     if (dot && (!slash || dot > slash)) {
@@ -128,6 +140,19 @@ void ReaderBookService::getSidecarPath(char* out, size_t len, const char* suffix
     } else {
         strlcat(out, suffix, len);
     }
+}
+
+uint8_t ReaderBookService::detectBookFlags(const char* bookPath) const {
+    if (!bookPath || !bookPath[0]) return 0;
+    uint8_t flags = 0;
+    char sidecar[160];
+    getSidecarPathForBook(sidecar, sizeof(sidecar), bookPath, ".vink-toc");
+    if (sidecar[0] && SD.exists(sidecar)) flags |= kBookHasTocCache;
+    getSidecarPathForBook(sidecar, sizeof(sidecar), bookPath, ".vink-progress");
+    if (sidecar[0] && SD.exists(sidecar)) flags |= kBookHasProgress;
+    getSidecarPathForBook(sidecar, sizeof(sidecar), bookPath, ".vink-pages");
+    if (sidecar[0] && SD.exists(sidecar)) flags |= kBookHasPageCache;
+    return flags;
 }
 
 void ReaderBookService::getTocCachePath(char* out, size_t len) const {
@@ -374,10 +399,18 @@ void ReaderBookService::renderLibraryPage(uint16_t page) {
     const int start = bookPage_ * kBooksPerPage;
     const int end = min(bookCount_, start + kBooksPerPage);
     size_t used = 0;
-    used += snprintf(body + used, sizeof(body) - used, "共 %d 本 TXT · 点书名打开\n", bookCount_);
+    used += snprintf(body + used, sizeof(body) - used, "共 %d 本 TXT · *当前 · 读/目/页=进度/目录/页表\n", bookCount_);
     for (int i = start; i < end && used < sizeof(body) - 96; ++i) {
         const bool current = open_ && strcmp(bookPaths_[i], bookPath_) == 0;
-        used += snprintf(body + used, sizeof(body) - used, "%c%03d  %s\n", current ? '*' : ' ', i + 1, bookTitles_[i]);
+        char titleBuf[56];
+        strlcpy(titleBuf, bookTitles_[i], sizeof(titleBuf));
+        trimUtf8Tail(titleBuf, strlen(titleBuf));
+        char flags[16];
+        snprintf(flags, sizeof(flags), "%s%s%s",
+                 (bookFlags_[i] & kBookHasProgress) ? "读" : "-",
+                 (bookFlags_[i] & kBookHasTocCache) ? "目" : "-",
+                 (bookFlags_[i] & kBookHasPageCache) ? "页" : "-");
+        used += snprintf(body + used, sizeof(body) - used, "%c%03d [%s] %s\n", current ? '*' : ' ', i + 1, flags, titleBuf);
     }
     g_readerText.renderTextPage("书架", body, bookPage_ + 1, totalPages);
 }

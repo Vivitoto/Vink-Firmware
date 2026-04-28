@@ -35,6 +35,9 @@ private:
     static constexpr int kTocEntriesPerPage = 13;
     static constexpr int kMaxBooks = 80;
     static constexpr int kBooksPerPage = 12;
+    static constexpr uint8_t kBookHasTocCache = 0x01;
+    static constexpr uint8_t kBookHasProgress = 0x02;
+    static constexpr uint8_t kBookHasPageCache = 0x04;
     static constexpr int16_t kListFirstRowY = 128;
     static constexpr int16_t kListRowH = 52;
     static constexpr int16_t kTocFirstRowY = kListFirstRowY;
@@ -49,6 +52,8 @@ private:
     void closeCurrent();
     void setTitleFromPath(const char* path);
     void getSidecarPath(char* out, size_t len, const char* suffix) const;
+    void getSidecarPathForBook(char* out, size_t len, const char* bookPath, const char* suffix) const;
+    uint8_t detectBookFlags(const char* bookPath) const;
     void getTocCachePath(char* out, size_t len) const;
     void getProgressPath(char* out, size_t len) const;
     void getPageCachePath(char* out, size_t len) const;
@@ -77,6 +82,7 @@ private:
     uint32_t* pageStarts_ = nullptr;
     char (*bookPaths_)[160] = nullptr;
     char (*bookTitles_)[72] = nullptr;
+    uint8_t* bookFlags_ = nullptr;
     int bookCount_ = 0;
     uint16_t bookPage_ = 0;
     bool booksScanned_ = false;
