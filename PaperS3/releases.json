@@ -5,6 +5,32 @@
   "description": "面向 M5Stack PaperS3 的 Vink 电子书阅读固件。",
   "releases": [
     {
+      "version": "v0.3.0",
+      "name": "Vink-PaperS3 v0.3.0 ReadPaper 阅读核心",
+      "summary": "v0.3.0 引入基于 ReadPaper V1.7.6 思路重构的阅读核心：完整正文中文字体、GBK/GB18030 转码、TXT 目录识别、书架选书、目录/分页/进度/缓存闭环，并针对大体积网络 TXT 增加目录噪声过滤和首次处理提示。",
+      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.3.0",
+      "changelog": "## Vink-PaperS3 v0.3.0 ReadPaper 阅读核心\n\n### 阅读核心重构\n- 新增 v0.3 ReadPaper-style runtime：显示、输入、状态机、阅读服务分离，物理 EPD 提交集中到 DisplayService 串行执行。\n- 正文阅读使用完整 ReadPaper Book PROGMEM 字体；系统 UI 继续使用独立 CJK 子集/回退字体，正文和 Shell UI 解耦。\n- 分区切换为 12MB 单 app 布局，容纳完整正文字库。\n\n### TXT/编码/目录\n- 支持 UTF-8 与 GBK/GB18030 TXT，GBK 文本首次打开会转为 UTF-8 临时文本后再识别目录。\n- 接入完整 GBK Unicode 查询表，提升大体积中文 TXT 转码覆盖率。\n- TXT 目录识别支持完整中文数字章节，并过滤网络 TXT 常见重复标题、跳号噪声和“免费阅读”等伪标题。\n- 若未识别到目录，自动创建“全文”入口，避免无目录 TXT 无法阅读。\n\n### 书架与阅读闭环\n- 书架扫描 /books/*.txt，按书名稳定排序，支持分页、点选打开和当前书标记。\n- 书架与书籍入口显示缓存状态：[读目页] 分别代表进度、目录缓存、页表缓存。\n- 打开书后进入书籍入口页，提供继续阅读、目录、从头开始。\n- 目录页支持分页并标记当前章节。\n- 章节首次进入会测量分页，后续复用 .vink-pages；阅读进度保存到 .vink-progress；目录保存到 .vink-toc。\n- 支持章节内翻页、章节尾/首页跨章节连续翻页。\n\n### 大书处理体验\n- 首次打开大书分析目录前显示“正在分析目录”；GBK 转码前显示“正在转码为 UTF-8”。\n- 首次进入未缓存章节前显示“正在分页”，避免长章节处理时看起来像死机。\n- 已用《庆余年》和 8.6MB《斗罗大陆Ⅴ重生唐三》压测目录识别。\n\n### 烧录包\n- Vink Flasher 默认使用 full 完整 16MB 镜像，从 0x0 写入。",
+      "assets": {
+        "full": {
+          "name": "Vink-PaperS3-v0.3.0-readpaper-core-full-16MB.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.3.0/Vink-PaperS3-v0.3.0-readpaper-core-full-16MB.bin",
+          "size": 16777216,
+          "flashOffset": 0
+        },
+        "ota": {
+          "name": "Vink-PaperS3-v0.3.0-readpaper-core-ota.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.3.0/Vink-PaperS3-v0.3.0-readpaper-core-ota.bin",
+          "size": 8086176,
+          "flashOffset": 65536
+        },
+        "spiffs": {
+          "name": "Vink-PaperS3-v0.3.0-readpaper-core-spiffs.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.3.0/Vink-PaperS3-v0.3.0-readpaper-core-spiffs.bin",
+          "size": 4128768
+        }
+      }
+    },
+    {
       "version": "v0.2.15",
       "name": "Vink-PaperS3 v0.2.15 连点卡死修复",
       "summary": "基于 v0.2.14 修复多次点击后 UI 字体变乱码/消失、页面卡死的问题：Shell UI 改用 PROGMEM 内置安全字体，撤出 SPIFFS 灰度字库路径；Shell 全屏提交改为物理 EPD 串行；提交失败不再清除页面 dirty 标记，并修复 canvas/direct display 混用风险。",
