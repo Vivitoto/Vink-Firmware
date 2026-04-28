@@ -227,6 +227,14 @@ void ReaderBookService::showBlockingOpenStatus(const char* stage) {
     g_displayService.waitIdle(2500);
 }
 
+void ReaderBookService::showBlockingChapterStatus(int index) {
+    renderChapterLoadingPage(index);
+    g_displayService.enqueueFull(false, 100);
+    // Same rationale as open status: make first-time chapter pagination visible
+    // before doing the synchronous page-fit scan.
+    g_displayService.waitIdle(2500);
+}
+
 void ReaderBookService::getTocCachePath(char* out, size_t len) const {
     getSidecarPath(out, len, ".vink-toc");
 }
@@ -437,6 +445,14 @@ bool ReaderBookService::openBook(const char* path) {
             ChapterDetector detector;
             tocCount_ = detector.detect(f, toc_, kMaxTocEntries);
             f.close();
+            if (tocCount_ <= 0 && toc_) {
+                toc_[0].charOffset = 0;
+                toc_[0].chapterNumber = 1;
+                toc_[0].score = 50;
+                toc_[0].title = String("全文");
+                tocCount_ = 1;
+                Serial.printf("[vink3][book] no TOC found, using whole-book fallback for %s\n", title_);
+            }
             Serial.printf("[vink3][book] TOC detected: %d entries for %s\n", tocCount_, title_);
             saveTocCache();
         }
@@ -550,6 +566,20 @@ void ReaderBookService::renderBookLoadingPage(const char* stage) {
              sizeText,
              stage && stage[0] ? stage : "正在打开");
     g_readerText.renderTextPage("正在打开", body, 1, 1);
+}
+
+void ReaderBookService::renderChapterLoadingPage(int index) {
+    char body[700];
+    const char* chapterTitle = (index >= 0 && index < tocCount_) ? toc_[index].title.c_str() : "章节";
+    snprintf(body, sizeof(body),
+             "书籍：%s\n"
+             "章节：%s\n\n"
+             "正在分页...\n\n"
+             "首次进入长章节时会测量每页可显示的文字量。\n"
+             "完成后会缓存到 .vink-pages，之后进入会更快。",
+             title_[0] ? title_ : "TXT",
+             chapterTitle);
+    g_readerText.renderTextPage("正在分页", body, 1, 1);
 }
 
 void ReaderBookService::renderBookEntryPage() {
@@ -752,6 +782,16 @@ uint32_t ReaderBookService::chapterContentStart(int index) {
     File f = SD.open(activeTextPath_, FILE_READ);
     if (!f) return toc_[index].charOffset;
     uint32_t start = toc_[index].charOffset;
+    if (toc_[index].title == "全文" && start == 0) {
+        // Whole-book fallback has no chapter heading to skip. Drop UTF-8 BOM only.
+        if (f.available() >= 3) {
+            uint8_t bom[3] = {0};
+            f.read(bom, sizeof(bom));
+            if (bom[0] == 0xEF && bom[1] == 0xBB && bom[2] == 0xBF) start = 3;
+        }
+        f.close();
+        return start;
+    }
     if (!f.seek(start)) {
         f.close();
         return start;
@@ -789,6 +829,7 @@ bool ReaderBookService::buildChapterPages(int index) {
     const uint32_t end = chapterEndOffset(index);
     if (end <= start) return false;
     if (loadChapterPageCache(index, start, end)) return true;
+    showBlockingChapterStatus(index);
     File f = SD.open(activeTextPath_, FILE_READ);
     if (!f) return false;
 

@@ -18,6 +18,7 @@ public:
     void renderOpenOrHelp();
     void renderCurrent();
     void renderBookLoadingPage(const char* stage);
+    void renderChapterLoadingPage(int index);
     void renderBookEntryPage();
     void renderLibraryPage(uint16_t page = 0);
     bool nextLibraryPage();
@@ -61,6 +62,7 @@ private:
     void formatBytes(uint32_t bytes, char* out, size_t len) const;
     void formatBookFlags(uint8_t flags, char* out, size_t len) const;
     void showBlockingOpenStatus(const char* stage);
+    void showBlockingChapterStatus(int index);
     void getTocCachePath(char* out, size_t len) const;
     void getProgressPath(char* out, size_t len) const;
     void getPageCachePath(char* out, size_t len) const;
