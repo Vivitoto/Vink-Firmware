@@ -5,9 +5,9 @@
 
 namespace vink3 {
 
-// v0.3 UI text renderer. It avoids M5GFX drawString for UTF-8 Chinese and uses
-// a small ReadPaper V3 UI subset font first, then bundled Vink bitmap fonts as
-// fallback while the larger ReadPaper text/book engine is being ported.
+// v0.3 UI text renderer. It avoids M5GFX drawString for UTF-8 Chinese.
+// Vink shell UI must prefer bundled Simplified Chinese SC fonts; the ReadPaper
+// UI subset is fallback only so shared Han characters do not look Traditional/Japanese.
 class CjkTextRenderer {
 public:
     bool begin(M5Canvas* canvas);
