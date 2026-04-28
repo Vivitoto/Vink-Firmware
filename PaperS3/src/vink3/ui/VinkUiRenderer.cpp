@@ -118,13 +118,13 @@ void VinkUiRenderer::renderReaderHome() {
     clear();
     drawStatusBar("Vink Reader");
     drawTabs(SystemState::Reader);
-    drawCard(28, kContentY, 484, 180, "Current book", "No book opened yet");
+    drawCard(28, kContentY, 484, 180, "Current book", "Resume / prev / next / center menu");
     drawButton(56, 292, 180, 44, "Open");
     drawButton(304, 292, 180, 44, "Library");
-    drawCard(28, 370, 224, 132, "Recent", "ReadPaper-like events");
-    drawCard(288, 370, 224, 132, "Progress", "Legado ready");
-    drawCard(28, 532, 484, 220, "Vink UI", "Cards, tabs and hitboxes are owned by UI renderer");
-    drawFooterHint("Reader tab");
+    drawCard(28, 370, 224, 132, "TOC", "Chapters / goto page");
+    drawCard(288, 370, 224, 132, "Marks", "Bookmark / screenshot");
+    drawCard(28, 532, 484, 220, "Reader tools", "Auto-read, refresh, font scale, vertical text");
+    drawFooterHint("Reader: ReadPaper reading/menu logic adapted to Vink cards");
 }
 
 void VinkUiRenderer::renderLibrary() {
@@ -142,8 +142,8 @@ void VinkUiRenderer::renderLibrary() {
             canvas_->drawString("Book", x + 65, y + 59);
         }
     }
-    drawCard(28, 648, 484, 132, "Import", "USB / WiFi / SD book sources");
-    drawFooterHint("Tap a book later; current scaffold focuses on routing");
+    drawCard(28, 648, 484, 132, "Sources", "SD folders / recent / Legado bookshelf");
+    drawFooterHint("Library: local shelf, recent history, remote shelf pairing");
 }
 
 void VinkUiRenderer::renderTransfer() {
@@ -151,13 +151,13 @@ void VinkUiRenderer::renderTransfer() {
     clear();
     drawStatusBar("Transfer & Sync");
     drawTabs(SystemState::Transfer);
-    drawCard(28, kContentY, 484, 150, "Legado", "Remote reading progress sync service");
+    drawCard(28, kContentY, 484, 150, "Legado", "HTTP web service: bookshelf + progress");
     drawButton(56, 268, 180, 48, "Sync now");
     drawButton(304, 268, 180, 48, "Config");
-    drawCard(28, 360, 224, 132, "WiFi", "Uploader/API");
-    drawCard(288, 360, 224, 132, "USB", "MSC later");
-    drawCard(28, 524, 484, 170, "Status", "No remote sync has run in this scaffold");
-    drawFooterHint("Transfer tab");
+    drawCard(28, 360, 224, 132, "WiFi", "Upload / web UI");
+    drawCard(288, 360, 224, 132, "USB", "MSC confirm state");
+    drawCard(28, 524, 484, 170, "WebDAV / Export", "ReadPaper transfer tools live here");
+    drawFooterHint("Transfer: Legado is separate from WebDAV");
 }
 
 void VinkUiRenderer::renderSettings() {
@@ -165,11 +165,11 @@ void VinkUiRenderer::renderSettings() {
     clear();
     drawStatusBar("Settings");
     drawTabs(SystemState::Settings);
-    drawCard(28, kContentY, 484, 132, "Display", "Refresh, rotation, theme");
-    drawCard(28, 318, 484, 132, "Reading", "Font, spacing, layout");
-    drawCard(28, 476, 484, 132, "Network", "WiFi and Legado endpoint");
-    drawCard(28, 634, 484, 132, "System", "Battery, sleep, about");
-    drawFooterHint("Settings tab");
+    drawCard(28, kContentY, 484, 132, "Display", "Refresh, dark, rotation, quality");
+    drawCard(28, 318, 484, 132, "Reading", "Font, scale, vertical, zh convert");
+    drawCard(28, 476, 484, 132, "Network", "WiFi, WebDAV, Legado endpoint");
+    drawCard(28, 634, 484, 132, "System", "Battery, sleep, version, debug");
+    drawFooterHint("Settings: persistent ReadPaper/Vink config");
 }
 
 void VinkUiRenderer::renderLegadoSync(const char* status) {
