@@ -158,6 +158,8 @@ def vink3_source_invariants(main_cpp: str) -> None:
     assert_contains(reader_book_cpp, "正在分页", "reader explains first-open chapter pagination wait")
     assert_contains(reader_book_cpp, "读/目/页", "library explains progress/TOC/page-cache status markers")
     assert_contains(reader_book_cpp, "handleLibraryTap", "reader book service opens selected library entries")
+    assert_contains(reader_cpp, "renderListPage", "reader text renderer can draw list rows aligned with tap zones")
+    assert_contains(reader_book_cpp, "renderListPage", "library and TOC use explicit row geometry instead of free text layout")
     assert_contains(reader_cpp, "renderActionPage", "reader text renderer can draw aligned action buttons")
     assert_contains(reader_book_cpp, "renderActionPage", "book entry uses real action-button rendering")
     assert_contains(reader_book_cpp, "kEntryContinueY", "book entry tap zones share fixed button geometry")

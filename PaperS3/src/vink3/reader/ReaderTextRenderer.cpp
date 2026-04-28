@@ -349,6 +349,38 @@ void ReaderTextRenderer::renderTextPage(const char* title, const char* body, uin
     drawText(kPaperS3Width - options.marginRight - textWidth(footer), kPaperS3Height - 34, footer, mid);
 }
 
+void ReaderTextRenderer::renderListPage(const char* title, const char* summary, const char* const* rows, int rowCount, int16_t rowY, int16_t rowH, uint16_t page, uint16_t totalPages, const ReaderRenderOptions& options) {
+    if (!canvas_) return;
+    if (!ready()) loadDefaultFont();
+    canvas_->fillSprite(options.dark ? TFT_BLACK : TFT_WHITE);
+    const uint16_t fg = options.dark ? TFT_WHITE : TFT_BLACK;
+    const uint16_t mid = options.dark ? 0xC618 : 0x8410;
+
+    drawText(options.marginLeft, 28, title ? title : "列表", mid);
+    canvas_->drawFastHLine(options.marginLeft, 64, kPaperS3Width - options.marginLeft - options.marginRight, mid);
+    if (summary && summary[0]) drawText(options.marginLeft, 86, summary, mid);
+
+    const int16_t maxWidth = kPaperS3Width - options.marginLeft - options.marginRight;
+    for (int i = 0; rows && i < rowCount; ++i) {
+        const int16_t y = rowY + i * rowH;
+        if (y + rowH > kPaperS3Height - options.marginBottom) break;
+        canvas_->drawFastHLine(options.marginLeft, y + rowH - 4, maxWidth, mid);
+        const char* row = rows[i] ? rows[i] : "";
+        char line[192];
+        size_t end = findWrapBreak(row, 0, maxWidth);
+        if (end == 0) end = min(strlen(row), sizeof(line) - 1);
+        size_t n = min(end, sizeof(line) - 1);
+        memcpy(line, row, n);
+        line[n] = '\0';
+        const int16_t ty = y + max<int16_t>(0, (rowH - static_cast<int16_t>(fontSize())) / 2);
+        drawText(options.marginLeft, ty, line, fg);
+    }
+
+    char footer[48];
+    snprintf(footer, sizeof(footer), "%u / %u", static_cast<unsigned>(page), static_cast<unsigned>(totalPages));
+    drawText(kPaperS3Width - options.marginRight - textWidth(footer), kPaperS3Height - 34, footer, mid);
+}
+
 void ReaderTextRenderer::renderActionPage(const char* title, const char* const* infoLines, int infoCount, const char* const* actions, int actionCount, const ReaderRenderOptions& options) {
     if (!canvas_) return;
     if (!ready()) loadDefaultFont();

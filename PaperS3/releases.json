@@ -20,7 +20,7 @@
         "ota": {
           "name": "Vink-PaperS3-v0.3.0-readpaper-core-ota.bin",
           "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.3.0/Vink-PaperS3-v0.3.0-readpaper-core-ota.bin",
-          "size": 8086176,
+          "size": 8087808,
           "flashOffset": 65536
         },
         "spiffs": {

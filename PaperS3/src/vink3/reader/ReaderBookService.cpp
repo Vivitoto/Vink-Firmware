@@ -488,18 +488,23 @@ void ReaderBookService::renderLibraryPage(uint16_t page) {
     bookPage_ = page;
     const int start = bookPage_ * kBooksPerPage;
     const int end = min(bookCount_, start + kBooksPerPage);
-    size_t used = 0;
-    used += snprintf(body + used, sizeof(body) - used, "共 %d 本 TXT · *当前 · 读/目/页=进度/目录/页表\n", bookCount_);
-    for (int i = start; i < end && used < sizeof(body) - 96; ++i) {
+    char summary[96];
+    snprintf(summary, sizeof(summary), "共 %d 本 TXT · *当前 · 读/目/页=进度/目录/页表", bookCount_);
+    char rows[kBooksPerPage][96];
+    const char* rowPtrs[kBooksPerPage];
+    int rowCount = 0;
+    for (int i = start; i < end && rowCount < kBooksPerPage; ++i) {
         const bool current = open_ && strcmp(bookPaths_[i], bookPath_) == 0;
         char titleBuf[56];
         strlcpy(titleBuf, bookTitles_[i], sizeof(titleBuf));
         trimUtf8Tail(titleBuf, strlen(titleBuf));
         char flags[16];
         formatBookFlags(bookFlags_[i], flags, sizeof(flags));
-        used += snprintf(body + used, sizeof(body) - used, "%c%03d [%s] %s\n", current ? '*' : ' ', i + 1, flags, titleBuf);
+        snprintf(rows[rowCount], sizeof(rows[rowCount]), "%c%03d [%s] %s", current ? '*' : ' ', i + 1, flags, titleBuf);
+        rowPtrs[rowCount] = rows[rowCount];
+        rowCount++;
     }
-    g_readerText.renderTextPage("书架", body, bookPage_ + 1, totalPages);
+    g_readerText.renderListPage("书架", summary, rowPtrs, rowCount, kListFirstRowY, kListRowH, bookPage_ + 1, totalPages);
 }
 
 bool ReaderBookService::nextLibraryPage() {
@@ -749,13 +754,21 @@ void ReaderBookService::renderTocPage(uint16_t page) {
     showingToc_ = true;
     const int start = page * kTocEntriesPerPage;
     const int end = min(tocCount_, start + kTocEntriesPerPage);
-    size_t used = 0;
-    used += snprintf(body + used, sizeof(body) - used, "目录共 %d 条 · *为当前章节\n", tocCount_);
-    for (int i = start; i < end && used < sizeof(body) - 96; ++i) {
+    char summary[64];
+    snprintf(summary, sizeof(summary), "目录共 %d 条 · *为当前章节", tocCount_);
+    char rows[kTocEntriesPerPage][128];
+    const char* rowPtrs[kTocEntriesPerPage];
+    int rowCount = 0;
+    for (int i = start; i < end && rowCount < kTocEntriesPerPage; ++i) {
         const char marker = (i == currentTocIndex_) ? '*' : ' ';
-        used += snprintf(body + used, sizeof(body) - used, "%c%03d  %s\n", marker, i + 1, toc_[i].title.c_str());
+        char titleBuf[92];
+        strlcpy(titleBuf, toc_[i].title.c_str(), sizeof(titleBuf));
+        trimUtf8Tail(titleBuf, strlen(titleBuf));
+        snprintf(rows[rowCount], sizeof(rows[rowCount]), "%c%03d  %s", marker, i + 1, titleBuf);
+        rowPtrs[rowCount] = rows[rowCount];
+        rowCount++;
     }
-    g_readerText.renderTextPage(title_, body, page + 1, totalPages);
+    g_readerText.renderListPage(title_, summary, rowPtrs, rowCount, kTocFirstRowY, kTocRowH, page + 1, totalPages);
 }
 
 size_t ReaderBookService::trimUtf8Tail(char* text, size_t len) const {
