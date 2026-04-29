@@ -18,6 +18,9 @@ private:
     TaskHandle_t task_ = nullptr;
     bool wasPressed_ = false;
     TouchPoint pressPoint_{};
+    TouchPoint lastPoint_{};
+    TouchPoint pressRawPoint_{};
+    TouchPoint lastRawPoint_{};
     uint32_t pressStartedMs_ = 0;
     uint32_t lastEventMs_ = 0;
 };

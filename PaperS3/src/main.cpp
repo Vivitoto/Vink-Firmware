@@ -6,7 +6,7 @@ TaskHandle_t s_mainTask = nullptr;
 
 void MainTask(void*) {
     if (!vink3::g_runtime.begin()) {
-        Serial.println("[MainTask] Vink v0.3.0 runtime init failed, halting");
+        Serial.println("[MainTask] Vink v0.3.2-rc runtime init failed, halting");
         for (;;) vTaskDelay(pdMS_TO_TICKS(1000));
     }
 

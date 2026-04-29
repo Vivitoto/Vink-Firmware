@@ -5,6 +5,21 @@
   "description": "面向 M5Stack PaperS3 的 Vink 电子书阅读固件。",
   "releases": [
     {
+      "version": "v0.3.2-rc",
+      "name": "Vink-PaperS3 v0.3.2-rc 官方硬件画像 RC",
+      "summary": "基于 M5Stack PaperS3 官方开发文档统一硬件画像、触摸诊断、SD 管脚与 full-only 烧录流程；新增 raw/norm 触摸坐标诊断页，后续每次只交付完整 16MB full 镜像。",
+      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.3.2-rc",
+      "changelog": "## Vink-PaperS3 v0.3.2-rc 官方硬件画像 RC\n\n### 官方 PaperS3 对齐\n- 以 M5Stack PaperS3 官方文档为准统一硬件画像：ESP32-S3R8、16MB Flash、8MB PSRAM、EPD_ED047TC1、GT911、BM8563、BMI270。\n- 固件集中记录官方管脚：GT911 SDA/SCL/INT = G41/G42/G48，microSD CS/SCK/MOSI/MISO = G47/G39/G38/G40。\n- 显示方向固定为 rotation 0，对齐用户手柄朝上的实机使用方式和官方触摸示例基线。\n\n### 触摸与显示诊断\n- 输入服务同时保存 raw 触摸坐标和 Vink normalized 540×960 坐标。\n- Tap/Swipe/LongPress 继续使用最后有效 pressed 坐标，避免 release 后无效坐标造成误判。\n- 设置页新增触摸/显示诊断入口，显示 raw/norm 坐标、rotation、逻辑尺寸和 3×3 命中网格，便于真机定位 GT911、坐标映射或 hit-test 问题。\n\n### SD 与构建发布\n- 书库 SD 初始化改为显式使用官方 PaperS3 SPI 管脚，并按 25MHz → 8MHz → 4MHz fallback。\n- 新增 full-only 构建流程；Vink PaperS3 后续只交付完整 16MB full 镜像，从 0x0 烧录。\n- OTA/app 与 SPIFFS 单包仅作为内部合包中间产物，不再作为新版本用户下载/刷写资产。\n\n### 验证状态\n- 本地源码门禁、PlatformIO 编译、buildfs 内部资源镜像和 16MB full 合包已通过。\n- 触摸 raw/norm 坐标、3×3 网格命中和 EPD 实际刷新仍需要 PaperS3 真机验证。",
+      "assets": {
+        "full": {
+          "name": "Vink-PaperS3-v0.3.2-rc-official-profile-full-16MB.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.3.2-rc/Vink-PaperS3-v0.3.2-rc-official-profile-full-16MB.bin",
+          "size": 16777216,
+          "flashOffset": 0
+        }
+      }
+    },
+    {
       "version": "v0.3.1",
       "name": "Vink-PaperS3 v0.3.1 UI 对齐修正",
       "summary": "基于 v0.3.0 继续修正 Shell UI 与阅读管理页布局：统一白底黑框卡片，设置项文字/右侧值/箭头严格共用同一行中心线，通知栏左侧显示系统时间、右侧显示电量百分比，书架/目录/书籍入口也显示同一套四 Tab 顶栏，并修复阅读首页书架按钮命中被当前书卡片覆盖的问题。",

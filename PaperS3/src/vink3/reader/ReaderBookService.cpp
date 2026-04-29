@@ -1,8 +1,10 @@
 #include "ReaderBookService.h"
 #include "ReaderTextRenderer.h"
 #include "../display/DisplayService.h"
+#include "../ReadPaper176.h"
 #include "../../Config.h"
 #include "../../TextCodec.h"
+#include <SPI.h>
 #include <esp_heap_caps.h>
 
 namespace vink3 {
@@ -24,7 +26,23 @@ bool ReaderBookService::begin() {
 
 bool ReaderBookService::ensureSdReady() {
     if (sdReady_) return true;
-    sdReady_ = SD.begin();
+
+    // Official PaperS3 microSD wiring from M5Stack docs:
+    // CS=G47, SCK=G39, MOSI=G38, MISO=G40. Do not rely on board defaults here;
+    // explicit pins keep Vink aligned with the product manual and factory demo.
+    SPI.begin(kSdSckPin, kSdMisoPin, kSdMosiPin, kSdCsPin);
+    const uint32_t freqs[] = {kSdPrimaryFrequency, kSdFallbackFrequency1, kSdFallbackFrequency2};
+    for (uint32_t freq : freqs) {
+        Serial.printf("[vink3][book] SD init CS=%d SCK=%d MOSI=%d MISO=%d freq=%lu\n",
+                      kSdCsPin, kSdSckPin, kSdMosiPin, kSdMisoPin, static_cast<unsigned long>(freq));
+        if (SD.begin(kSdCsPin, SPI, freq)) {
+            sdReady_ = true;
+            Serial.printf("[vink3][book] SD ready at %lu Hz\n", static_cast<unsigned long>(freq));
+            break;
+        }
+        delay(50);
+    }
+
     if (sdReady_) {
         if (!SD.exists(BOOKS_DIR)) SD.mkdir(BOOKS_DIR);
         if (!SD.exists(PROGRESS_DIR)) SD.mkdir(PROGRESS_DIR);

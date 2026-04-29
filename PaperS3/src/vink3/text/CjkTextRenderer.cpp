@@ -20,12 +20,15 @@ bool CjkTextRenderer::begin(M5Canvas* canvas) {
     // Vink UI must keep the Simplified Chinese SC visual style. ReadPaper is a
     // low-level reference only; its UI subset can look like Traditional/Japanese
     // glyphs on shared Han characters, so bundled SC UI fonts take priority.
-    if (font_.loadBundledFont(FONT_FILE_20)) {
-        Serial.println("[vink3][cjk] bundled SC 20px UI font loaded");
-        return true;
-    }
+    // Shell/chrome UI uses the smaller bundled SC font. On PaperS3 the 20px
+    // UI font looked cramped in tabs/cards and made short labels appear clipped
+    // in photos; keep the larger fonts for reader body only.
     if (font_.loadBundledFont(FONT_FILE_16)) {
         Serial.println("[vink3][cjk] bundled SC 16px UI font loaded");
+        return true;
+    }
+    if (font_.loadBundledFont(FONT_FILE_20)) {
+        Serial.println("[vink3][cjk] bundled SC 20px UI font loaded");
         return true;
     }
 
@@ -163,9 +166,10 @@ int16_t CjkTextRenderer::textWidth(const char* text) {
 uint16_t CjkTextRenderer::pixelColorForNibble(uint8_t nibble, uint16_t color) const {
     if (color == TFT_WHITE) return TFT_WHITE;
     if (color != TFT_BLACK) return color;
-    if (nibble >= 11) return TFT_BLACK;
-    if (nibble >= 6) return 0x8410;
-    return 0xC618;
+    // E-paper photos made low-alpha antialias pixels look like missing
+    // characters. Bias UI glyphs toward solid black for legibility.
+    if (nibble >= 4) return TFT_BLACK;
+    return 0x8410;
 }
 
 void CjkTextRenderer::drawReadPaperGlyph(const ReadPaperGlyph& glyph, int16_t x, int16_t y, uint16_t color) {

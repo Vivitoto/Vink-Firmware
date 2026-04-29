@@ -50,7 +50,9 @@ private:
     TaskHandle_t task_ = nullptr;
     volatile bool busy_ = false;
     volatile uint32_t pushCount_ = 0;
-    bool fastRefresh_ = false;
+    // PaperS3 official/examples and reference firmware favor fast EPD updates for
+    // interactive UI, with periodic quality refreshes to clean ghosting.
+    bool fastRefresh_ = true;
 };
 
 extern DisplayService g_displayService;

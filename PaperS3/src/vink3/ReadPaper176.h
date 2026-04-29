@@ -1,6 +1,7 @@
 #pragma once
 #include <Arduino.h>
 #include <M5Unified.h>
+#include <driver/gpio.h>
 
 namespace vink3 {
 
@@ -10,10 +11,40 @@ static constexpr const char* kReadPaperUpstreamRepo = "shinemoon/M5ReadPaper";
 static constexpr const char* kReadPaperUpstreamCommit = "e910d29";
 static constexpr const char* kReadPaperUpstreamVersion = "V1.7.6";
 
-static constexpr int16_t kPaperS3Width = 540;
-static constexpr int16_t kPaperS3Height = 960;
+// Official M5Stack PaperS3 hardware profile.
+// Source: http://docs.m5stack.com/zh_CN/core/PaperS3
+static constexpr int16_t kPaperS3Width = 540;   // Vink logical portrait width after rotation 0
+static constexpr int16_t kPaperS3Height = 960;  // Vink logical portrait height after rotation 0
+static constexpr int16_t kPaperS3PhysicalWidth = 960;
+static constexpr int16_t kPaperS3PhysicalHeight = 540;
+static constexpr uint8_t kPaperS3DisplayRotation = 0;
+// Runtime-selected rotation starts from the official touch-example baseline (0),
+// then falls back to the rotation that actually exposes Vink's 540x960 portrait
+// canvas on the current M5Unified/M5GFX build. This protects against library
+// rotation semantics changing while keeping the official baseline visible.
+extern uint8_t gPaperS3ActiveDisplayRotation;
 static constexpr uint8_t kTextColorDepth = 4;
 static constexpr uint8_t kTextColorDepthHigh = 16;
+
+static constexpr gpio_num_t kGt911SdaPin = GPIO_NUM_41;
+static constexpr gpio_num_t kGt911SclPin = GPIO_NUM_42;
+static constexpr gpio_num_t kGt911IntPin = GPIO_NUM_48;
+static constexpr uint8_t kGt911PrimaryAddress = 0x14;
+static constexpr uint8_t kGt911AltAddress = 0x5D;
+
+static constexpr int kSdCsPin = 47;
+static constexpr int kSdSckPin = 39;
+static constexpr int kSdMosiPin = 38;
+static constexpr int kSdMisoPin = 40;
+static constexpr uint32_t kSdPrimaryFrequency = 25000000UL;
+static constexpr uint32_t kSdFallbackFrequency1 = 8000000UL;
+static constexpr uint32_t kSdFallbackFrequency2 = 4000000UL;
+
+static constexpr gpio_num_t kBatteryAdcPin = GPIO_NUM_3;
+static constexpr gpio_num_t kChargeStatePin = GPIO_NUM_4; // factory firmware: 0 charging, 1 full/not charging
+static constexpr gpio_num_t kUsbDetectPin = GPIO_NUM_5;   // factory firmware: 1 USB-IN
+static constexpr gpio_num_t kBuzzerPin = GPIO_NUM_21;
+static constexpr gpio_num_t kEpdPowerPin = GPIO_NUM_45;
 
 static constexpr uint32_t kDisplayMiddleRefreshThreshold = 8;
 static constexpr uint32_t kDisplayQualityFastThreshold = 18;

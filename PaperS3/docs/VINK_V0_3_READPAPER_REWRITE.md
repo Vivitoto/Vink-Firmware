@@ -288,10 +288,10 @@ Goal: compile alongside old code, then switch `main.cpp` to new runtime once sta
 - Pull/push reading progress.
 - Add logs/status page.
 
-### Phase 7 — v0.3.0 release candidate
+### Phase 7 — v0.3.x release candidate
 
-- Version top manifest to `v0.3.0`.
-- Build full/ota/spiffs.
+- Version top manifest to the RC/release version.
+- Build **full-only** merged 16MB image; do not publish standalone OTA/app or SPIFFS artifacts for new Vink PaperS3 builds.
 - Run local smoke tests.
 - Only then ask user whether to push/release.
 

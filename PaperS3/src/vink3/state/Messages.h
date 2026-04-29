@@ -11,6 +11,7 @@ enum class SystemState : uint8_t {
     ReaderMenu,
     Transfer,
     Settings,
+    Diagnostics,
     LegadoSync,
     Sleeping,
     Shutdown,
@@ -49,7 +50,11 @@ struct TouchPoint {
 struct Message {
     MessageType type = MessageType::None;
     uint32_t timestampMs = 0;
+    // `touch` is Vink's normalized 540x960 logical portrait coordinate.
     TouchPoint touch{};
+    // `rawTouch` preserves the raw coordinate returned by M5Unified/GT911 for
+    // hardware diagnostics before Vink hit-testing or clamping.
+    TouchPoint rawTouch{};
     int32_t value = 0;
 };
 

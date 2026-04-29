@@ -38,6 +38,13 @@ void renderState(SystemState state) {
         case SystemState::Settings:
             g_uiRenderer.renderSettings();
             break;
+        case SystemState::Diagnostics:
+        {
+            Message blank;
+            blank.timestampMs = millis();
+            g_uiRenderer.renderDiagnostics(blank, "等待触摸");
+            break;
+        }
         case SystemState::LegadoSync:
             g_uiRenderer.renderLegadoSync("Legado sync service ready");
             break;
@@ -123,6 +130,12 @@ void StateMachine::handle(const Message& message) {
                     state_ = SystemState::Settings;
                     renderState(state_);
                     g_displayService.enqueueFull(false, 100);
+                    break;
+
+                case UiAction::OpenDiagnostics:
+                    state_ = SystemState::Diagnostics;
+                    g_uiRenderer.renderDiagnostics(message, "进入诊断");
+                    g_displayService.enqueueFull(true, 100);
                     break;
 
                 case UiAction::StartLegadoSync:
@@ -243,9 +256,21 @@ void StateMachine::handle(const Message& message) {
             g_displayService.enqueueFull(true, 100);
             break;
 
-        case MessageType::DisplayDone:
         case MessageType::TouchDown:
+            if (state_ == SystemState::Diagnostics) {
+                g_uiRenderer.renderDiagnostics(message, "down");
+                g_displayService.enqueueFull(false, 100);
+            }
+            break;
+
         case MessageType::TouchUp:
+            if (state_ == SystemState::Diagnostics) {
+                g_uiRenderer.renderDiagnostics(message, "up");
+                g_displayService.enqueueFull(false, 100);
+            }
+            break;
+
+        case MessageType::DisplayDone:
         case MessageType::None:
         default:
             break;

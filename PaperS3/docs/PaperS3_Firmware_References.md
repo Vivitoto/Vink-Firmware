@@ -7,6 +7,83 @@ This document is the working reference for Vink-PaperS3 hardware/display/touch f
 - **Use ReadPaper / Crosspoint / other firmware for:** display initialization, refresh policy, font/canvas rendering, touch mapping, SD/power pins, sleep/wake behavior.
 - **Do not copy their UI style.** Vink shell UI should stay Crosslink-like: monochrome e-paper, top status + tab bookmarks, card/grid panels, compact settings rows, no decorative bottom hint bar.
 
+## Official M5Stack PaperS3 Documentation
+
+- Product/developer page: <http://docs.m5stack.com/zh_CN/core/PaperS3>
+- Arduino quick start: <https://docs.m5stack.com/zh_CN/arduino/m5papers3/program>
+- Touch guide: <https://docs.m5stack.com/zh_CN/arduino/m5papers3/touch>
+- microSD guide: <https://docs.m5stack.com/zh_CN/arduino/m5papers3/sdcard>
+- Battery guide: <https://docs.m5stack.com/zh_CN/arduino/m5papers3/battery>
+- Wake/sleep guide: <https://docs.m5stack.com/zh_CN/arduino/m5papers3/wakeup>
+- ESP-IDF factory firmware: <https://github.com/m5stack/M5PaperS3-UserDemo>
+
+Key facts from the official page:
+
+- SoC: ESP32-S3R8, 240 MHz dual-core.
+- Flash: 16 MB external flash.
+- PSRAM: 8 MB; software-development notes require PSRAM enabled and PSRAM mode set to Octal.
+- Display: EPD_ED047TC1, 4.7 inch, 960x540 physical resolution, 16-level grayscale.
+- Touch: GT911 capacitive panel, two-point touch and gesture support.
+- RTC: BM8563 at I2C address `0x51`.
+- IMU: BMI270 at I2C address `0x68`.
+- Power: 1800 mAh battery, PMS150G power management, low-power mode listed around 9.28 uA with main power off.
+
+Official pin map:
+
+- EPD_ED047TC1 data/control:
+  - DB0 G6, DB1 G14, DB2 G7, DB3 G12, DB4 G9, DB5 G11, DB6 G8, DB7 G10
+  - XSTL G13, XLE G15, SPV G17, CKV G18, PWR G45
+- Shared I2C / interrupts / ADC / buzzer:
+  - GT911: SDA G41, SCL G42, INT G48
+  - BM8563: SDA G41, SCL G42, INT PMS150GU06-PA6/CIN-
+  - Battery ADC: G3
+  - Buzzer PWM: G21
+- microSD SPI:
+  - CS G47, SCK G39, MOSI G38, MISO G40
+- USB detect: G5
+- Extension port: GND, 3V3, G1, G2
+
+Official PlatformIO guidance:
+
+```ini
+[env:PaperS3]
+platform = espressif32
+board = esp32-s3-devkitm-1
+framework = arduino
+board_build.partitions = default_16MB.csv
+board_upload.flash_size = 16MB
+board_upload.maximum_size = 16777216
+board_build.arduino.memory_type = qio_opi
+build_flags =
+  -DESP32S3
+  -DBOARD_HAS_PSRAM
+  -DCORE_DEBUG_LEVEL=5
+  -DARDUINO_USB_CDC_ON_BOOT=1
+  -DARDUINO_USB_MODE=1
+lib_deps =
+  epdiy=https://github.com/vroland/epdiy.git#d84d26ebebd780c4c9d4218d76fbe2727ee42b47
+  M5Unified=https://github.com/m5stack/M5Unified
+```
+
+Official Arduino examples confirm these high-value behavior checks:
+
+- Touch example uses `M5.begin()`, `M5.Display.setRotation(0)`, repeated `M5.update()`, then `M5.Touch.getDetail()` and `touchDetail.isPressed()`; it draws circles at `touchDetail.x/y`.
+- microSD example uses the official PaperS3 pins `CS=47`, `SCK=39`, `MOSI=38`, `MISO=40`, and tries `SD.begin(SD_SPI_CS_PIN, SPI, 25000000)`.
+- Wake/sleep example uses `M5.Power.lightSleep(5000000, false)` and then redraws the screen after wake.
+- Battery example uses `M5.Power.isCharging()`, `M5.Power.getBatteryLevel()`, and `M5.Power.getBatteryVoltage()` after `M5.update()`.
+- Official factory firmware additionally reads PaperS3 battery/USB pins directly: Battery ADC G3, charge-state G4 (`0` means charging in factory code), USB detect G5 (`1` means USB-IN), and estimates voltage as `raw * 3.5 / 4096 * 2`.
+
+Vink implications:
+
+- Keep `cfg.fallback_board = m5::board_t::board_M5PaperS3`, USB CDC flags, 16MB flash, and PSRAM enabled.
+- Recheck the current PlatformIO dependency stack against the official EPDIY/M5Unified requirement if display artifacts persist.
+- Build a diagnostic page that mirrors the official touch example first: show `M5.Touch.getDetail()` raw x/y live before applying Vink hit-testing.
+- Also show official/factory power signals in diagnostics: USB detect, charge state, and raw-ADC battery voltage.
+- Keep the SD pin mapping exactly as official docs state.
+- Initialize official GPIOs explicitly during hardware bring-up: USB detect G5, charge state G4, battery ADC G3, buzzer G21.
+- Treat wake from light sleep as a redraw boundary: redraw/refresh the visible shell after wake and suppress stale wake-touch events before normal UI hit-testing.
+- Use full-only firmware delivery for Vink PaperS3: generate a merged 16MB image and flash it from offset `0x0`; OTA/app and SPIFFS binaries are internal build intermediates, not user-facing artifacts.
+
 ## Reference Projects
 
 ### shinemoon/M5ReadPaper
@@ -290,7 +367,7 @@ Use this checklist when modifying Vink-PaperS3 firmware:
    - `M5.begin(cfg)` with PaperS3-safe config.
    - `M5.Display.powerSaveOff()` before rotation/display setup.
    - `setColorDepth(4)` for PaperS3 shell/read path.
-   - fixed rotation `0` for user's handle-up physical orientation.
+   - start from official touch-example rotation `0`, but verify actual `M5.Display.width()/height()` and fall back to the rotation that exposes Vink's 540x960 portrait canvas if the active M5GFX build maps rotations differently.
 
 2. **CJK text**
    - Shell UI Chinese must use `FontManager` drawing, not M5 built-in `print()`.
@@ -321,7 +398,11 @@ Use this checklist when modifying Vink-PaperS3 firmware:
    - PaperS3 pins: CS47/SCK39/MOSI38/MISO40.
    - Try multiple SPI frequencies; 20-25 MHz may work, fall back to 8/4 MHz.
 
-7. **UI style**
+7. **Official power pins**
+   - Battery ADC G3, USB detect G5, charge-state G4, buzzer G21 are explicit constants.
+   - Diagnostics should display USB/charge/battery readings so hardware revision or calibration issues are visible on-device.
+
+8. **UI style**
    - Keep Crosslink/Xiaohongshu visual style.
    - No decorative bottom hint strip.
    - Use page content action cards for touch hints, e.g. empty bookshelf `打开SD卡`.

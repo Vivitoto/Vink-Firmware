@@ -5,17 +5,17 @@
     "name": "Vink-PaperS3",
     "author": "ifocuspace",
     "category": "paper",
-    "description": "Vink-PaperS3 full image for M5Stack PaperS3. Added for 0xFlash compatibility testing.",
+    "description": "Vink-PaperS3 full-only image for M5Stack PaperS3. Flash the merged 16MB image from offset 0x0.",
     "cover": "",
     "device": "paper_s3",
     "versions": [
       {
-        "version": "v1.2.0 full 16MB",
-        "file": "v1.2.0/Vink-PaperS3-v1.2.0-full-16MB.bin",
-        "published_at": "2026-04-26T02:46:32Z",
-        "is_stable": true,
+        "version": "v0.3.2-rc official-profile full 16MB",
+        "file": "v0.3.2-rc/Vink-PaperS3-v0.3.2-rc-official-profile-full-16MB.bin",
+        "published_at": "2026-04-29T13:14:00Z",
+        "is_stable": false,
         "size": 16777216,
-        "change_log": "Vink-PaperS3 v1.2.0 full 16MB image. Bootloader + partition table + app + SPIFFS, flash from 0x0."
+        "change_log": "Vink-PaperS3 v0.3.2-rc official PaperS3 hardware profile RC. Full-only 16MB image: bootloader + partition table + app + SPIFFS, flash from 0x0. Requires real-device validation for GT911 touch mapping, EPD refresh, SD, battery and wake behavior."
       }
     ]
   }

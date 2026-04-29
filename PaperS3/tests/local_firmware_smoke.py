@@ -9,7 +9,7 @@ things that repeatedly caused real-device regressions:
 - non-tab menu pages are dirty-gated instead of repainting every loop
 - transition touches wait for finger release
 - releases.json top asset sizes match existing release artifacts
-- optional PlatformIO build/buildfs/full-merge with partition-size checks
+- optional PlatformIO build/buildfs/full-merge with full-image size checks
 """
 from __future__ import annotations
 
@@ -25,8 +25,8 @@ from pathlib import Path
 PROJECT = Path(__file__).resolve().parents[1]
 REPO = PROJECT.parent
 WORKSPACE = Path("/home/vito/.openclaw/workspace")
-ARTIFACTS = WORKSPACE / "artifacts"
-DEFAULT_SLUG = "readpaper-core"
+ARTIFACTS = WORKSPACE / "artifacts" / "Vink-PaperS3"
+DEFAULT_SLUG = "official-profile"
 APP_SLOT_SIZE = 0xC00000  # v0.3 single-app layout for full ReadPaper PROGMEM font
 SPIFFS_SIZE = 0x3F0000
 FULL_FLASH_SIZE = 0x1000000
@@ -130,30 +130,62 @@ def vink3_source_invariants(main_cpp: str) -> None:
     full_font_h = read("src/vink3/text/ReadPaperFullFont.h")
     gbk_table_h = read("src/vink3/text/GbkUnicodeTable.h")
     upstream = read("src/vink3/ReadPaper176.h")
+    platformio = read("platformio.ini")
 
     assert_contains(main_cpp, "xTaskCreatePinnedToCore", "v0.3 main starts a ReadPaper-style pinned MainTask")
     assert_contains(runtime_cpp, "kReadPaperUpstreamVersion", "v0.3 runtime records ReadPaper upstream baseline")
-    assert_contains(runtime_cpp, "M5.Display.setRotation(0)", "v0.3 PaperS3 display rotation matches Vink portrait touch geometry")
+    assert_contains(runtime_cpp, "applyPaperS3PortraitRotation", "v0.3 PaperS3 display rotation is verified against actual M5GFX dimensions")
+    assert_contains(runtime_cpp, "M5.Display.setRotation(kPaperS3DisplayRotation)", "v0.3 PaperS3 display rotation starts from the official-profile constant")
+    assert_contains(upstream, "kPaperS3DisplayRotation = 0", "official touch example rotation 0 is the Vink diagnostic baseline")
+    assert_contains(upstream, "gPaperS3ActiveDisplayRotation", "active rotation is exposed for diagnostics after runtime verification")
+    assert_contains(upstream, "kGt911SdaPin = GPIO_NUM_41", "official GT911 SDA pin is recorded")
+    assert_contains(upstream, "kGt911SclPin = GPIO_NUM_42", "official GT911 SCL pin is recorded")
+    assert_contains(upstream, "kGt911IntPin = GPIO_NUM_48", "official GT911 INT pin is recorded")
+    assert_contains(upstream, "kSdCsPin = 47", "official PaperS3 SD CS pin is recorded")
+    assert_contains(upstream, "kSdSckPin = 39", "official PaperS3 SD SCK pin is recorded")
+    assert_contains(upstream, "kSdMosiPin = 38", "official PaperS3 SD MOSI pin is recorded")
+    assert_contains(upstream, "kSdMisoPin = 40", "official PaperS3 SD MISO pin is recorded")
+    assert_contains(upstream, "kBatteryAdcPin = GPIO_NUM_3", "official PaperS3 battery ADC pin is recorded")
+    assert_contains(upstream, "kChargeStatePin = GPIO_NUM_4", "official factory charge-state pin is recorded")
+    assert_contains(upstream, "kUsbDetectPin = GPIO_NUM_5", "official PaperS3 USB detect pin is recorded")
+    assert_contains(upstream, "kBuzzerPin = GPIO_NUM_21", "official PaperS3 buzzer pin is recorded")
+    assert_contains(runtime_cpp, "configureOfficialPaperS3Gpios", "runtime initializes official PaperS3 battery/USB/charge/buzzer GPIOs")
+    assert_contains(platformio, "epdiy=https://github.com/vroland/epdiy.git#d84d26ebebd780c4c9d4218d76fbe2727ee42b47", "PlatformIO documents the official PaperS3 EPDIY reference pin")
     assert_contains(upstream, "V1.7.6", "v0.3 baseline is ReadPaper V1.7.6")
     assert_contains(upstream, "e910d29", "v0.3 baseline records latest remote commit")
     assert_contains(display_h, "DisplayRequest", "v0.3 display queue has ReadPaper-style request struct")
     assert_contains(display_cpp, "cloneCanvas()", "v0.3 display queue snapshots canvas before physical push")
+    assert_contains(display_cpp, "enqueue skipped: canvas snapshot allocation failed", "display service drops/retries instead of pushing mutable canvas if snapshot fails")
+    assert_not_contains(display_cpp, "canvasToPush ? canvasToPush : canvas_", "display service must not fall back to mutable global canvas")
     assert_contains(display_cpp, "M5.Display.waitDisplay()", "v0.3 display task serializes physical EPD pushes")
     assert_contains(display_cpp, "g_inDisplayPush", "v0.3 display task exposes in-push guard")
     assert_contains(input_cpp, "g_inDisplayPush", "v0.3 input task suppresses events during display push")
     assert_contains(input_cpp, "M5.update();", "v0.3 input task owns M5.update polling")
+    assert_contains(input_cpp, "lastPoint_ = currentPoint", "touch service caches last valid pressed coordinate")
+    assert_contains(input_cpp, "lastRawPoint_ = rawPoint", "touch service preserves raw PaperS3 coordinates for diagnostics")
+    assert_contains(input_cpp, "const TouchPoint releasePoint = lastPoint_", "touch service must not use release-time invalid coordinates for taps")
+    assert_contains(input_cpp, "normalizeTouchPoint", "touch service normalizes/clamps raw PaperS3 coordinates before hit-test")
+    assert_contains(input_cpp, "transformRawPaperS3Point", "touch service has explicit physical-to-portrait transform fallback")
+    assert_contains(input_cpp, "gPaperS3ActiveDisplayRotation", "touch transform is tied to verified active display rotation")
     assert_contains(state_cpp, "xQueueReceive", "v0.3 state machine is queue-driven")
     assert_contains(legado_cpp, "LegadoService", "v0.3 Legado integration is isolated as a service")
     assert_contains(ui_cpp, "CjkTextRenderer", "v0.3 UI routes text through CJK renderer")
+    assert_contains(ui_cpp, "renderDiagnostics", "official PaperS3 touch/display diagnostic page exists")
+    assert_contains(ui_cpp, "raw:", "diagnostic page shows raw GT911/M5Unified coordinates")
+    assert_contains(ui_cpp, "norm:", "diagnostic page shows normalized Vink coordinates")
+    assert_contains(ui_cpp, "USB:%s CHG:%s BAT:%.2fV", "diagnostic page shows official power/USB/battery signals")
     assert_contains(ui_cpp, "drawSettingsRow", "settings rows align label, value, and arrow explicitly")
     assert_contains(ui_cpp, "kRowH / 2", "settings row label/value/arrow share one computed centerline")
     assert_contains(ui_cpp, "同一水平线", "settings page documents row alignment intent")
     assert_contains(ui_cpp, "formatStatusTime", "status bar shows system time at the left")
     assert_contains(ui_cpp, "formatBatteryPercent", "status bar shows battery percentage at the right")
+    assert_contains(ui_cpp, "readOfficialBatteryVoltage", "diagnostic/status path can read factory-style battery voltage")
+    assert_contains(ui_cpp, "isOfficialUsbConnected", "diagnostic/status path can read official USB detect")
+    assert_contains(ui_cpp, "isOfficialChargeStateActive", "diagnostic page can read official charge-state pin")
     assert_contains(ui_cpp, "Buttons sit inside the current-book card", "reader home hit-test checks visible buttons before surrounding card")
-    assert_contains(ui_cpp, "drawButton(304, 292, 180, 48, \"书架\")", "reader home bookshelf button geometry is explicit")
+    assert_contains(ui_cpp, "drawButton(304, 286, 180, 48, \"书架\")", "reader home bookshelf button geometry is explicit")
     assert_not_contains(ui_cpp, "繁简", "v0.3 UI must not show Traditional/Simplified toggle wording")
-    assert_contains(cjk_cpp, "bundled SC 20px UI font loaded", "v0.3 UI prefers bundled Simplified Chinese SC font")
+    assert_contains(cjk_cpp, "bundled SC 16px UI font loaded", "v0.3 UI prefers compact bundled Simplified Chinese SC font")
     assert_contains(cjk_cpp, "ReadPaper V3 UI subset fallback", "ReadPaper UI subset is fallback only, not Vink UI default")
     assert_contains(reader_cpp, "ReaderTextRenderer", "v0.3 has a separate reader body renderer")
     assert_contains(reader_cpp, "beginReadPaperFullFont", "reader body renderer uses full ReadPaper PROGMEM font")
@@ -235,91 +267,82 @@ def manifest_and_artifacts(slug: str, strict_artifacts: bool = False) -> None:
     ok(f"Top manifest release is {version}: {top.get('name')}")
 
     assets = top.get("assets") or {}
-    expected = {
-        "full": ARTIFACTS / f"Vink-PaperS3-{version}-{slug}-full-16MB.bin",
-        "ota": ARTIFACTS / f"Vink-PaperS3-{version}-{slug}-ota.bin",
-        "spiffs": ARTIFACTS / f"Vink-PaperS3-{version}-{slug}-spiffs.bin",
-    }
-    for kind, path in expected.items():
-        manifest_size = assets.get(kind, {}).get("size")
-        if not isinstance(manifest_size, int) or manifest_size <= 0:
-            fail(f"{kind} manifest size is invalid: {manifest_size}")
-        if not path.exists():
-            if strict_artifacts:
-                fail(f"missing artifact: {path}")
-            ok(f"{kind} manifest size is declared: {manifest_size}")
-            continue
-        actual_size = path.stat().st_size
-        if actual_size != manifest_size:
-            if strict_artifacts:
-                fail(f"{kind} size mismatch: artifact={actual_size}, manifest={manifest_size}")
-            ok(f"{kind} manifest size is declared: {manifest_size} (cached artifact is local build: {actual_size})")
-            continue
-        ok(f"{kind} artifact size matches manifest: {actual_size}")
+    full_asset = assets.get("full") or {}
+    if "ota" in assets or "spiffs" in assets:
+        fail("top release must be full-only; do not publish OTA/SPIFFS assets for new Vink PaperS3 builds")
 
-    full_offset = assets.get("full", {}).get("flashOffset")
-    ota_offset = assets.get("ota", {}).get("flashOffset")
+    manifest_size = full_asset.get("size")
+    if manifest_size != FULL_FLASH_SIZE:
+        fail(f"full manifest size must be exactly 16MB: {manifest_size}")
+    full_offset = full_asset.get("flashOffset")
     if full_offset != 0:
         fail(f"full flashOffset must be 0, got {full_offset}")
-    if ota_offset not in (65536, "65536", "0x10000"):
-        fail(f"unexpected ota flashOffset: {ota_offset}")
-    ok("Manifest flash offsets look correct")
+
+    path = ARTIFACTS / f"Vink-PaperS3-{version}-{slug}-full-16MB.bin"
+    if not path.exists():
+        if strict_artifacts:
+            fail(f"missing full artifact: {path}")
+        ok(f"full-only manifest is declared: {manifest_size} bytes @ offset 0")
+        return
+
+    actual_size = path.stat().st_size
+    if actual_size != manifest_size:
+        if strict_artifacts:
+            fail(f"full size mismatch: artifact={actual_size}, manifest={manifest_size}")
+        ok(f"full manifest size is declared: {manifest_size} (cached artifact is local build: {actual_size})")
+        return
+    ok(f"full artifact size matches manifest: {actual_size}")
 
 
 def built_artifacts_smoke(slug: str) -> None:
     data = json.loads((PROJECT / "releases.json").read_text(encoding="utf-8"))
     version = data["releases"][0]["version"]
-    expected = {
-        "full": ARTIFACTS / f"Vink-PaperS3-{version}-{slug}-full-16MB.bin",
-        "ota": ARTIFACTS / f"Vink-PaperS3-{version}-{slug}-ota.bin",
-        "spiffs": ARTIFACTS / f"Vink-PaperS3-{version}-{slug}-spiffs.bin",
-    }
-    sizes = {}
-    for kind, path in expected.items():
-        if not path.exists():
-            fail(f"missing built artifact: {path}")
-        sizes[kind] = path.stat().st_size
+    path = ARTIFACTS / f"Vink-PaperS3-{version}-{slug}-full-16MB.bin"
+    if not path.exists():
+        fail(f"missing built full artifact: {path}")
+    size = path.stat().st_size
+    if size != FULL_FLASH_SIZE:
+        fail(f"full image must be exactly 16MB, got {size}")
+    ok(f"built full image is 16MB: {size}")
 
-    if sizes["full"] != FULL_FLASH_SIZE:
-        fail(f"full image must be exactly 16MB, got {sizes['full']}")
-    ok(f"built full image is 16MB: {sizes['full']}")
-    if not 0 < sizes["ota"] <= APP_SLOT_SIZE:
-        fail(f"OTA image must fit app slot: artifact={sizes['ota']} slot={APP_SLOT_SIZE}")
-    ok(f"built OTA image fits app slot: {sizes['ota']} <= {APP_SLOT_SIZE}")
-    if sizes["spiffs"] != SPIFFS_SIZE:
-        fail(f"SPIFFS image must match partition size: artifact={sizes['spiffs']} partition={SPIFFS_SIZE}")
-    ok(f"built SPIFFS image matches partition: {sizes['spiffs']}")
+    forbidden = [
+        ARTIFACTS / f"Vink-PaperS3-{version}-{slug}-ota.bin",
+        ARTIFACTS / f"Vink-PaperS3-{version}-{slug}-spiffs.bin",
+    ]
+    for artifact in forbidden:
+        if artifact.exists():
+            fail(f"full-only workflow should not create standalone artifact: {artifact}")
+    ok("full-only workflow did not create OTA/SPIFFS deliverables")
 
 
 def json_valid() -> None:
     json.loads((PROJECT / "releases.json").read_text(encoding="utf-8"))
     ok("releases.json parses")
+    ox = json.loads((PROJECT / "oxflash.json").read_text(encoding="utf-8"))
+    top = ox[0]["versions"][0]
+    if "v0.3.2-rc" not in top.get("version", "") or top.get("size") != FULL_FLASH_SIZE:
+        fail("oxflash.json must point at the current v0.3.2-rc full-only 16MB image")
+    if "ota" in top.get("file", "").lower() or "spiffs" in top.get("file", "").lower():
+        fail("oxflash.json must not advertise OTA/SPIFFS artifacts")
+    ok("oxflash.json points at the current full-only RC image")
 
 
 def build_all(slug: str) -> None:
     if not shutil.which("pio"):
         fail("PlatformIO `pio` not found in PATH")
-    run(["pio", "run", "-e", "m5papers3"])
-    run(["pio", "run", "-e", "m5papers3", "-t", "buildfs"])
-    run(["tools/merge_full_firmware.sh"])
-
     version = json.loads((PROJECT / "releases.json").read_text(encoding="utf-8"))["releases"][0]["version"]
     ARTIFACTS.mkdir(parents=True, exist_ok=True)
-    copies = {
-        PROJECT / ".pio/build/m5papers3/m5papers3-ebook-full.bin": ARTIFACTS / f"Vink-PaperS3-{version}-{slug}-full-16MB.bin",
-        PROJECT / ".pio/build/m5papers3/firmware.bin": ARTIFACTS / f"Vink-PaperS3-{version}-{slug}-ota.bin",
-        PROJECT / ".pio/build/m5papers3/spiffs.bin": ARTIFACTS / f"Vink-PaperS3-{version}-{slug}-spiffs.bin",
-    }
-    for src, dst in copies.items():
-        if not src.exists():
-            fail(f"build output missing: {src}")
-        shutil.copy2(src, dst)
-        ok(f"copied {src.name} -> {dst}")
+    out = ARTIFACTS / f"Vink-PaperS3-{version}-{slug}-full-16MB.bin"
+
+    run(["tools/build_full_firmware.sh", str(out)])
+    if not out.exists():
+        fail(f"full image missing after build: {out}")
+    ok(f"full-only artifact ready: {out}")
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Run local Vink-PaperS3 firmware smoke tests")
-    parser.add_argument("--build", action="store_true", help="run PlatformIO build, buildfs, full merge, and copy artifacts first")
+    parser.add_argument("--build", action="store_true", help="run PlatformIO build/buildfs as internal steps, merge one full 16MB image, and copy only that full artifact")
     parser.add_argument("--slug", default=DEFAULT_SLUG, help="artifact slug used in workspace/artifacts filenames")
     parser.add_argument("--strict-artifacts", action="store_true", help="require cached artifacts to exactly match releases.json")
     args = parser.parse_args()

@@ -52,18 +52,23 @@ bool DisplayService::enqueue(const DisplayRequest& request, uint32_t timeoutMs) 
     // Match ReadPaper 1.7.6: render side snapshots the canvas before the display
     // task performs the physical push. This prevents UI drawing from racing the EPD.
     M5Canvas* clone = cloneCanvas();
-    if (clone && !enqueueCanvasCloneBlocking(clone)) {
+    if (!clone) {
+        // Never fall back to pushing the live global canvas. Under PSRAM pressure
+        // that is safer than racing UI rendering against a physical EPD transfer.
+        Serial.println("[vink3][display] enqueue skipped: canvas snapshot allocation failed");
+        return false;
+    }
+    if (!enqueueCanvasCloneBlocking(clone)) {
         delete clone;
-        clone = nullptr;
+        Serial.println("[vink3][display] enqueue skipped: canvas snapshot queue failed");
+        return false;
     }
 
     if (xQueueSend(queue_, &request, pdMS_TO_TICKS(timeoutMs)) != pdTRUE) {
-        if (clone) {
-            // Remove the clone we just queued if possible; otherwise the display task
-            // owns it and will delete it when it pops the next request.
-            M5Canvas* discarded = dequeueCanvasClone();
-            if (discarded) delete discarded;
-        }
+        // Remove the clone we just queued if possible; otherwise the display task
+        // owns it and will delete it when it pops the next request.
+        M5Canvas* discarded = dequeueCanvasClone();
+        if (discarded) delete discarded;
         return false;
     }
     return true;
@@ -112,8 +117,12 @@ void DisplayService::taskLoop() {
     for (;;) {
         if (xQueueReceive(queue_, &request, portMAX_DELAY) == pdTRUE) {
             M5Canvas* canvasToPush = dequeueCanvasClone();
-            push(request, canvasToPush ? canvasToPush : canvas_);
-            if (canvasToPush) delete canvasToPush;
+            if (!canvasToPush) {
+                Serial.println("[vink3][display] dropped request: missing immutable canvas snapshot");
+                continue;
+            }
+            push(request, canvasToPush);
+            delete canvasToPush;
         }
     }
 }

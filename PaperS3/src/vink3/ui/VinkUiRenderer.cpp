@@ -10,8 +10,8 @@ namespace {
 constexpr int16_t kMargin = 24;
 constexpr int16_t kStatusH = 62;
 constexpr int16_t kTabsY = 76;
-constexpr int16_t kTabsH = 64;
-constexpr int16_t kContentY = 160;
+constexpr int16_t kTabsH = 60;
+constexpr int16_t kContentY = 154;
 constexpr int16_t kTabW = 120;
 constexpr int16_t kTabGap = 8;
 constexpr int16_t kTabX0 = 18;
@@ -47,12 +47,35 @@ void formatStatusTime(char* out, size_t outSize) {
     snprintf(out, outSize, "--:--");
 }
 
+float readOfficialBatteryVoltage() {
+    // Matches M5PaperS3-UserDemo factory firmware: ADC raw * 3.5 / 4096 * 2.
+    const int raw = analogRead(static_cast<int>(kBatteryAdcPin));
+    if (raw <= 0) return 0.0f;
+    return static_cast<float>(raw) * 3.5f / 4096.0f * 2.0f;
+}
+
+bool isOfficialUsbConnected() {
+    return digitalRead(static_cast<int>(kUsbDetectPin)) == HIGH;
+}
+
+bool isOfficialChargeStateActive() {
+    // Factory firmware names GPIO4 PIN_CHG_STATE: 0 charging, 1 full/not charging.
+    return digitalRead(static_cast<int>(kChargeStatePin)) == LOW;
+}
+
 void formatBatteryPercent(char* out, size_t outSize) {
     if (!out || outSize == 0) return;
     int level = M5.Power.getBatteryLevel();
-    if (level < 0) level = 0;
-    if (level > 100) level = 100;
-    snprintf(out, outSize, "%d%%", level);
+    if (level > 0 && level <= 100) {
+        snprintf(out, outSize, "%s%d%%", isOfficialUsbConnected() ? "USB " : "", level);
+        return;
+    }
+    const float voltage = readOfficialBatteryVoltage();
+    if (voltage > 0.1f) {
+        snprintf(out, outSize, "%s%.2fV", isOfficialUsbConnected() ? "USB " : "", voltage);
+        return;
+    }
+    snprintf(out, outSize, "%s--%%", isOfficialUsbConnected() ? "USB " : "");
 }
 } // namespace
 
@@ -91,16 +114,17 @@ void VinkUiRenderer::drawTabs(SystemState active) {
     for (int i = 0; i < 4; ++i) {
         const int16_t x = kTabX0 + i * (kTabW + kTabGap);
         const bool selected = active == kTabs[i].state;
+        canvas_->fillRoundRect(x, kTabsY, kTabW, kTabsH, 16, TFT_WHITE);
+        canvas_->drawRoundRect(x, kTabsY, kTabW, kTabsH, 16, TFT_BLACK);
         if (selected) {
-            canvas_->fillRoundRect(x, kTabsY, kTabW, kTabsH, 16, TFT_BLACK);
-            canvas_->setTextColor(TFT_WHITE, TFT_BLACK);
-        } else {
-            const uint16_t fill = (i % 2 == 0) ? kGrayMid : kGrayLight;
-            canvas_->fillRoundRect(x, kTabsY, kTabW, kTabsH, 16, fill);
-            canvas_->drawRoundRect(x, kTabsY, kTabW, kTabsH, 16, TFT_BLACK);
-            canvas_->setTextColor(TFT_BLACK, fill);
+            // Avoid filled black tabs: on real PaperS3 the white CJK label can
+            // look swallowed after partial refresh/photo compression. Use a
+            // strong outline + underline so the text always remains black.
+            canvas_->drawRoundRect(x + 2, kTabsY + 2, kTabW - 4, kTabsH - 4, 14, TFT_BLACK);
+            canvas_->fillRoundRect(x + 28, kTabsY + kTabsH - 9, kTabW - 56, 4, 2, TFT_BLACK);
         }
-        g_cjkText.drawCentered(x, kTabsY, kTabW, kTabsH, kTabs[i].label, selected ? TFT_WHITE : TFT_BLACK);
+        canvas_->setTextColor(TFT_BLACK, TFT_WHITE);
+        g_cjkText.drawCentered(x, kTabsY, kTabW, kTabsH - 4, kTabs[i].label, TFT_BLACK);
     }
     canvas_->setTextColor(TFT_BLACK, TFT_WHITE);
 }
@@ -159,7 +183,7 @@ void VinkUiRenderer::renderBoot() {
     if (!canvas_) return;
     clear();
     g_cjkText.drawCentered(0, 390, kPaperS3Width, 48, "Vink", TFT_BLACK);
-    g_cjkText.drawCentered(0, 460, kPaperS3Width, 28, "v0.3.0 · ReadPaper V1.7.6 底层", kGrayText);
+    g_cjkText.drawCentered(0, 460, kPaperS3Width, 28, "v0.3.2-rc · ReadPaper V1.7.6 底层", kGrayText);
 }
 
 void VinkUiRenderer::renderHome(SystemState state) {
@@ -170,15 +194,15 @@ void VinkUiRenderer::renderHome(SystemState state) {
 void VinkUiRenderer::renderReaderHome() {
     if (!canvas_) return;
     clear();
-    drawStatusBar("Vink 阅读");
+    drawStatusBar("Vink");
     drawTabs(SystemState::Reader);
-    drawCard(28, kContentY, 484, 190, "当前书籍", "选择 TXT 后进入书籍入口");
-    drawButton(56, 292, 180, 48, "打开");
-    drawButton(304, 292, 180, 48, "书架");
-    drawCard(28, 382, 224, 132, "目录", "章节 / 跳页");
-    drawCard(288, 382, 224, 132, "标注", "书签 / 截图");
-    drawCard(28, 544, 484, 188, "正文设置", "自动翻页 / 刷新 / 字号 / 竖排 / 简体中文");
-    drawFooterHint("当前书设置留在正文页，设置页只管默认值");
+    drawCard(28, kContentY, 484, 184, "当前书籍", "TXT 书籍入口");
+    drawButton(56, 286, 180, 48, "打开");
+    drawButton(304, 286, 180, 48, "书架");
+    drawCard(28, 374, 224, 126, "目录", "章节 / 跳页");
+    drawCard(288, 374, 224, 126, "书签", "标注 / 截图");
+    drawCard(28, 524, 484, 176, "正文设置", "字体 · 字号 · 刷新 · 简体中文");
+    drawFooterHint("点卡片进入，滑动切换");
 }
 
 void VinkUiRenderer::renderLibrary() {
@@ -219,10 +243,50 @@ void VinkUiRenderer::renderSettings() {
     drawStatusBar("设置");
     drawTabs(SystemState::Settings);
     drawSettingsGroup(kContentY, "阅读", "正文字体", "默认", "字号与行距", "默认");
-    drawSettingsGroup(310, "显示", "刷新策略", "均衡", "深色模式", "关闭");
-    drawSettingsGroup(460, "连接", "WiFi", "配置", "Legado", "地址");
-    drawSettingsGroup(610, "系统", "电池与休眠", "自动", "关于", "v0.3.1");
-    drawFooterHint("设置项文字、右侧值和箭头保持同一水平线");
+    drawSettingsGroup(302, "显示", "刷新策略", "均衡", "触摸校准", "诊断");
+    drawSettingsGroup(450, "连接", "WiFi", "配置", "Legado", "地址");
+    drawSettingsGroup(598, "系统", "电池与休眠", "自动", "关于", "v0.3.2-rc");
+    drawFooterHint("设置行同一水平线；点触摸校准进入官方诊断");
+}
+
+void VinkUiRenderer::renderDiagnostics(const Message& lastTouch, const char* eventName) {
+    if (!canvas_) return;
+    clear();
+    drawStatusBar("硬件诊断");
+    drawTabs(SystemState::Settings);
+
+    char line[96];
+    drawCard(28, kContentY, 484, 138, "官方 PaperS3", "EPD_ED047TC1 · GT911 · 16MB Flash · 8MB PSRAM");
+    snprintf(line, sizeof(line), "rotation %u · logical %dx%d · panel %dx%d", gPaperS3ActiveDisplayRotation, kPaperS3Width, kPaperS3Height, M5.Display.width(), M5.Display.height());
+    g_cjkText.drawText(50, kContentY + 92, line, kGrayText);
+    snprintf(line, sizeof(line), "USB:%s CHG:%s BAT:%.2fV", isOfficialUsbConnected() ? "IN" : "--", isOfficialChargeStateActive() ? "ON" : "--", readOfficialBatteryVoltage());
+    g_cjkText.drawText(50, kContentY + 122, line, kGrayText);
+
+    drawCard(28, 316, 484, 174, "Touch / GT911", "按压屏幕任意位置，查看 raw 与 normalized 坐标");
+    snprintf(line, sizeof(line), "event: %s", eventName ? eventName : "等待触摸");
+    g_cjkText.drawText(50, 392, line, TFT_BLACK);
+    snprintf(line, sizeof(line), "raw: %d, %d", lastTouch.rawTouch.x, lastTouch.rawTouch.y);
+    g_cjkText.drawText(50, 430, line, TFT_BLACK);
+    snprintf(line, sizeof(line), "norm: %d, %d", lastTouch.touch.x, lastTouch.touch.y);
+    g_cjkText.drawText(286, 430, line, TFT_BLACK);
+
+    drawCard(28, 526, 484, 260, "3x3 命中网格", "实机看触摸点是否落在对应格子");
+    const int16_t gx = 66;
+    const int16_t gy = 612;
+    const int16_t gw = 408;
+    const int16_t gh = 132;
+    canvas_->drawRect(gx, gy, gw, gh, TFT_BLACK);
+    canvas_->drawFastVLine(gx + gw / 3, gy, gh, TFT_BLACK);
+    canvas_->drawFastVLine(gx + gw * 2 / 3, gy, gh, TFT_BLACK);
+    canvas_->drawFastHLine(gx, gy + gh / 3, gw, TFT_BLACK);
+    canvas_->drawFastHLine(gx, gy + gh * 2 / 3, gw, TFT_BLACK);
+    if (lastTouch.timestampMs != 0) {
+        const int16_t px = gx + (static_cast<int32_t>(lastTouch.touch.x) * gw) / kPaperS3Width;
+        const int16_t py = gy + (static_cast<int32_t>(lastTouch.touch.y) * gh) / kPaperS3Height;
+        canvas_->fillCircle(px, py, 8, TFT_BLACK);
+        canvas_->drawCircle(px, py, 14, TFT_BLACK);
+    }
+    drawFooterHint("顶部标签可退出；诊断结果以真机为准");
 }
 
 void VinkUiRenderer::renderLegadoSync(const char* status) {
@@ -254,9 +318,9 @@ UiAction VinkUiRenderer::hitTest(SystemState state, int16_t x, int16_t y) const 
         case SystemState::Home:
             // Buttons sit inside the current-book card; test them before the
             // surrounding card so the visible "书架" button does not open book.
-            if (inRect(x, y, 304, 292, 180, 48)) return UiAction::OpenLibrary;
-            if (inRect(x, y, 56, 292, 180, 48)) return UiAction::OpenCurrentBook;
-            if (inRect(x, y, 28, kContentY, 484, 190)) return UiAction::OpenCurrentBook;
+            if (inRect(x, y, 304, 286, 180, 48)) return UiAction::OpenLibrary;
+            if (inRect(x, y, 56, 286, 180, 48)) return UiAction::OpenCurrentBook;
+            if (inRect(x, y, 28, kContentY, 484, 184)) return UiAction::OpenCurrentBook;
             break;
         case SystemState::Library:
             if (y >= kContentY && y < 610) return UiAction::OpenCurrentBook;
@@ -265,7 +329,11 @@ UiAction VinkUiRenderer::hitTest(SystemState state, int16_t x, int16_t y) const 
             if (inRect(x, y, 56, 278, 180, 48)) return UiAction::StartLegadoSync;
             break;
         case SystemState::Settings:
+            if (inRect(x, y, 56, 386, 424, 42)) return UiAction::OpenDiagnostics;
             if (y >= kContentY) return UiAction::OpenSettings;
+            break;
+        case SystemState::Diagnostics:
+            if (y >= 316) return UiAction::OpenDiagnostics;
             break;
         case SystemState::LegadoSync:
             if (inRect(x, y, 56, 346, 180, 48)) return UiAction::TabTransfer;

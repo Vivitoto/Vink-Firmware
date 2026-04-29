@@ -378,7 +378,7 @@ void ReaderTextRenderer::renderListPage(const char* title, const char* summary, 
     const uint16_t mid = options.dark ? 0xC618 : 0x8410;
 
     drawText(options.marginLeft, 22, title ? title : "列表", fg);
-    drawText(kPaperS3Width - options.marginRight - textWidth("v0.3.1"), 22, "v0.3.1", mid);
+    drawText(kPaperS3Width - options.marginRight - textWidth("v0.3.2-rc"), 22, "v0.3.2-rc", mid);
     canvas_->drawFastHLine(options.marginLeft, 61, kPaperS3Width - options.marginLeft - options.marginRight, fg);
     drawShellTabs(activeTab, options);
     if (summary && summary[0]) drawText(options.marginLeft, 160, summary, mid);
@@ -413,7 +413,7 @@ void ReaderTextRenderer::renderActionPage(const char* title, const char* const* 
     const uint16_t mid = options.dark ? 0xC618 : 0x8410;
 
     drawText(options.marginLeft, 22, title ? title : "操作", fg);
-    drawText(kPaperS3Width - options.marginRight - textWidth("v0.3.1"), 22, "v0.3.1", mid);
+    drawText(kPaperS3Width - options.marginRight - textWidth("v0.3.2-rc"), 22, "v0.3.2-rc", mid);
     canvas_->drawFastHLine(options.marginLeft, 61, kPaperS3Width - options.marginLeft - options.marginRight, fg);
     drawShellTabs(activeTab, options);
 

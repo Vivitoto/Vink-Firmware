@@ -13,10 +13,56 @@
 
 namespace vink3 {
 
+uint8_t gPaperS3ActiveDisplayRotation = kPaperS3DisplayRotation;
 VinkRuntime g_runtime;
 
+namespace {
+void configureOfficialPaperS3Gpios() {
+    pinMode(static_cast<int>(kUsbDetectPin), INPUT);
+    pinMode(static_cast<int>(kChargeStatePin), INPUT);
+    pinMode(static_cast<int>(kBatteryAdcPin), INPUT);
+    pinMode(static_cast<int>(kBuzzerPin), OUTPUT);
+    digitalWrite(static_cast<int>(kBuzzerPin), LOW);
+    analogReadResolution(12);
+#if defined(ADC_11db)
+    analogSetPinAttenuation(static_cast<int>(kBatteryAdcPin), ADC_11db);
+#endif
+}
+
+void applyPaperS3PortraitRotation() {
+    M5.Display.setRotation(kPaperS3DisplayRotation);
+    delay(20);
+    gPaperS3ActiveDisplayRotation = kPaperS3DisplayRotation;
+
+    if (M5.Display.width() == kPaperS3Width && M5.Display.height() == kPaperS3Height) {
+        return;
+    }
+
+    Serial.printf("[vink3][display] preferred rotation %u exposes %dx%d, searching 540x960 portrait\n",
+                  kPaperS3DisplayRotation, M5.Display.width(), M5.Display.height());
+    for (uint8_t rotation = 0; rotation < 4; ++rotation) {
+        M5.Display.setRotation(rotation);
+        delay(20);
+        if (M5.Display.width() == kPaperS3Width && M5.Display.height() == kPaperS3Height) {
+            gPaperS3ActiveDisplayRotation = rotation;
+            Serial.printf("[vink3][display] selected rotation=%u for logical %dx%d\n",
+                          rotation, M5.Display.width(), M5.Display.height());
+            return;
+        }
+    }
+
+    // Last-resort fallback: restore official baseline and make the mismatch loud
+    // in serial logs/diagnostics instead of silently clipping the canvas.
+    M5.Display.setRotation(kPaperS3DisplayRotation);
+    gPaperS3ActiveDisplayRotation = kPaperS3DisplayRotation;
+    Serial.printf("[vink3][display][WARN] no rotation matched %dx%d; active=%u actual=%dx%d\n",
+                  kPaperS3Width, kPaperS3Height, gPaperS3ActiveDisplayRotation,
+                  M5.Display.width(), M5.Display.height());
+}
+} // namespace
+
 bool VinkRuntime::begin() {
-    Serial.println("[vink3][runtime] starting v0.3.0 from ReadPaper V1.7.6 baseline");
+    Serial.println("[vink3][runtime] starting v0.3.2-rc from ReadPaper V1.7.6 baseline");
     if (!beginHardware()) return false;
     if (!beginCanvas()) return false;
     if (!beginServices()) return false;
@@ -29,10 +75,16 @@ bool VinkRuntime::beginHardware() {
 
     Serial.begin(115200);
     delay(200);
-    Serial.printf("\n[Vink v0.3.0] ReadPaper baseline %s @ %s\n", kReadPaperUpstreamVersion, kReadPaperUpstreamCommit);
-    Serial.printf("[vink3][boot] wake cause=%d psram size=%u free=%u\n",
+    Serial.printf("\n[Vink v0.3.2-rc] ReadPaper baseline %s @ %s\n", kReadPaperUpstreamVersion, kReadPaperUpstreamCommit);
+    Serial.printf("[vink3][boot] wake cause=%d psram size=%u free=%u flash=%u\n",
                   static_cast<int>(esp_sleep_get_wakeup_cause()),
-                  ESP.getPsramSize(), ESP.getFreePsram());
+                  ESP.getPsramSize(), ESP.getFreePsram(), ESP.getFlashChipSize());
+    Serial.printf("[vink3][boot] official PaperS3 profile: EPD %dx%d, GT911 SDA=%d SCL=%d INT=%d, SD CS=%d SCK=%d MOSI=%d MISO=%d, BAT_ADC=%d USB_DET=%d CHG=%d BUZZER=%d\n",
+                  kPaperS3PhysicalWidth, kPaperS3PhysicalHeight,
+                  static_cast<int>(kGt911SdaPin), static_cast<int>(kGt911SclPin), static_cast<int>(kGt911IntPin),
+                  kSdCsPin, kSdSckPin, kSdMosiPin, kSdMisoPin,
+                  static_cast<int>(kBatteryAdcPin), static_cast<int>(kUsbDetectPin),
+                  static_cast<int>(kChargeStatePin), static_cast<int>(kBuzzerPin));
 
     auto cfg = M5.config();
     // Mirrors ReadPaper 1.7.6 setup order: keep the EPD from being cleared by
@@ -46,18 +98,21 @@ bool VinkRuntime::beginHardware() {
     cfg.fallback_board = m5::board_t::board_M5PaperS3;
     M5.begin(cfg);
     delay(50);
+    configureOfficialPaperS3Gpios();
 
-    gpio_wakeup_enable(GPIO_NUM_48, GPIO_INTR_LOW_LEVEL);
+    gpio_wakeup_enable(kGt911IntPin, GPIO_INTR_LOW_LEVEL);
     esp_sleep_enable_gpio_wakeup();
 
     M5.Display.powerSaveOff();
+    M5.Display.wakeup();
     M5.Display.setEpdMode(kLowRefresh);
     M5.Display.setColorDepth(kTextColorDepth);
-    // Vink's user-facing PaperS3 portrait orientation is rotation 0 (handle/top
-    // direction matches the existing Crosslink shell and touch geometry). The
-    // v0.3 canvas is 540x960, so using ReadPaper's alternate rotation here can
-    // clip/rotate the framebuffer and make the device appear unresponsive.
-    M5.Display.setRotation(0);
+    // Start from the official touch example baseline, but verify that the active
+    // library build really exposes Vink's 540x960 portrait framebuffer.
+    applyPaperS3PortraitRotation();
+    Serial.printf("[vink3][display] rotation=%u logical=%dx%d actual=%dx%d\n",
+                  gPaperS3ActiveDisplayRotation, kPaperS3Width, kPaperS3Height,
+                  M5.Display.width(), M5.Display.height());
 
     if (!SPIFFS.begin(false)) {
         Serial.println("[vink3][boot] SPIFFS mount failed; continuing without formatting");
