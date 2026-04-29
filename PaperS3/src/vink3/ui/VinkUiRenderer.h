@@ -30,6 +30,7 @@ public:
     void renderTransfer();
     void renderSettings();
     void renderDiagnostics(const Message& lastTouch, const char* eventName);
+    void renderShutdown(const char* reason);
     void renderLegadoSync(const char* status);
 
     UiAction hitTest(SystemState state, int16_t x, int16_t y) const;

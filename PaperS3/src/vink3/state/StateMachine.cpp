@@ -4,6 +4,9 @@
 #include "../reader/ReaderTextRenderer.h"
 #include "../sync/LegadoService.h"
 #include "../ui/VinkUiRenderer.h"
+#include "../input/InputService.h"
+#include "../ReadPaper176.h"
+#include <esp_sleep.h>
 
 namespace vink3 {
 
@@ -18,6 +21,50 @@ SystemState tabStateForAction(UiAction action) {
         case UiAction::TabSettings: return SystemState::Settings;
         default: return SystemState::Home;
     }
+}
+
+void pulsePaperS3PowerOffPin() {
+    pinMode(static_cast<int>(kPowerOffPulsePin), OUTPUT);
+    digitalWrite(static_cast<int>(kPowerOffPulsePin), HIGH);
+    delay(150);
+    digitalWrite(static_cast<int>(kPowerOffPulsePin), LOW);
+    delay(100);
+}
+
+void waitPowerKeyRelease(uint32_t timeoutMs = 3000) {
+    const uint32_t start = millis();
+    while ((M5.BtnPWR.isPressed() || digitalRead(static_cast<int>(kPowerKeyPin)) == LOW) && millis() - start < timeoutMs) {
+        M5.update();
+        delay(30);
+    }
+}
+
+void shutdownPaperS3(const char* reason) {
+    Serial.println("[vink3][power] shutdown requested");
+    g_readerBook.saveCurrentProgress();
+    g_uiRenderer.renderShutdown(reason ? reason : "正在关机");
+    g_displayService.enqueueFull(true, 100);
+    g_displayService.waitIdle(5000);
+    delay(300);
+
+    // Official/factory order first: sleep the EPD, wait for it, then ask
+    // M5Unified to power off. GPIO44 is retained only as a fallback for units
+    // where M5.Power.powerOff() does not fully cut power.
+    waitPowerKeyRelease();
+    M5.Display.sleep();
+    M5.Display.waitDisplay();
+    delay(200);
+    M5.Power.powerOff();
+
+    delay(500);
+    pulsePaperS3PowerOffPin();
+    waitPowerKeyRelease();
+    esp_sleep_enable_ext0_wakeup(kPowerKeyPin, 0);
+    esp_deep_sleep_start();
+}
+
+void suppressAfterTransition(uint32_t cooldownMs = 220) {
+    g_inputService.suppressUntilRelease(cooldownMs);
 }
 
 void renderState(SystemState state) {
@@ -99,10 +146,16 @@ void StateMachine::handle(const Message& message) {
             state_ = SystemState::Reader;
             renderState(state_);
             g_displayService.enqueueFull(false, 100);
+            suppressAfterTransition(300);
             break;
 
         case MessageType::Tap:
         {
+            if (state_ == SystemState::Diagnostics) {
+                g_uiRenderer.renderDiagnostics(message, "tap");
+                g_displayService.enqueueFull(false, 100);
+                break;
+            }
             const UiAction action = g_uiRenderer.hitTest(state_, message.touch.x, message.touch.y);
             switch (action) {
                 case UiAction::TabReader:
@@ -112,12 +165,14 @@ void StateMachine::handle(const Message& message) {
                     state_ = tabStateForAction(action);
                     renderState(state_);
                     g_displayService.enqueueFull(false, 100);
+                    suppressAfterTransition();
                     break;
 
                 case UiAction::OpenLibrary:
                     state_ = SystemState::Library;
                     g_readerBook.renderLibraryPage();
                     g_displayService.enqueueFull(false, 100);
+                    suppressAfterTransition();
                     break;
 
                 case UiAction::OpenTransfer:
@@ -136,6 +191,7 @@ void StateMachine::handle(const Message& message) {
                     state_ = SystemState::Diagnostics;
                     g_uiRenderer.renderDiagnostics(message, "进入诊断");
                     g_displayService.enqueueFull(true, 100);
+                    suppressAfterTransition();
                     break;
 
                 case UiAction::StartLegadoSync:
@@ -155,14 +211,16 @@ void StateMachine::handle(const Message& message) {
                 case UiAction::OpenCurrentBook:
                 {
                     const bool fromLibrary = state_ == SystemState::Library;
-                    state_ = SystemState::ReaderMenu;
                     if (fromLibrary) {
-                        g_readerBook.handleLibraryTap(message.touch.x, message.touch.y);
+                        if (!g_readerBook.handleLibraryTap(message.touch.x, message.touch.y)) break;
+                        state_ = SystemState::ReaderMenu;
                         g_readerBook.renderCurrent();
                     } else {
+                        state_ = SystemState::ReaderMenu;
                         g_readerBook.renderOpenOrHelp();
                     }
                     g_displayService.enqueueFull(false, 100);
+                    suppressAfterTransition();
                     break;
                 }
 
@@ -184,6 +242,11 @@ void StateMachine::handle(const Message& message) {
         }
 
         case MessageType::SwipeLeft:
+            if (state_ == SystemState::Diagnostics) {
+                g_uiRenderer.renderDiagnostics(message, "swipe-left");
+                g_displayService.enqueueFull(false, 100);
+                break;
+            }
             if (state_ == SystemState::ReaderMenu) {
                 if (g_readerBook.nextPage()) g_displayService.enqueueFull(false, 100);
                 break;
@@ -200,6 +263,11 @@ void StateMachine::handle(const Message& message) {
             break;
 
         case MessageType::SwipeRight:
+            if (state_ == SystemState::Diagnostics) {
+                g_uiRenderer.renderDiagnostics(message, "swipe-right");
+                g_displayService.enqueueFull(false, 100);
+                break;
+            }
             if (state_ == SystemState::ReaderMenu) {
                 if (g_readerBook.prevPage()) g_displayService.enqueueFull(false, 100);
                 break;
@@ -216,6 +284,11 @@ void StateMachine::handle(const Message& message) {
             break;
 
         case MessageType::SwipeUp:
+            if (state_ == SystemState::Diagnostics) {
+                g_uiRenderer.renderDiagnostics(message, "swipe-up");
+                g_displayService.enqueueFull(false, 100);
+                break;
+            }
             if (state_ == SystemState::ReaderMenu && g_readerBook.nextPage()) {
                 g_displayService.enqueueFull(false, 100);
             } else if (state_ == SystemState::Library && g_readerBook.nextLibraryPage()) {
@@ -224,6 +297,11 @@ void StateMachine::handle(const Message& message) {
             break;
 
         case MessageType::SwipeDown:
+            if (state_ == SystemState::Diagnostics) {
+                g_uiRenderer.renderDiagnostics(message, "swipe-down");
+                g_displayService.enqueueFull(false, 100);
+                break;
+            }
             if (state_ == SystemState::ReaderMenu && g_readerBook.prevPage()) {
                 g_displayService.enqueueFull(false, 100);
             } else if (state_ == SystemState::Library && g_readerBook.prevLibraryPage()) {
@@ -256,9 +334,34 @@ void StateMachine::handle(const Message& message) {
             g_displayService.enqueueFull(true, 100);
             break;
 
+        case MessageType::LongPress:
+            if (state_ == SystemState::Diagnostics) {
+                g_uiRenderer.renderDiagnostics(message, "long-press");
+                g_displayService.enqueueFull(false, 100);
+            }
+            break;
+
+        case MessageType::PowerButton:
+            state_ = SystemState::Shutdown;
+            shutdownPaperS3("正在关机");
+            break;
+
+        case MessageType::SleepTimeout:
+            // v0.3 does not auto-sleep yet; keep the message explicit so future
+            // timeout logic cannot silently enter an unvalidated sleep path.
+            Serial.println("[vink3][power] SleepTimeout ignored until real-device wake validation");
+            break;
+
         case MessageType::TouchDown:
             if (state_ == SystemState::Diagnostics) {
                 g_uiRenderer.renderDiagnostics(message, "down");
+                g_displayService.enqueueFull(false, 100);
+            }
+            break;
+
+        case MessageType::TouchMove:
+            if (state_ == SystemState::Diagnostics) {
+                g_uiRenderer.renderDiagnostics(message, "move");
                 g_displayService.enqueueFull(false, 100);
             }
             break;

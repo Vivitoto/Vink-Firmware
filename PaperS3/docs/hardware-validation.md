@@ -8,7 +8,7 @@ Every firmware RC that touches UI, display, input, sleep, font rendering, or fla
 Use these exact labels in summaries:
 
 - `本地已验证`: compile/smoke/build/manifest/static invariants passed locally.
-- `需要真机验证`: behavior depends on PaperS3 hardware, EPD, GT911 touch, SD card, RTC/PMIC, or real display waveform.
+- `需要真机验证`: behavior depends on PaperS3 hardware, EPD, GT911 touch, SD card, RTC/PMIC, side power key, or real display waveform.
 - `已真机确认`: user or tester confirmed the behavior on an actual PaperS3.
 
 Do not collapse these levels into “fixed”.
@@ -31,6 +31,7 @@ Also inspect:
 - Display service serializes physical EPD pushes with `waitDisplay()` and `g_inDisplayPush`.
 - Generated full image is exactly 16MB and includes bootloader + partition table + app + SPIFFS resources.
 - No standalone OTA/app or SPIFFS artifacts are copied/published for new Vink-PaperS3 builds.
+- Side power-key path ignores the boot press until release, then handles a stable later press as shutdown.
 
 ## First real-device smoke path
 
@@ -44,6 +45,7 @@ After flashing a full image, verify in this order:
 6. Enter settings and return/back path if available.
 7. Open book list with SD inserted and without SD inserted.
 8. Open one TXT, page next/prev, open directory/TOC if available.
+9. After boot has settled, press the side power key once; confirm the shutdown page appears, the device powers off, and it does not immediately reboot.
 
 ## If touch appears dead
 
@@ -64,6 +66,8 @@ Classify the failure:
 - display busy / push guard suppresses input forever
 - hit-test geometry mismatch
 - state machine receives event but action is wrong or ignored
+- side power-key boot press was not ignored, or shutdown press was not converted into a `PowerButton` event
+- PMIC GPIO44 power-off pulse does not fully cut power
 
 ## If UI photo looks wrong
 

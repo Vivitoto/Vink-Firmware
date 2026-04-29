@@ -24,8 +24,9 @@ Official sources used:
 | Charge state | factory firmware uses GPIO4 `PIN_CHG_STATE`, 0 charging | constants + diagnostics expose GPIO4 state |
 | USB detect | G5, factory firmware treats HIGH as USB-IN | constants + diagnostics/status use GPIO5 |
 | Buzzer | G21 | initialized low as official hardware pin; no product sound UI yet |
+| Power key | side key powers on; firmware should ignore boot press residue and treat a later deliberate press as shutdown | input task now arms only after boot-release, requires stable press, saves progress, draws shutdown page, pulses GPIO44, calls `M5.Power.powerOff()`, then deep-sleep fallback on GPIO36 |
 | microSD | CS47/SCK39/MOSI38/MISO40 | explicit SPI pins and 25MHz→8MHz→4MHz fallback |
-| Wake/sleep | official examples redraw after wake | Vink suppresses stale touch and redraws via state/display task; real sleep UX still requires hardware validation |
+| Wake/sleep | official examples redraw after wake | automatic idle sleep is deliberately not enabled until real-device wake validation; shutdown fallback uses GPIO36 wake only after key release |
 | Release image | user requires full-only | build/smoke/release manifest now full-only; OTA/SPIFFS are internal intermediates only |
 
 ## Official factory firmware deltas reviewed
@@ -53,6 +54,7 @@ Vink adaptations:
 - Vink keeps SD lazy-init to avoid boot appearing stuck when no SD card exists, but uses official pins and logs frequency fallback.
 - Vink now refuses to push a mutable live canvas if the immutable display snapshot cannot be allocated; this avoids reintroducing render-vs-EPD races under PSRAM pressure.
 - Vink now includes an explicit physical 960x540 → logical 540x960 touch transform fallback tied to the runtime-selected active rotation, while still preserving raw coordinates for diagnosis.
+- Vink now implements the v0.3 side power-key path: boot press is ignored until release, a later stable press requests shutdown, current reader progress is saved, a shutdown page is refreshed, GPIO44 is pulsed, `M5.Power.powerOff()` is called, and deep sleep is only a fallback.
 - `oxflash.json` is aligned with the current `v0.3.2-rc` full-only 16MB image instead of the older `v1.2.0` entry.
 
 ## Remaining hardware-only validation
@@ -65,7 +67,8 @@ These cannot be closed locally:
 4. Battery ADC calibration accuracy versus actual voltage.
 5. GPIO4 charge-state polarity on the user's hardware revision.
 6. SD stability across different cards at 25MHz/8MHz/4MHz.
-7. Wake/sleep behavior after long idle on real PaperS3; v0.3 still lacks a fully productized idle-sleep/power-off flow.
+7. Side power-key shutdown on real PaperS3: confirm boot-press arming, shutdown screen, GPIO44 power-off pulse, and no immediate reboot.
+8. Wake/sleep behavior after long idle on real PaperS3; v0.3 still intentionally defers automatic idle sleep until side-key shutdown is confirmed.
 
 ## Required real-device test path
 

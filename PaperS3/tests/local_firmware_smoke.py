@@ -26,7 +26,7 @@ PROJECT = Path(__file__).resolve().parents[1]
 REPO = PROJECT.parent
 WORKSPACE = Path("/home/vito/.openclaw/workspace")
 ARTIFACTS = WORKSPACE / "artifacts" / "Vink-PaperS3"
-DEFAULT_SLUG = "official-profile"
+DEFAULT_SLUG = "official-input-ui-power"
 APP_SLOT_SIZE = 0xC00000  # v0.3 single-app layout for full ReadPaper PROGMEM font
 SPIFFS_SIZE = 0x3F0000
 FULL_FLASH_SIZE = 0x1000000
@@ -149,6 +149,8 @@ def vink3_source_invariants(main_cpp: str) -> None:
     assert_contains(upstream, "kChargeStatePin = GPIO_NUM_4", "official factory charge-state pin is recorded")
     assert_contains(upstream, "kUsbDetectPin = GPIO_NUM_5", "official PaperS3 USB detect pin is recorded")
     assert_contains(upstream, "kBuzzerPin = GPIO_NUM_21", "official PaperS3 buzzer pin is recorded")
+    assert_contains(upstream, "kPowerKeyPin = GPIO_NUM_36", "PaperS3 side power key pin is recorded")
+    assert_contains(upstream, "kPowerOffPulsePin = GPIO_NUM_44", "PaperS3 PMIC power-off pulse pin is recorded")
     assert_contains(runtime_cpp, "configureOfficialPaperS3Gpios", "runtime initializes official PaperS3 battery/USB/charge/buzzer GPIOs")
     assert_contains(platformio, "epdiy=https://github.com/vroland/epdiy.git#d84d26ebebd780c4c9d4218d76fbe2727ee42b47", "PlatformIO documents the official PaperS3 EPDIY reference pin")
     assert_contains(upstream, "V1.7.6", "v0.3 baseline is ReadPaper V1.7.6")
@@ -158,19 +160,32 @@ def vink3_source_invariants(main_cpp: str) -> None:
     assert_contains(display_cpp, "enqueue skipped: canvas snapshot allocation failed", "display service drops/retries instead of pushing mutable canvas if snapshot fails")
     assert_not_contains(display_cpp, "canvasToPush ? canvasToPush : canvas_", "display service must not fall back to mutable global canvas")
     assert_contains(display_cpp, "M5.Display.waitDisplay()", "v0.3 display task serializes physical EPD pushes")
+    assert_contains(display_cpp, "M5.Display.setColorDepth(kTextColorDepth);", "display service restores normal PaperS3 grayscale color depth after quality refresh")
     assert_contains(display_cpp, "g_inDisplayPush", "v0.3 display task exposes in-push guard")
     assert_contains(input_cpp, "g_inDisplayPush", "v0.3 input task suppresses events during display push")
     assert_contains(input_cpp, "M5.update();", "v0.3 input task owns M5.update polling")
+    assert_contains(input_cpp, "pollPowerButton", "input task polls the official side power key")
+    assert_contains(input_cpp, "power key armed after boot release", "power key ignores the boot press until release")
+    assert_contains(input_cpp, "kPowerDoubleClickWindowMs", "power key follows official double-click shutdown behavior")
+    assert_contains(input_cpp, "kPowerLongHoldMs", "power key has deliberate long-hold fallback instead of accidental short press shutdown")
     assert_contains(input_cpp, "lastPoint_ = currentPoint", "touch service caches last valid pressed coordinate")
     assert_contains(input_cpp, "lastRawPoint_ = rawPoint", "touch service preserves raw PaperS3 coordinates for diagnostics")
     assert_contains(input_cpp, "const TouchPoint releasePoint = lastPoint_", "touch service must not use release-time invalid coordinates for taps")
     assert_contains(input_cpp, "normalizeTouchPoint", "touch service normalizes/clamps raw PaperS3 coordinates before hit-test")
     assert_contains(input_cpp, "transformRawPaperS3Point", "touch service has explicit physical-to-portrait transform fallback")
+    assert_contains(input_cpp, "gPaperS3TouchCoordMode", "touch transform uses a persistent coordinate mode instead of per-point guessing")
+    assert_contains(input_cpp, "suppressUntilRelease", "touch service can suppress stale wake/transition touches until release")
+    assert_contains(input_cpp, "gesture cancelled", "touch service cancels drag movement too large for tap but too small for swipe")
     assert_contains(input_cpp, "gPaperS3ActiveDisplayRotation", "touch transform is tied to verified active display rotation")
     assert_contains(state_cpp, "xQueueReceive", "v0.3 state machine is queue-driven")
+    assert_contains(state_cpp, "MessageType::PowerButton", "state machine handles side power-key shutdown")
+    assert_contains(state_cpp, "pulsePaperS3PowerOffPin", "shutdown path pulses PaperS3 PMIC power-off pin")
+    assert_contains(state_cpp, "esp_deep_sleep_start", "shutdown path has deep-sleep fallback after M5.Power.powerOff")
     assert_contains(legado_cpp, "LegadoService", "v0.3 Legado integration is isolated as a service")
     assert_contains(ui_cpp, "CjkTextRenderer", "v0.3 UI routes text through CJK renderer")
     assert_contains(ui_cpp, "renderDiagnostics", "official PaperS3 touch/display diagnostic page exists")
+    assert_contains(ui_cpp, "renderShutdown", "official side power-key shutdown page exists")
+    assert_contains(ui_cpp, "双击关机", "shutdown UI documents official PaperS3 double-click power-off behavior")
     assert_contains(ui_cpp, "raw:", "diagnostic page shows raw GT911/M5Unified coordinates")
     assert_contains(ui_cpp, "norm:", "diagnostic page shows normalized Vink coordinates")
     assert_contains(ui_cpp, "USB:%s CHG:%s BAT:%.2fV", "diagnostic page shows official power/USB/battery signals")
@@ -190,6 +205,7 @@ def vink3_source_invariants(main_cpp: str) -> None:
     assert_contains(reader_cpp, "ReaderTextRenderer", "v0.3 has a separate reader body renderer")
     assert_contains(reader_cpp, "beginReadPaperFullFont", "reader body renderer uses full ReadPaper PROGMEM font")
     assert_contains(reader_book_cpp, "ReaderBookService", "v0.3 has reader book service for opening TXT books")
+    assert_contains(reader_book_cpp, "saveCurrentProgress", "power shutdown can save current reader progress before power-off")
     assert_contains(reader_book_cpp, "SD is initialized lazily", "reader book service does not block boot on SD initialization")
     assert_contains(reader_book_cpp, "scanBooks", "reader book service scans /books into a library list")
     assert_contains(reader_book_cpp, "sortBooks", "reader library order is stable across SD directory iteration")
@@ -201,8 +217,10 @@ def vink3_source_invariants(main_cpp: str) -> None:
     assert_contains(reader_book_cpp, "正在分页", "reader explains first-open chapter pagination wait")
     assert_contains(reader_book_cpp, "读/目/页", "library explains progress/TOC/page-cache status markers")
     assert_contains(reader_book_cpp, "handleLibraryTap", "reader book service opens selected library entries")
+    assert_contains(reader_book_cpp, "left third = previous page", "reader page uses large official-friendly 3-zone tap navigation")
     assert_contains(reader_cpp, "renderListPage", "reader text renderer can draw list rows aligned with tap zones")
     assert_contains(reader_cpp, "drawShellTabs", "reader management pages show the same four-tab shell")
+    assert_contains(reader_cpp, "outline + underline", "reader tabs use the same no-black-fill selected style as shell tabs")
     assert_contains(reader_book_h, "kListFirstRowY = 204", "reader list touch rows start below visible top tabs")
     assert_contains(reader_book_cpp, "renderListPage", "library and TOC use explicit row geometry instead of free text layout")
     assert_contains(reader_cpp, "renderActionPage", "reader text renderer can draw aligned action buttons")
@@ -227,6 +245,7 @@ def vink3_source_invariants(main_cpp: str) -> None:
     assert_contains(state_cpp, "SystemState::ReaderMenu", "state machine routes reader menu interactions")
     assert_contains(state_cpp, "renderLibraryPage", "state machine routes Library tab through reader book list")
     assert_contains(state_cpp, "fromLibrary", "state machine preserves library tap selection before opening reader")
+    assert_contains(state_cpp, "if (!g_readerBook.handleLibraryTap", "state machine only enters reader menu after a valid library row tap")
     assert_contains(full_font_h, "g_readpaper_full_font_data", "v0.3 full ReadPaper font is compiled as PROGMEM")
     assert_contains(partitions_csv, "0xC00000", "v0.3 partition table has a large single app slot for full ReadPaper font")
     assert_not_contains(partitions_csv, "app1", "v0.3 partition table drops dual OTA app1 to fit full ReadPaper font")
@@ -316,12 +335,13 @@ def built_artifacts_smoke(slug: str) -> None:
 
 
 def json_valid() -> None:
-    json.loads((PROJECT / "releases.json").read_text(encoding="utf-8"))
+    manifest = json.loads((PROJECT / "releases.json").read_text(encoding="utf-8"))
     ok("releases.json parses")
+    version = manifest["releases"][0]["version"]
     ox = json.loads((PROJECT / "oxflash.json").read_text(encoding="utf-8"))
     top = ox[0]["versions"][0]
-    if "v0.3.2-rc" not in top.get("version", "") or top.get("size") != FULL_FLASH_SIZE:
-        fail("oxflash.json must point at the current v0.3.2-rc full-only 16MB image")
+    if version not in top.get("version", "") or top.get("size") != FULL_FLASH_SIZE:
+        fail(f"oxflash.json must point at the current {version} full-only 16MB image")
     if "ota" in top.get("file", "").lower() or "spiffs" in top.get("file", "").lower():
         fail("oxflash.json must not advertise OTA/SPIFFS artifacts")
     ok("oxflash.json points at the current full-only RC image")

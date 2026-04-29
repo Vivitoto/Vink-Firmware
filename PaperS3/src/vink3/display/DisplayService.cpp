@@ -177,6 +177,10 @@ epd_mode_t DisplayService::chooseRefreshMode(const DisplayRequest& request) {
         return kQualityRefresh;
     }
 
+    // Canvas remains 4bpp; restore display color depth after a quality refresh
+    // so fast/text pushes keep the expected PaperS3 grayscale path.
+    M5.Display.setColorDepth(kTextColorDepth);
+
     if (needMiddleStep) {
         M5.Display.setEpdMode(kMiddleRefresh);
         M5.Display.fillRect(0, 476, kPaperS3Width, 8, TFT_WHITE);

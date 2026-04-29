@@ -63,6 +63,17 @@ bool isOfficialChargeStateActive() {
     return digitalRead(static_cast<int>(kChargeStatePin)) == LOW;
 }
 
+const char* touchCoordModeLabel() {
+    switch (gPaperS3TouchCoordMode) {
+        case TouchCoordMode::Logical540x960: return "logical";
+        case TouchCoordMode::PhysicalScale960x540: return "phys-scale";
+        case TouchCoordMode::PhysicalRot90: return "phys-r90";
+        case TouchCoordMode::PhysicalRot180: return "phys-r180";
+        case TouchCoordMode::PhysicalRot270: return "phys-r270";
+        default: return "unknown";
+    }
+}
+
 void formatBatteryPercent(char* out, size_t outSize) {
     if (!out || outSize == 0) return;
     int level = M5.Power.getBatteryLevel();
@@ -256,14 +267,16 @@ void VinkUiRenderer::renderDiagnostics(const Message& lastTouch, const char* eve
     drawTabs(SystemState::Settings);
 
     char line[96];
-    drawCard(28, kContentY, 484, 138, "官方 PaperS3", "EPD_ED047TC1 · GT911 · 16MB Flash · 8MB PSRAM");
-    snprintf(line, sizeof(line), "rotation %u · logical %dx%d · panel %dx%d", gPaperS3ActiveDisplayRotation, kPaperS3Width, kPaperS3Height, M5.Display.width(), M5.Display.height());
-    g_cjkText.drawText(50, kContentY + 92, line, kGrayText);
+    drawCard(28, kContentY, 484, 158, "官方 PaperS3", "EPD_ED047TC1 · GT911 · 16MB Flash · 8MB PSRAM");
+    snprintf(line, sizeof(line), "rotation %u · logical %dx%d · display %dx%d", gPaperS3ActiveDisplayRotation, kPaperS3Width, kPaperS3Height, M5.Display.width(), M5.Display.height());
+    g_cjkText.drawText(50, kContentY + 86, line, kGrayText);
+    snprintf(line, sizeof(line), "physical %dx%d · mode %s", kPaperS3PhysicalWidth, kPaperS3PhysicalHeight, touchCoordModeLabel());
+    g_cjkText.drawText(50, kContentY + 112, line, kGrayText);
     snprintf(line, sizeof(line), "USB:%s CHG:%s BAT:%.2fV", isOfficialUsbConnected() ? "IN" : "--", isOfficialChargeStateActive() ? "ON" : "--", readOfficialBatteryVoltage());
-    g_cjkText.drawText(50, kContentY + 122, line, kGrayText);
+    g_cjkText.drawText(50, kContentY + 138, line, kGrayText);
 
     drawCard(28, 316, 484, 174, "Touch / GT911", "按压屏幕任意位置，查看 raw 与 normalized 坐标");
-    snprintf(line, sizeof(line), "event: %s", eventName ? eventName : "等待触摸");
+    snprintf(line, sizeof(line), "event: %s · count:%ld", eventName ? eventName : "等待触摸", static_cast<long>(lastTouch.value));
     g_cjkText.drawText(50, 392, line, TFT_BLACK);
     snprintf(line, sizeof(line), "raw: %d, %d", lastTouch.rawTouch.x, lastTouch.rawTouch.y);
     g_cjkText.drawText(50, 430, line, TFT_BLACK);
@@ -287,6 +300,18 @@ void VinkUiRenderer::renderDiagnostics(const Message& lastTouch, const char* eve
         canvas_->drawCircle(px, py, 14, TFT_BLACK);
     }
     drawFooterHint("顶部标签可退出；诊断结果以真机为准");
+}
+
+void VinkUiRenderer::renderShutdown(const char* reason) {
+    if (!canvas_) return;
+    clear();
+    drawStatusBar("关机");
+    canvas_->fillRoundRect(54, 300, 432, 300, 24, TFT_WHITE);
+    canvas_->drawRoundRect(54, 300, 432, 300, 24, TFT_BLACK);
+    g_cjkText.drawCentered(54, 350, 432, 48, reason ? reason : "正在关机", TFT_BLACK);
+    g_cjkText.drawCentered(72, 430, 396, 32, "正在保存进度并关闭电源", kGrayText);
+    g_cjkText.drawCentered(72, 482, 396, 32, "请松开侧边电源键", kGrayText);
+    g_cjkText.drawCentered(0, 690, kPaperS3Width, 28, "PaperS3 官方电源键：单击开机，双击关机", kGrayText);
 }
 
 void VinkUiRenderer::renderLegadoSync(const char* status) {
@@ -323,7 +348,10 @@ UiAction VinkUiRenderer::hitTest(SystemState state, int16_t x, int16_t y) const 
             if (inRect(x, y, 28, kContentY, 484, 184)) return UiAction::OpenCurrentBook;
             break;
         case SystemState::Library:
-            if (y >= kContentY && y < 610) return UiAction::OpenCurrentBook;
+            // Library rows are owned by ReaderBookService, whose visible/touch
+            // geometry starts below the shell summary. Avoid broad hit-testing
+            // here; StateMachine transitions only if the reader service accepts
+            // the row tap.
             break;
         case SystemState::Transfer:
             if (inRect(x, y, 56, 278, 180, 48)) return UiAction::StartLegadoSync;

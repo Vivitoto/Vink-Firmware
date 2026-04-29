@@ -325,12 +325,18 @@ void ReaderTextRenderer::drawShellTabs(int activeTab, const ReaderRenderOptions&
     for (int i = 0; i < 4; ++i) {
         const int16_t x = kTabX0 + i * (kTabW + kTabGap);
         const bool selected = i == activeTab;
-        canvas_->fillRoundRect(x, kTabsY, kTabW, kTabsH, 16, selected ? fg : bg);
+        // Match shell tabs: do not fill selected tab black. On PaperS3 photos
+        // white CJK on black can look swallowed; outline + underline is safer.
+        canvas_->fillRoundRect(x, kTabsY, kTabW, kTabsH, 16, bg);
         canvas_->drawRoundRect(x, kTabsY, kTabW, kTabsH, 16, fg);
+        if (selected) {
+            canvas_->drawRoundRect(x + 2, kTabsY + 2, kTabW - 4, kTabsH - 4, 14, fg);
+            canvas_->fillRoundRect(x + 28, kTabsY + kTabsH - 9, kTabW - 56, 4, 2, fg);
+        }
         const char* label = kLabels[i];
         const int16_t tx = x + (kTabW - textWidth(label)) / 2;
         const int16_t ty = kTabsY + (kTabsH - fontSize()) / 2;
-        drawText(tx, ty, label, selected ? bg : fg);
+        drawText(tx, ty, label, fg);
     }
 }
 

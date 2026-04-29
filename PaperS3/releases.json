@@ -5,6 +5,21 @@
   "description": "面向 M5Stack PaperS3 的 Vink 电子书阅读固件。",
   "releases": [
     {
+      "version": "v0.3.3-rc",
+      "name": "Vink-PaperS3 v0.3.3-rc 官方触控/UI/电源键 RC",
+      "summary": "基于官方 PaperS3 文档继续核对触控、UI 显示与电源键交互：触摸坐标模式改为持久化判定并支持过渡/唤醒抑制，阅读页补齐大区域三分区翻页，阅读管理页 Tab 样式与 Shell 统一，书架行命中不再误进阅读菜单，电源键按官方双击关机并保留长按兜底。",
+      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.3.3-rc",
+      "changelog": "## Vink-PaperS3 v0.3.3-rc 官方触控/UI/电源键 RC\n\n### 触控\n- raw→normalized 不再逐点猜坐标系，改为持久化 touch coordinate mode，避免物理 960×540 左半屏被误当成 540×960 逻辑坐标。\n- 新增过渡/显示刷新期间的触摸抑制，必须等手指释放后才重新接受点击，减少唤醒或翻页后的 stale tap。\n- Tap 增加移动容差，移动过大但不足以构成 swipe 的手势会取消，不再误当点击。\n- 诊断页显示 active touch mode、raw/norm、count、rotation、display/physical 尺寸。\n\n### UI 显示\n- 阅读管理页四 Tab 改为与 Shell 一致的描边+下划线选中样式，不再使用黑底白字选中 Tab。\n- 书架 hit-test 收窄：只有 ReaderBookService 确认命中可见书籍行后才进入阅读菜单。\n- 阅读正文支持大区域三分区点击：左三分之一上一页，右三分之一下一页，中间进入书籍菜单；保留 swipe。\n- DisplayService 在 quality refresh 后恢复 4bpp grayscale color depth，保持 PaperS3 shell/reader 路径一致。\n\n### 电源键\n- 侧边电源键按官方交互：开机后等待启动按键释放，再接受后续双击关机。\n- 保留长按兜底，但不再用 80ms 短按直接关机。\n- 关机路径先保存阅读进度、刷新关机页、按 factory 风格 sleep/wait/powerOff，GPIO44 PMIC pulse 仅作兜底。\n\n### 验证状态\n- 本地已验证：PlatformIO build、buildfs、full 16MB merge、local smoke。\n- 需要真机验证：GT911 坐标方向、九宫格命中、阅读三分区点击、双击关机、电源切断/不重启、EPD 实际刷新。",
+      "assets": {
+        "full": {
+          "name": "Vink-PaperS3-v0.3.3-rc-official-input-ui-power-full-16MB.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.3.3-rc/Vink-PaperS3-v0.3.3-rc-official-input-ui-power-full-16MB.bin",
+          "size": 16777216,
+          "flashOffset": 0
+        }
+      }
+    },
+    {
       "version": "v0.3.2-rc",
       "name": "Vink-PaperS3 v0.3.2-rc 官方硬件画像 RC",
       "summary": "基于 M5Stack PaperS3 官方开发文档统一硬件画像、触摸诊断、SD 管脚与 full-only 烧录流程；新增 raw/norm 触摸坐标诊断页，后续每次只交付完整 16MB full 镜像。",

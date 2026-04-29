@@ -725,7 +725,9 @@ bool ReaderBookService::handleTap(int16_t x, int16_t y) {
         return false;
     }
     if (!showingToc_) {
-        // Tap upper-left area to return to the book entry while reading.
+        // PaperS3 e-paper reading should use coarse, forgiving zones. Keep the
+        // small top-left/menu affordances, but also support large reference-style
+        // zones: left third = previous page, right third = next page, center = menu.
         if (x < 170 && y < 90) {
             showingBookEntry_ = true;
             showingToc_ = false;
@@ -737,7 +739,12 @@ bool ReaderBookService::handleTap(int16_t x, int16_t y) {
             renderTocPage(tocPage_);
             return true;
         }
-        return false;
+        if (x < kPaperS3Width / 3) return prevPage();
+        if (x > (kPaperS3Width * 2) / 3) return nextPage();
+        showingBookEntry_ = true;
+        showingToc_ = false;
+        renderBookEntryPage();
+        return true;
     }
     if (tocCount_ <= 0) return false;
     if (y < kTocFirstRowY || y >= kTocFirstRowY + kTocEntriesPerPage * kTocRowH) return false;
@@ -939,6 +946,15 @@ bool ReaderBookService::renderChapterPreview(int index) {
     snprintf(header, sizeof(header), "%03d %s", index + 1, toc_[index].title.c_str());
     g_readerText.renderTextPage(header, content, 1, 1);
     return true;
+}
+
+} // namespace vink3
+
+namespace vink3 {
+
+void ReaderBookService::saveCurrentProgress() {
+    if (!open_) return;
+    saveProgress();
 }
 
 } // namespace vink3

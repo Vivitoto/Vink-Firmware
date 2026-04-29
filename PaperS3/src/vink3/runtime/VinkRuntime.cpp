@@ -14,6 +14,7 @@
 namespace vink3 {
 
 uint8_t gPaperS3ActiveDisplayRotation = kPaperS3DisplayRotation;
+volatile TouchCoordMode gPaperS3TouchCoordMode = TouchCoordMode::Logical540x960;
 VinkRuntime g_runtime;
 
 namespace {

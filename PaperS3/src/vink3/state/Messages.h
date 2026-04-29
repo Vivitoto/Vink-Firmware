@@ -21,6 +21,7 @@ enum class MessageType : uint8_t {
     None,
     BootComplete,
     TouchDown,
+    TouchMove,
     TouchUp,
     Tap,
     SwipeLeft,
