@@ -6,14 +6,14 @@
   "releases": [
     {
       "version": "v0.3.7-rc",
-      "name": "Vink-PaperS3 v0.3.7-rc 24px UI 字体 RC",
-      "summary": "基于 v0.3.7-rc 字体显示修复继续按真机反馈放大系统 UI：使用编译内置 Noto Sans CJK SC Bold 24px 简体中文字体，UI 不再依赖 SPIFFS；设置页同步放大行高和分组高度，避免文字、右侧值和箭头拥挤。",
+      "name": "Vink-PaperS3 v0.3.7-rc 24px 字体基线修复 RC",
+      "summary": "基于真机照片反馈保留 24px UI 字体与现有卡片布局，只修复字体 baseline：英文大小写混排对齐、g/p/y 等下探字符正常低于基线、中文标签/右侧值在同一行盒内对齐。",
       "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.3.7-rc",
-      "changelog": "## Vink-PaperS3 v0.3.7-rc 24px UI 字体 RC\n\n### 目的\n- 用户真机反馈：16px/18px 系统 UI 字体仍偏小。\n- 本版继续优先处理显示基础与字体可读性，不扩展功能。\n\n### 改动\n- UI 主字体改为编译内置 `Noto Sans CJK SC Bold 24px` 简体中文灰度字库。\n- CJK 渲染器优先使用 PROGMEM 24px UI 字体，SPIFFS 字体只作为后备，ReadPaper UI subset 仅作为最后兜底。\n- 避免正常 UI 混入 32px ReadPaper fallback 导致中文忽大忽小、重叠或错位。\n- 设置页行高放大到 60px，分组高度放大到 186px，标签/右侧值/箭头继续共用同一行中心线。\n- local smoke test 增加 24px 编译内置 UI 字体约束。\n\n### 官方依据与验证边界\n- 官方依据：PaperS3 为 960×540 / 16 级灰度 EPD；官方触摸示例使用 `M5.begin()`、`setRotation(0)`、`M5.update()`、`M5.Touch.getDetail()`。\n- 经验判断 / 需要真机验证：24px Bold 简体 UI 字体大小、视觉清晰度、设置页行高/分组间距和电子纸实际观感。\n\n### 验证状态\n- 已真机确认：v0.3.6-rc 的竖屏显示、Vink Canvas 接管、raw touch 诊断链路。\n- 本地已验证：source smoke、PlatformIO build、buildfs、full 16MB merge。\n- 需要真机验证：首页/顶部 Tab/书架/设置页 24px 中文显示、英文基线、排版观感与触摸命中。",
+      "changelog": "## Vink-PaperS3 v0.3.7-rc 24px 字体基线修复 RC\n\n### 目的\n- 用户真机确认：24px 字号没有问题，卡片布局也没有问题。\n- 当前问题集中在字体显示：英文大小写混排没有对齐，`Legado` 中 `g` 等下探字符没有低于大写字母基线，中文如“设置”“进度同步”视觉上不在同一水平线。\n\n### 改动\n- 保留 24px UI 字体与原卡片布局，不做布局密度调整。\n- UI 字体绘制从“每个 glyph 按 bitmap 高度单独居中”改为“同一 line-box 内共用 FreeType baseline”。\n- 英文大小写混排按同一 baseline 绘制；`g/p/y/j/q` 等 descender 可自然下探到 baseline 下方。\n- 中文标签、右侧值与英文混排共享同一 UI line-box，减少“设置 / 进度同步”等字看起来不在一条线上的问题。\n- 设置行仍保持 label/value/arrow 由同一个 row center 派生，触摸热区与原布局一致。\n\n### 官方依据与验证边界\n- 官方依据：PaperS3 为 960×540 / 16 级灰度 EPD；官方触摸示例使用 `M5.begin()`、`setRotation(0)`、`M5.update()`、`M5.Touch.getDetail()`。\n- 经验判断 / 需要真机验证：FreeType glyph bearing/baseline 到 Vink UI line-box 的映射，以及电子纸实际视觉基线观感。\n\n### 验证状态\n- 本地已验证：host 字形度量确认 `Legado` 中 `g` 低于 `L/e/a/d/o`；source smoke；PlatformIO build；buildfs；full 16MB merge。\n- 需要真机验证：英文大小写、descender、中文同一水平线、设置页/同步页实际观感。",
       "assets": {
         "full": {
-          "name": "Vink-PaperS3-v0.3.7-rc-ui-font24-full-16MB.bin",
-          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.3.7-rc/Vink-PaperS3-v0.3.7-rc-ui-font24-full-16MB.bin",
+          "name": "Vink-PaperS3-v0.3.7-rc-ui-font24-baseline-only-full-16MB.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.3.7-rc/Vink-PaperS3-v0.3.7-rc-ui-font24-baseline-only-full-16MB.bin",
           "size": 16777216,
           "flashOffset": 0
         }

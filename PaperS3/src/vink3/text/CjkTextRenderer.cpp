@@ -22,6 +22,7 @@ bool CjkTextRenderer::begin(M5Canvas* canvas) {
     progmemUiReady_ = false;
     progmemUiCharCount_ = 0;
     progmemUiFontSize_ = 0;
+    progmemUiBaseline_ = 0;
     progmemUiBitmapStart_ = 0;
     readPaperSubsetReady_ = false;
     readPaperCharCount_ = 0;
@@ -143,7 +144,34 @@ bool CjkTextRenderer::beginProgmemUiFont() {
     if (progmemUiBitmapStart_ >= g_vink_ui_font24_size) return false;
     if (progmemUiBitmapStart_ + bitmapBytes != g_vink_ui_font24_size) return false;
     progmemUiReady_ = true;
+    deriveProgmemUiMetrics();
     return true;
+}
+
+void CjkTextRenderer::deriveProgmemUiMetrics() {
+    // FreeType stores each glyph relative to a baseline. Previous UI drawing
+    // centered every bitmap by its own height, which made mixed-case words like
+    // "Legado" float per letter and erased descenders: g/p/y should extend
+    // below the L baseline. Derive one common baseline from representative CJK
+    // UI glyphs, then draw every glyph against that same baseline.
+    progmemUiBaseline_ = (progmemUiFontSize_ * 7) / 8;
+    const uint32_t samples[] = {
+        0x8BBE, // 设
+        0x7F6E, // 置
+        0x8FDB, // 进
+        0x5EA6, // 度
+        0x540C, // 同
+        0x6B65, // 步
+        'H', 'L', 'd', 'g', 'p', 'y'
+    };
+    uint16_t maxBearing = 0;
+    for (uint32_t sample : samples) {
+        GrayGlyph glyph;
+        if (findProgmemUiGlyph(sample, glyph) && glyph.bearingY > maxBearing) {
+            maxBearing = glyph.bearingY;
+        }
+    }
+    if (maxBearing > 0) progmemUiBaseline_ = maxBearing;
 }
 
 bool CjkTextRenderer::findProgmemUiGlyph(uint32_t unicode, GrayGlyph& out) const {
@@ -271,7 +299,10 @@ uint16_t CjkTextRenderer::pixelColorForNibble(uint8_t nibble, uint16_t color) co
 void CjkTextRenderer::drawProgmemUiGlyph(const GrayGlyph& glyph, int16_t x, int16_t y, uint16_t color) {
     if (!canvas_) return;
     const int16_t drawX = x + glyph.bearingX;
-    const int16_t drawY = y + max<int16_t>(0, (static_cast<int16_t>(fontSize()) - static_cast<int16_t>(glyph.height)) / 2);
+    // y is the UI line-box top. Use a shared baseline for all glyphs instead
+    // of centering each bitmap independently; this keeps uppercase/lowercase,
+    // CJK labels, and descenders aligned in the same word/row.
+    const int16_t drawY = y + static_cast<int16_t>(progmemUiBaseline_) - static_cast<int16_t>(glyph.bearingY);
     const uint32_t rowBytes = (glyph.width + 1) / 2;
     for (uint8_t row = 0; row < glyph.height; row++) {
         const int16_t py = drawY + row;
@@ -355,12 +386,10 @@ void CjkTextRenderer::drawGlyph(uint32_t unicode, int16_t x, int16_t y, uint16_t
             if (bmp && width > 0 && height > 0) {
                 const int16_t drawX = x + bearingX;
                 // UI callers pass y as the top of a text box, not a FreeType
-                // baseline. Using `fontSize - bearingY` here made Latin letters
-                // jump up/down within the same word on PaperS3 photos because
-                // each glyph has a different bearingY. Keep glyphs top-aligned
-                // inside the UI line box; descender support is less important
-                // than stable chrome labels for tabs/buttons/settings rows.
-                const int16_t drawY = y + max<int16_t>(0, (static_cast<int16_t>(font_.getFontSize()) - static_cast<int16_t>(height)) / 2);
+                // baseline. Draw against one baseline so Latin descenders stay
+                // below capitals and mixed CJK/Latin labels do not stair-step.
+                const int16_t fallbackBaseline = (static_cast<int16_t>(font_.getFontSize()) * 7) / 8;
+                const int16_t drawY = y + fallbackBaseline - static_cast<int16_t>(bearingY);
                 for (int row = 0; row < height; row++) {
                     const int16_t py = drawY + row;
                     if (py < 0 || py >= kPaperS3Height) continue;
@@ -442,8 +471,10 @@ void CjkTextRenderer::drawText(int16_t x, int16_t y, const char* text, uint16_t 
 
 void CjkTextRenderer::drawCentered(int16_t x, int16_t y, int16_t w, int16_t h, const char* text, uint16_t color) {
     const int16_t tw = textWidth(text ? text : "");
-    const int16_t th = fontSize();
-    drawText(x + (w - tw) / 2, y + (h - th) / 2 - 2, text, color);
+    // Leave room for descenders below the baseline; otherwise g/p/y look like
+    // uppercase-height glyphs when centered in buttons and tabs.
+    const int16_t th = static_cast<int16_t>(fontSize()) + 6;
+    drawText(x + (w - tw) / 2, y + (h - th) / 2, text, color);
 }
 
 void CjkTextRenderer::drawRight(int16_t rightX, int16_t y, const char* text, uint16_t color) {

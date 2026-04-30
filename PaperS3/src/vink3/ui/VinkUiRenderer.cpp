@@ -157,7 +157,8 @@ void VinkUiRenderer::drawSettingsRow(int16_t y, const char* label, const char* v
     static constexpr int16_t kArrowX = 474;
     static constexpr int16_t kRowH = 60;
     const int16_t cy = y + kRowH / 2;
-    const int16_t textY = cy - static_cast<int16_t>(g_cjkText.fontSize()) / 2;
+    const int16_t lineH = static_cast<int16_t>(g_cjkText.fontSize()) + 6;
+    const int16_t textY = cy - lineH / 2;
 
     // Row label, right value and arrow all derive from the same row center.
     // Do not tune these as separate baselines; that is what made settings rows

@@ -50,6 +50,7 @@ private:
     static uint32_t uiU32(uint32_t offset);
     static int8_t uiI8(uint32_t offset);
     bool beginProgmemUiFont();
+    void deriveProgmemUiMetrics();
     bool findProgmemUiGlyph(uint32_t unicode, GrayGlyph& out) const;
     bool beginReadPaperSubset();
     bool findReadPaperGlyph(uint32_t unicode, ReadPaperGlyph& out) const;
@@ -62,6 +63,7 @@ private:
     bool progmemUiReady_ = false;
     uint32_t progmemUiCharCount_ = 0;
     uint16_t progmemUiFontSize_ = 0;
+    uint16_t progmemUiBaseline_ = 0;
     uint32_t progmemUiBitmapStart_ = 0;
     bool readPaperSubsetReady_ = false;
     uint32_t readPaperCharCount_ = 0;
