@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include "vink3/ReadPaper176.h"
 #include "vink3/runtime/VinkRuntime.h"
 
 namespace {
@@ -6,7 +7,7 @@ TaskHandle_t s_mainTask = nullptr;
 
 void MainTask(void*) {
     if (!vink3::g_runtime.begin()) {
-        Serial.println("[MainTask] Vink v0.3.2-rc runtime init failed, halting");
+        Serial.printf("[MainTask] Vink %s runtime init failed, halting\n", vink3::kVinkPaperS3FirmwareVersion);
         for (;;) vTaskDelay(pdMS_TO_TICKS(1000));
     }
 

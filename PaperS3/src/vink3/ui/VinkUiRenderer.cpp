@@ -262,7 +262,7 @@ void VinkUiRenderer::renderSettings() {
     drawSettingsGroup(kContentY, "阅读", "正文字体", "默认", "字号与行距", "默认");
     drawSettingsGroup(302, "显示", "刷新策略", "均衡", "触摸校准", "诊断");
     drawSettingsGroup(450, "连接", "WiFi", "配置", "Legado", "地址");
-    drawSettingsGroup(598, "系统", "电源", "点按关机", "关于", "v0.3.4-rc");
+    drawSettingsGroup(598, "系统", "电源", "点按关机", "关于", kVinkPaperS3FirmwareVersion);
     drawFooterHint("设置行同一水平线；触摸校准进诊断，电源行可关机");
 }
 

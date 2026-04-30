@@ -3,6 +3,7 @@
 #include "../../Config.h"
 #include "../ReadPaper176.h"
 #include <pgmspace.h>
+#include <cstring>
 
 namespace vink3 {
 
@@ -15,32 +16,38 @@ CjkTextRenderer g_cjkText;
 
 bool CjkTextRenderer::begin(M5Canvas* canvas) {
     canvas_ = canvas;
+    readPaperSubsetReady_ = false;
+    readPaperCharCount_ = 0;
+    readPaperFontHeight_ = 0;
     if (!canvas_) return false;
 
-    // Vink UI must keep the Simplified Chinese SC visual style. ReadPaper is a
-    // low-level reference only; its UI subset can look like Traditional/Japanese
-    // glyphs on shared Han characters, so bundled SC UI fonts take priority.
-    // Shell/chrome UI uses the smaller bundled SC font. On PaperS3 the 20px
-    // UI font looked cramped in tabs/cards and made short labels appear clipped
-    // in photos; keep the larger fonts for reader body only.
-    if (font_.loadBundledFont(FONT_FILE_16)) {
-        Serial.println("[vink3][cjk] bundled SC 16px UI font loaded");
-        return true;
-    }
-    if (font_.loadBundledFont(FONT_FILE_20)) {
-        Serial.println("[vink3][cjk] bundled SC 20px UI font loaded");
-        return true;
+    // Vink UI prefers bundled Simplified Chinese SC fonts, but real-device
+    // feedback showed the UI can become mostly chrome/boxes if the SPIFFS font
+    // is missing, not flashed, or lacks a glyph. Always arm the compiled
+    // ReadPaper UI subset as a PROGMEM glyph-level fallback; do not treat it as
+    // mutually exclusive with the SC font.
+    const bool bundled16 = font_.loadBundledFont(FONT_FILE_16) &&
+        strcmp(font_.getCurrentFontPath(), FONT_FILE_16) == 0;
+    if (bundled16) Serial.println("[vink3][cjk] bundled SC 16px UI font loaded");
+    const bool bundled20 = bundled16 ? false :
+        (font_.loadBundledFont(FONT_FILE_20) && strcmp(font_.getCurrentFontPath(), FONT_FILE_20) == 0);
+    if (bundled20) Serial.println("[vink3][cjk] bundled SC 20px UI font loaded");
+    if (!bundled16 && !bundled20 && font_.isLoaded()) {
+        Serial.printf("[vink3][cjk] bundled SC font unavailable, primary fallback active: %s\n",
+                      font_.getCurrentFontPath());
     }
 
-    if (beginReadPaperSubset()) {
-        Serial.printf("[vink3][cjk] ReadPaper V3 UI subset fallback loaded: glyphs=%lu size=%lu\n",
+    const bool subset = beginReadPaperSubset();
+    if (subset) {
+        Serial.printf("[vink3][cjk] ReadPaper V3 UI subset glyph fallback armed: glyphs=%lu size=%lu\n",
                       static_cast<unsigned long>(readPaperCharCount_),
                       static_cast<unsigned long>(g_readpaper_ui_font_size));
-        return true;
     }
 
+    if (font_.isLoaded() || subset) return true;
+
     if (font_.loadBuiltinFont()) {
-        Serial.println("[vink3][cjk] fallback built-in UI font loaded");
+        Serial.println("[vink3][cjk] fallback built-in UI font loaded; Chinese coverage may be limited");
         return true;
     }
 
@@ -53,8 +60,13 @@ bool CjkTextRenderer::ready() const {
 }
 
 uint16_t CjkTextRenderer::fontSize() const {
+    // Layout must follow the primary renderer actually used for most glyphs.
+    // The ReadPaper subset may be armed only as a missing-glyph fallback; using
+    // its taller height here made tabs/buttons/settings rows calculate the wrong
+    // center line even when the bundled 16px SC font was active.
+    if (font_.isLoaded()) return font_.getFontSize();
     if (readPaperSubsetReady_) return readPaperFontHeight_;
-    return font_.isLoaded() ? font_.getFontSize() : 16;
+    return 16;
 }
 
 uint8_t CjkTextRenderer::rpByte(uint32_t offset) {
@@ -146,16 +158,16 @@ int16_t CjkTextRenderer::textWidth(const char* text) {
     const size_t len = strlen(text);
     while (pos < len) {
         uint32_t ch = decodeUtf8(bytes, pos, len);
-        if (readPaperSubsetReady_) {
+        if (font_.isLoaded()) {
+            uint8_t adv = font_.getCharAdvance(ch);
+            w += adv > 0 ? adv : (ch < 128 ? 8 : fontSize());
+        } else if (readPaperSubsetReady_) {
             ReadPaperGlyph glyph;
             if (findReadPaperGlyph(ch, glyph)) {
                 w += glyph.width > 0 ? glyph.width : (ch < 128 ? 8 : fontSize());
             } else {
                 w += ch < 128 ? 8 : fontSize();
             }
-        } else if (font_.isLoaded()) {
-            uint8_t adv = font_.getCharAdvance(ch);
-            w += adv > 0 ? adv : (ch < 128 ? 8 : fontSize());
         } else {
             w += ch < 128 ? 8 : fontSize();
         }
@@ -175,7 +187,11 @@ uint16_t CjkTextRenderer::pixelColorForNibble(uint8_t nibble, uint16_t color) co
 void CjkTextRenderer::drawReadPaperGlyph(const ReadPaperGlyph& glyph, int16_t x, int16_t y, uint16_t color) {
     if (!canvas_) return;
     const int16_t drawX = x + glyph.xOffset;
-    const int16_t drawY = y + (readPaperFontHeight_ - glyph.yOffset);
+    // Experience-based, needs real PaperS3 confirmation: Vink UI renderers pass
+    // y as a line-box top, while ReadPaper glyph yOffset is baseline-oriented.
+    // Using y + fontHeight - yOffset caused mixed Latin/CJK fallback glyphs to
+    // stair-step. Keep fallback glyphs visually top-aligned in the same line box.
+    const int16_t drawY = y + max<int16_t>(0, (static_cast<int16_t>(fontSize()) - static_cast<int16_t>(glyph.bitmapH)) / 2);
     uint32_t pixelIdx = 0;
     uint8_t bitPos = 0;
     uint32_t bytePos = 0;
@@ -219,48 +235,61 @@ void CjkTextRenderer::drawReadPaperGlyph(const ReadPaperGlyph& glyph, int16_t x,
 void CjkTextRenderer::drawGlyph(uint32_t unicode, int16_t x, int16_t y, uint16_t color) {
     if (!canvas_) return;
 
+    // Prefer the bundled SC font when it actually contains the glyph. If the
+    // SPIFFS font was not flashed, fell back to the tiny built-in font, or simply
+    // misses a character, keep going to the compiled ReadPaper subset instead
+    // of silently advancing the cursor and leaving blank Chinese labels.
+    if (font_.isLoaded()) {
+        if (font_.getFontType() == FontType::GRAY_4BPP) {
+            uint8_t width = 0, height = 0, advance = 0;
+            int8_t bearingX = 0, bearingY = 0;
+            const uint8_t* bmp = font_.getCharBitmapGray(unicode, width, height, bearingX, bearingY, advance);
+            if (bmp && width > 0 && height > 0) {
+                const int16_t drawX = x + bearingX;
+                // UI callers pass y as the top of a text box, not a FreeType
+                // baseline. Using `fontSize - bearingY` here made Latin letters
+                // jump up/down within the same word on PaperS3 photos because
+                // each glyph has a different bearingY. Keep glyphs top-aligned
+                // inside the UI line box; descender support is less important
+                // than stable chrome labels for tabs/buttons/settings rows.
+                const int16_t drawY = y + max<int16_t>(0, (static_cast<int16_t>(font_.getFontSize()) - static_cast<int16_t>(height)) / 2);
+                for (int row = 0; row < height; row++) {
+                    const int16_t py = drawY + row;
+                    if (py < 0 || py >= kPaperS3Height) continue;
+                    for (int col = 0; col < width; col++) {
+                        const int16_t px = drawX + col;
+                        if (px < 0 || px >= kPaperS3Width) continue;
+                        const int srcIdx = row * ((width + 1) / 2) + col / 2;
+                        const uint8_t nibble = (col % 2 == 0) ? ((bmp[srcIdx] >> 4) & 0x0F) : (bmp[srcIdx] & 0x0F);
+                        if (nibble > 0) canvas_->drawPixel(px, py, pixelColorForNibble(nibble, color));
+                    }
+                }
+                return;
+            }
+        } else {
+            uint8_t width = 0, height = 0;
+            const uint8_t* bmp = font_.getCharBitmap(unicode, width, height);
+            if (bmp && width > 0 && height > 0) {
+                for (int row = 0; row < height; row++) {
+                    const int16_t py = y + row;
+                    if (py < 0 || py >= kPaperS3Height) continue;
+                    for (int col = 0; col < width; col++) {
+                        const int16_t px = x + col;
+                        if (px < 0 || px >= kPaperS3Width) continue;
+                        int byteIdx = row * ((width + 7) / 8) + col / 8;
+                        int bitIdx = 7 - (col % 8);
+                        if (bmp[byteIdx] & (1 << bitIdx)) canvas_->drawPixel(px, py, color);
+                    }
+                }
+                return;
+            }
+        }
+    }
+
     if (readPaperSubsetReady_) {
         ReadPaperGlyph glyph;
         if (findReadPaperGlyph(unicode, glyph)) {
             drawReadPaperGlyph(glyph, x, y, color);
-            return;
-        }
-    }
-
-    if (!font_.isLoaded()) return;
-    if (font_.getFontType() == FontType::GRAY_4BPP) {
-        uint8_t width = 0, height = 0, advance = 0;
-        int8_t bearingX = 0, bearingY = 0;
-        const uint8_t* bmp = font_.getCharBitmapGray(unicode, width, height, bearingX, bearingY, advance);
-        if (!bmp || width == 0 || height == 0) return;
-        const int16_t drawX = x + bearingX;
-        const int16_t drawY = y + (font_.getFontSize() - bearingY);
-        for (int row = 0; row < height; row++) {
-            const int16_t py = drawY + row;
-            if (py < 0 || py >= kPaperS3Height) continue;
-            for (int col = 0; col < width; col++) {
-                const int16_t px = drawX + col;
-                if (px < 0 || px >= kPaperS3Width) continue;
-                const int srcIdx = row * ((width + 1) / 2) + col / 2;
-                const uint8_t nibble = (col % 2 == 0) ? ((bmp[srcIdx] >> 4) & 0x0F) : (bmp[srcIdx] & 0x0F);
-                if (nibble > 0) canvas_->drawPixel(px, py, pixelColorForNibble(nibble, color));
-            }
-        }
-        return;
-    }
-
-    uint8_t width = 0, height = 0;
-    const uint8_t* bmp = font_.getCharBitmap(unicode, width, height);
-    if (!bmp || width == 0 || height == 0) return;
-    for (int row = 0; row < height; row++) {
-        const int16_t py = y + row;
-        if (py < 0 || py >= kPaperS3Height) continue;
-        for (int col = 0; col < width; col++) {
-            const int16_t px = x + col;
-            if (px < 0 || px >= kPaperS3Width) continue;
-            int byteIdx = row * ((width + 7) / 8) + col / 8;
-            int bitIdx = 7 - (col % 8);
-            if (bmp[byteIdx] & (1 << bitIdx)) canvas_->drawPixel(px, py, color);
         }
     }
 }
@@ -288,12 +317,14 @@ void CjkTextRenderer::drawText(int16_t x, int16_t y, const char* text, uint16_t 
             continue;
         }
         drawGlyph(ch, cx, cy, color);
-        if (readPaperSubsetReady_) {
+        if (font_.isLoaded()) {
+            uint8_t adv = font_.getCharAdvance(ch);
+            cx += adv > 0 ? adv : (ch < 128 ? 8 : fontSize());
+        } else if (readPaperSubsetReady_) {
             ReadPaperGlyph glyph;
             cx += findReadPaperGlyph(ch, glyph) && glyph.width > 0 ? glyph.width : (ch < 128 ? 8 : fontSize());
         } else {
-            uint8_t adv = font_.getCharAdvance(ch);
-            cx += adv > 0 ? adv : (ch < 128 ? 8 : fontSize());
+            cx += ch < 128 ? 8 : fontSize();
         }
     }
 }

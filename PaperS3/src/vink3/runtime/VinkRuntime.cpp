@@ -52,7 +52,7 @@ void drawOfficialBootProbe() {
 } // namespace
 
 bool VinkRuntime::begin() {
-    Serial.println("[vink3][runtime] starting v0.3.7-rc from ReadPaper V1.7.6 baseline");
+    Serial.printf("[vink3][runtime] starting %s from ReadPaper V1.7.6 baseline\n", kVinkPaperS3FirmwareVersion);
     if (!beginHardware()) return false;
     if (!beginCanvas()) return false;
     if (!beginServices()) return false;
@@ -65,7 +65,7 @@ bool VinkRuntime::beginHardware() {
 
     Serial.begin(115200);
     delay(200);
-    Serial.printf("\n[Vink v0.3.7-rc] ReadPaper baseline %s @ %s\n", kReadPaperUpstreamVersion, kReadPaperUpstreamCommit);
+    Serial.printf("\n[Vink %s] ReadPaper baseline %s @ %s\n", kVinkPaperS3FirmwareVersion, kReadPaperUpstreamVersion, kReadPaperUpstreamCommit);
     Serial.printf("[vink3][boot] wake cause=%d psram size=%u free=%u flash=%u\n",
                   static_cast<int>(esp_sleep_get_wakeup_cause()),
                   ESP.getPsramSize(), ESP.getFreePsram(), ESP.getFlashChipSize());

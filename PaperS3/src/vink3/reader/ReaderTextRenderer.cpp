@@ -150,7 +150,11 @@ uint16_t ReaderTextRenderer::pixelColorForNibble(uint8_t nibble, uint16_t color)
 void ReaderTextRenderer::drawReadPaperGlyph(const ReadPaperGlyph& glyph, int16_t x, int16_t y, uint16_t color) {
     if (!canvas_) return;
     const int16_t drawX = x + glyph.xOffset;
-    const int16_t drawY = y + (readPaperFontHeight_ - glyph.yOffset);
+    // Experience-based, needs real PaperS3 confirmation: reader management and
+    // reading pages pass y as the visual line-box top. The ReadPaper glyph entry
+    // yOffset is baseline-oriented, so using fontHeight - yOffset can stagger
+    // Latin letters in a single word. Top-align inside the current line box.
+    const int16_t drawY = y + max<int16_t>(0, (static_cast<int16_t>(fontSize()) - static_cast<int16_t>(glyph.bitmapH)) / 2);
     uint32_t pixelIdx = 0;
     uint8_t bitPos = 0;
     uint32_t bytePos = 0;
@@ -207,7 +211,10 @@ void ReaderTextRenderer::drawGlyph(uint32_t unicode, int16_t x, int16_t y, uint1
         const uint8_t* bmp = font_.getCharBitmapGray(unicode, width, height, bearingX, bearingY, advance);
         if (!bmp || width == 0 || height == 0) return;
         const int16_t drawX = x + bearingX;
-        const int16_t drawY = y + (font_.getFontSize() - bearingY);
+        // Reader management/list pages pass y as a visual top coordinate. Do
+        // not baseline-align gray fallback glyphs with per-character bearingY;
+        // it makes Latin words look staggered on the e-paper screen.
+        const int16_t drawY = y + max<int16_t>(0, (static_cast<int16_t>(font_.getFontSize()) - static_cast<int16_t>(height)) / 2);
         for (int row = 0; row < height; row++) {
             const int16_t py = drawY + row;
             if (py < 0 || py >= kPaperS3Height) continue;
@@ -384,7 +391,7 @@ void ReaderTextRenderer::renderListPage(const char* title, const char* summary, 
     const uint16_t mid = options.dark ? 0xC618 : 0x8410;
 
     drawText(options.marginLeft, 22, title ? title : "列表", fg);
-    drawText(kPaperS3Width - options.marginRight - textWidth("v0.3.2-rc"), 22, "v0.3.2-rc", mid);
+    drawText(kPaperS3Width - options.marginRight - textWidth(kVinkPaperS3FirmwareVersion), 22, kVinkPaperS3FirmwareVersion, mid);
     canvas_->drawFastHLine(options.marginLeft, 61, kPaperS3Width - options.marginLeft - options.marginRight, fg);
     drawShellTabs(activeTab, options);
     if (summary && summary[0]) drawText(options.marginLeft, 160, summary, mid);
@@ -419,7 +426,7 @@ void ReaderTextRenderer::renderActionPage(const char* title, const char* const* 
     const uint16_t mid = options.dark ? 0xC618 : 0x8410;
 
     drawText(options.marginLeft, 22, title ? title : "操作", fg);
-    drawText(kPaperS3Width - options.marginRight - textWidth("v0.3.2-rc"), 22, "v0.3.2-rc", mid);
+    drawText(kPaperS3Width - options.marginRight - textWidth(kVinkPaperS3FirmwareVersion), 22, kVinkPaperS3FirmwareVersion, mid);
     canvas_->drawFastHLine(options.marginLeft, 61, kPaperS3Width - options.marginLeft - options.marginRight, fg);
     drawShellTabs(activeTab, options);
 
