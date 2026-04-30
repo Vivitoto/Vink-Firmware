@@ -155,13 +155,13 @@ void VinkUiRenderer::drawSettingsRow(int16_t y, const char* label, const char* v
     static constexpr int16_t kRowX = 56;
     static constexpr int16_t kValueRight = 448;
     static constexpr int16_t kArrowX = 474;
-    static constexpr int16_t kRowH = 42;
+    static constexpr int16_t kRowH = 60;
     const int16_t cy = y + kRowH / 2;
-    const int16_t textY = cy - static_cast<int16_t>(g_cjkText.fontSize()) / 2 - 2;
+    const int16_t textY = cy - static_cast<int16_t>(g_cjkText.fontSize()) / 2;
 
     // Row label, right value and arrow all derive from the same row center.
     // Do not tune these as separate baselines; that is what made settings rows
-    // look stepped on PaperS3.
+    // look stepped on PaperS3. Keep label/value/arrow on 同一水平线.
     g_cjkText.drawText(kRowX, textY, label ? label : "", TFT_BLACK);
     if (value && value[0]) {
         g_cjkText.drawRight(kValueRight, textY, value, kGrayText);
@@ -171,12 +171,15 @@ void VinkUiRenderer::drawSettingsRow(int16_t y, const char* label, const char* v
 }
 
 void VinkUiRenderer::drawSettingsGroup(int16_t y, const char* title, const char* row1, const char* row1Value, const char* row2, const char* row2Value) {
-    canvas_->fillRoundRect(28, y, 484, 136, 18, TFT_WHITE);
-    canvas_->drawRoundRect(28, y, 484, 136, 18, TFT_BLACK);
-    g_cjkText.drawText(56, y + 14, title ? title : "", kGrayText);
-    drawSettingsRow(y + 42, row1, row1Value);
-    canvas_->drawFastHLine(56, y + 84, 424, kGrayMid);
-    drawSettingsRow(y + 84, row2, row2Value);
+    // Experience-based, needs PaperS3 confirmation: 24px Simplified Chinese UI
+    // font needs generous line boxes on e-paper; the old compact rows made the
+    // settings page look squeezed. Use 60px rows and taller groups.
+    canvas_->fillRoundRect(28, y, 484, 186, 18, TFT_WHITE);
+    canvas_->drawRoundRect(28, y, 484, 186, 18, TFT_BLACK);
+    g_cjkText.drawText(56, y + 16, title ? title : "", kGrayText);
+    drawSettingsRow(y + 58, row1, row1Value);
+    canvas_->drawFastHLine(56, y + 118, 424, kGrayMid);
+    drawSettingsRow(y + 118, row2, row2Value);
 }
 
 void VinkUiRenderer::drawFooterHint(const char* hint) {
@@ -260,10 +263,9 @@ void VinkUiRenderer::renderSettings() {
     drawStatusBar("设置");
     drawTabs(SystemState::Settings);
     drawSettingsGroup(kContentY, "阅读", "正文字体", "默认", "字号与行距", "默认");
-    drawSettingsGroup(302, "显示", "刷新策略", "均衡", "触摸校准", "诊断");
-    drawSettingsGroup(450, "连接", "WiFi", "配置", "Legado", "地址");
-    drawSettingsGroup(598, "系统", "电源", "点按关机", "关于", kVinkPaperS3FirmwareVersion);
-    drawFooterHint("设置行同一水平线；触摸校准进诊断，电源行可关机");
+    drawSettingsGroup(352, "显示", "刷新策略", "均衡", "触摸校准", "诊断");
+    drawSettingsGroup(550, "连接", "WiFi", "配置", "Legado", "地址");
+    drawSettingsGroup(748, "系统", "电源", "点按关机", "关于", kVinkPaperS3FirmwareVersion);
 }
 
 void VinkUiRenderer::renderDiagnostics(const Message& lastTouch, const char* eventName) {
@@ -387,8 +389,8 @@ UiAction VinkUiRenderer::hitTest(SystemState state, int16_t x, int16_t y) const 
             if (inRect(x, y, 56, 278, 180, 48)) return UiAction::StartLegadoSync;
             break;
         case SystemState::Settings:
-            if (inRect(x, y, 56, 386, 424, 42)) return UiAction::OpenDiagnostics;
-            if (inRect(x, y, 56, 640, 424, 42)) return UiAction::RequestShutdown;
+            if (inRect(x, y, 56, 470, 424, 60)) return UiAction::OpenDiagnostics;
+            if (inRect(x, y, 56, 806, 424, 60)) return UiAction::RequestShutdown;
             if (y >= kContentY) return UiAction::OpenSettings;
             break;
         case SystemState::Diagnostics:

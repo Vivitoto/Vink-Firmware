@@ -30,18 +30,39 @@ private:
         uint32_t bitmapSize = 0;
     };
 
+    struct GrayGlyph {
+        uint32_t unicode = 0;
+        uint32_t bitmapOffset = 0;
+        uint8_t width = 0;
+        uint8_t height = 0;
+        int8_t bearingX = 0;
+        int8_t bearingY = 0;
+        uint8_t advance = 0;
+    };
+
     static uint32_t decodeUtf8(const uint8_t* buf, size_t& pos, size_t len);
     static uint8_t rpByte(uint32_t offset);
     static uint16_t rpU16(uint32_t offset);
     static uint32_t rpU32(uint32_t offset);
     static int8_t rpI8(uint32_t offset);
+    static uint8_t uiByte(uint32_t offset);
+    static uint16_t uiU16(uint32_t offset);
+    static uint32_t uiU32(uint32_t offset);
+    static int8_t uiI8(uint32_t offset);
+    bool beginProgmemUiFont();
+    bool findProgmemUiGlyph(uint32_t unicode, GrayGlyph& out) const;
     bool beginReadPaperSubset();
     bool findReadPaperGlyph(uint32_t unicode, ReadPaperGlyph& out) const;
     void drawGlyph(uint32_t unicode, int16_t x, int16_t y, uint16_t color);
+    void drawProgmemUiGlyph(const GrayGlyph& glyph, int16_t x, int16_t y, uint16_t color);
     void drawReadPaperGlyph(const ReadPaperGlyph& glyph, int16_t x, int16_t y, uint16_t color);
     uint16_t pixelColorForNibble(uint8_t nibble, uint16_t color) const;
 
     M5Canvas* canvas_ = nullptr;
+    bool progmemUiReady_ = false;
+    uint32_t progmemUiCharCount_ = 0;
+    uint16_t progmemUiFontSize_ = 0;
+    uint32_t progmemUiBitmapStart_ = 0;
     bool readPaperSubsetReady_ = false;
     uint32_t readPaperCharCount_ = 0;
     uint8_t readPaperFontHeight_ = 0;
