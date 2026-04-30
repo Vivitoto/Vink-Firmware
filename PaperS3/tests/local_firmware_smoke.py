@@ -24,7 +24,7 @@ PROJECT = Path(__file__).resolve().parents[1]
 REPO = PROJECT.parent
 WORKSPACE = Path("/home/vito/.openclaw/workspace")
 ARTIFACTS = WORKSPACE / "artifacts" / "Vink-PaperS3"
-DEFAULT_SLUG = "portrait-diagnostic"
+DEFAULT_SLUG = "ui-restore"
 APP_SLOT_SIZE = 0xC00000  # v0.3 single-app layout for full ReadPaper PROGMEM font
 SPIFFS_SIZE = 0x3F0000
 FULL_FLASH_SIZE = 0x1000000
@@ -166,6 +166,9 @@ def vink3_source_invariants(main_cpp: str) -> None:
     assert_contains(input_cpp, "gesture cancelled", "touch service cancels drag movement too large for tap but too small for swipe")
     assert_contains(input_cpp, "no coordinate-mode guessing", "touch transform does not infer or remap official raw coordinates")
     assert_contains(state_cpp, "xQueueReceive", "v0.3 state machine is queue-driven")
+    assert_contains(state_cpp, "v0.3.7-rc", "BootComplete documents the UI-restore RC behavior")
+    assert_contains(state_cpp, "state_ = SystemState::Reader;", "BootComplete enters normal reader home after the validated diagnostic RC")
+    assert_contains(state_cpp, "OpenDiagnostics", "diagnostic page remains available from normal UI")
     assert_contains(state_cpp, "MessageType::PowerButton", "state machine handles side power-key shutdown")
     assert_contains(state_cpp, "pulsePaperS3PowerOffPin", "shutdown path pulses PaperS3 PMIC power-off pin")
     assert_contains(state_cpp, "esp_deep_sleep_start", "shutdown path has deep-sleep fallback after M5.Power.powerOff")

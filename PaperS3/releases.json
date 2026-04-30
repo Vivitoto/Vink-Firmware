@@ -5,6 +5,21 @@
   "description": "面向 M5Stack PaperS3 的 Vink 电子书阅读固件。",
   "releases": [
     {
+      "version": "v0.3.7-rc",
+      "name": "Vink-PaperS3 v0.3.7-rc UI 恢复 RC",
+      "summary": "基于 v0.3.6-rc 真机确认的 rotation 0 / 540×960 竖屏显示、Vink Canvas 接管和 raw touch 路径，恢复启动后进入正常 Vink 阅读首页；诊断页保留在设置页入口，便于后续触摸/显示排查。",
+      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.3.7-rc",
+      "changelog": "## Vink-PaperS3 v0.3.7-rc UI 恢复 RC\n\n### 目的\n- v0.3.6-rc 已通过真机照片确认：竖屏方向恢复、英文诊断页可显示、raw/norm 触摸与九宫格刷新链路可用。\n- 本版在保留这条已确认底层基线的前提下，恢复正常 Vink UI 启动路径，方便继续验证首页、书架、设置与阅读入口。\n\n### 改动\n- 保留官方 PaperS3 触摸示例基线：`M5.begin()` + `M5.Display.setRotation(0)` + `M5.update()` + `M5.Touch.getDetail()` raw 坐标。\n- 保留 Vink 逻辑竖屏 `540×960`。\n- 保留启动 ASCII boot probe，用于确认底层直写显示路径。\n- `BootComplete` 后不再停留在诊断页，改为进入正常 Reader/Home UI。\n- 诊断页继续保留在设置页入口，可查看 raw/norm 坐标、rotation、USB/CHG/BAT 与 3×3 网格。\n- 本版基于已清理后的 v0.3 source layout：移除旧 v0.2 单体源码、旧 `oxflash.json` 和未使用的 ArduinoJson/ElegantOTA 依赖。\n\n### 验证状态\n- 已真机确认：v0.3.6-rc 的竖屏显示、Vink Canvas 接管、raw touch 诊断链路。\n- 本地已验证：source smoke、PlatformIO build、buildfs、full 16MB merge。\n- 需要真机验证：正常 Vink 首页/顶部 Tab/书架/设置页/诊断入口/阅读入口的实际显示与触摸命中。",
+      "assets": {
+        "full": {
+          "name": "Vink-PaperS3-v0.3.7-rc-ui-restore-full-16MB.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.3.7-rc/Vink-PaperS3-v0.3.7-rc-ui-restore-full-16MB.bin",
+          "size": 16777216,
+          "flashOffset": 0
+        }
+      }
+    },
+    {
       "version": "v0.3.6-rc",
       "name": "Vink-PaperS3 v0.3.6-rc 竖屏接管诊断 RC",
       "summary": "修正 v0.3.5 真机反馈的横屏问题：按官方触摸示例回到 rotation 0 / 540×960 竖屏；保留官方启动探针，随后进入 ASCII 竖屏诊断页验证 Vink Canvas 接管和 raw 触摸坐标。",
