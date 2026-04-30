@@ -141,7 +141,8 @@ void VinkUiRenderer::drawCard(int16_t x, int16_t y, int16_t w, int16_t h, const 
     canvas_->drawRoundRect(x, y, w, h, 18, TFT_BLACK);
     g_cjkText.drawText(x + 22, y + 18, title ? title : "", TFT_BLACK);
     if (body && body[0]) {
-        g_cjkText.drawText(x + 22, y + 58, body, kGrayText);
+        // Secondary notes stay visually subordinate to 24px primary labels.
+        g_cjkText.drawSmallText(x + 22, y + 62, body, kGrayText);
     }
 }
 
@@ -184,7 +185,7 @@ void VinkUiRenderer::drawSettingsGroup(int16_t y, const char* title, const char*
 }
 
 void VinkUiRenderer::drawFooterHint(const char* hint) {
-    g_cjkText.drawCentered(0, kPaperS3Height - 42, kPaperS3Width, 28, hint ? hint : "点击标签或卡片", kGrayText);
+    g_cjkText.drawSmallCentered(0, kPaperS3Height - 38, kPaperS3Width, 24, hint ? hint : "点击标签或卡片", kGrayText);
 }
 
 void VinkUiRenderer::renderBoot() {

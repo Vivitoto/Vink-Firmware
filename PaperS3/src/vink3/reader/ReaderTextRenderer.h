@@ -46,11 +46,15 @@ private:
     bool beginReadPaperFullFont();
     bool findReadPaperGlyph(uint32_t unicode, ReadPaperGlyph& out) const;
     uint8_t charAdvance(uint32_t unicode) const;
+    uint8_t smallCharAdvance(uint32_t unicode) const;
     int16_t textWidth(const char* text) const;
+    int16_t smallTextWidth(const char* text) const;
     void drawGlyph(uint32_t unicode, int16_t x, int16_t y, uint16_t color);
+    void drawSmallGlyph(uint32_t unicode, int16_t x, int16_t y, uint16_t color);
     void drawReadPaperGlyph(const ReadPaperGlyph& glyph, int16_t x, int16_t y, uint16_t color);
     uint16_t pixelColorForNibble(uint8_t nibble, uint16_t color) const;
     void drawText(int16_t x, int16_t y, const char* text, uint16_t color = TFT_BLACK);
+    void drawSmallText(int16_t x, int16_t y, const char* text, uint16_t color = TFT_BLACK);
     void drawShellTabs(int activeTab, const ReaderRenderOptions& options);
     size_t findWrapBreak(const char* text, size_t start, int16_t maxWidth) const;
 
@@ -59,6 +63,7 @@ private:
     uint32_t readPaperCharCount_ = 0;
     uint8_t readPaperFontHeight_ = 0;
     FontManager font_;
+    FontManager smallFont_;
 };
 
 extern ReaderTextRenderer g_readerText;

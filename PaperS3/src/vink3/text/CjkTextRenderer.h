@@ -13,9 +13,13 @@ public:
     bool begin(M5Canvas* canvas);
     bool ready() const;
     uint16_t fontSize() const;
+    uint16_t smallFontSize() const;
     int16_t textWidth(const char* text);
+    int16_t smallTextWidth(const char* text);
     void drawText(int16_t x, int16_t y, const char* text, uint16_t color = TFT_BLACK);
+    void drawSmallText(int16_t x, int16_t y, const char* text, uint16_t color = TFT_BLACK);
     void drawCentered(int16_t x, int16_t y, int16_t w, int16_t h, const char* text, uint16_t color = TFT_BLACK);
+    void drawSmallCentered(int16_t x, int16_t y, int16_t w, int16_t h, const char* text, uint16_t color = TFT_BLACK);
     void drawRight(int16_t rightX, int16_t y, const char* text, uint16_t color = TFT_BLACK);
 
 private:
@@ -55,6 +59,7 @@ private:
     bool beginReadPaperSubset();
     bool findReadPaperGlyph(uint32_t unicode, ReadPaperGlyph& out) const;
     void drawGlyph(uint32_t unicode, int16_t x, int16_t y, uint16_t color);
+    void drawSmallGlyph(uint32_t unicode, int16_t x, int16_t y, uint16_t color);
     void drawProgmemUiGlyph(const GrayGlyph& glyph, int16_t x, int16_t y, uint16_t color);
     void drawReadPaperGlyph(const ReadPaperGlyph& glyph, int16_t x, int16_t y, uint16_t color);
     uint16_t pixelColorForNibble(uint8_t nibble, uint16_t color) const;

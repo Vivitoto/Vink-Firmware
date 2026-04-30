@@ -86,6 +86,13 @@ uint16_t CjkTextRenderer::fontSize() const {
     return 16;
 }
 
+uint16_t CjkTextRenderer::smallFontSize() const {
+    // Secondary notes/hints deliberately use the bundled 16px font loaded into
+    // font_. Primary labels and buttons stay on the 24px PROGMEM font.
+    if (font_.isLoaded()) return font_.getFontSize();
+    return 16;
+}
+
 uint8_t CjkTextRenderer::rpByte(uint32_t offset) {
     if (offset >= g_readpaper_ui_font_size) return 0;
     return pgm_read_byte(&g_readpaper_ui_font_data[offset]);
@@ -287,6 +294,21 @@ int16_t CjkTextRenderer::textWidth(const char* text) {
     return w;
 }
 
+int16_t CjkTextRenderer::smallTextWidth(const char* text) {
+    if (!text) return 0;
+    if (!font_.isLoaded()) return textWidth(text);
+    int16_t w = 0;
+    const uint8_t* bytes = reinterpret_cast<const uint8_t*>(text);
+    size_t pos = 0;
+    const size_t len = strlen(text);
+    while (pos < len) {
+        uint32_t ch = decodeUtf8(bytes, pos, len);
+        uint8_t adv = font_.getCharAdvance(ch);
+        w += adv > 0 ? adv : (ch < 128 ? 8 : smallFontSize());
+    }
+    return w;
+}
+
 uint16_t CjkTextRenderer::pixelColorForNibble(uint8_t nibble, uint16_t color) const {
     if (color == TFT_WHITE) return TFT_WHITE;
     if (color != TFT_BLACK) return color;
@@ -362,6 +384,46 @@ void CjkTextRenderer::drawReadPaperGlyph(const ReadPaperGlyph& glyph, int16_t x,
             }
         }
         pixelIdx++;
+    }
+}
+
+void CjkTextRenderer::drawSmallGlyph(uint32_t unicode, int16_t x, int16_t y, uint16_t color) {
+    if (!canvas_ || !font_.isLoaded()) return;
+    if (font_.getFontType() == FontType::GRAY_4BPP) {
+        uint8_t width = 0, height = 0, advance = 0;
+        int8_t bearingX = 0, bearingY = 0;
+        const uint8_t* bmp = font_.getCharBitmapGray(unicode, width, height, bearingX, bearingY, advance);
+        if (!bmp || width == 0 || height == 0) return;
+        const int16_t drawX = x + bearingX;
+        const int16_t baseline = (static_cast<int16_t>(smallFontSize()) * 7) / 8;
+        const int16_t drawY = y + baseline - static_cast<int16_t>(bearingY);
+        for (int row = 0; row < height; row++) {
+            const int16_t py = drawY + row;
+            if (py < 0 || py >= kPaperS3Height) continue;
+            for (int col = 0; col < width; col++) {
+                const int16_t px = drawX + col;
+                if (px < 0 || px >= kPaperS3Width) continue;
+                const int srcIdx = row * ((width + 1) / 2) + col / 2;
+                const uint8_t nibble = (col % 2 == 0) ? ((bmp[srcIdx] >> 4) & 0x0F) : (bmp[srcIdx] & 0x0F);
+                if (nibble > 0) canvas_->drawPixel(px, py, pixelColorForNibble(nibble, color));
+            }
+        }
+        return;
+    }
+
+    uint8_t width = 0, height = 0;
+    const uint8_t* bmp = font_.getCharBitmap(unicode, width, height);
+    if (!bmp || width == 0 || height == 0) return;
+    for (int row = 0; row < height; row++) {
+        const int16_t py = y + row;
+        if (py < 0 || py >= kPaperS3Height) continue;
+        for (int col = 0; col < width; col++) {
+            const int16_t px = x + col;
+            if (px < 0 || px >= kPaperS3Width) continue;
+            int byteIdx = row * ((width + 7) / 8) + col / 8;
+            int bitIdx = 7 - (col % 8);
+            if (bmp[byteIdx] & (1 << bitIdx)) canvas_->drawPixel(px, py, color);
+        }
     }
 }
 
@@ -469,12 +531,37 @@ void CjkTextRenderer::drawText(int16_t x, int16_t y, const char* text, uint16_t 
     }
 }
 
+void CjkTextRenderer::drawSmallText(int16_t x, int16_t y, const char* text, uint16_t color) {
+    if (!canvas_ || !text) return;
+    if (!font_.isLoaded()) {
+        drawText(x, y, text, color);
+        return;
+    }
+    int16_t cx = x;
+    const uint8_t* bytes = reinterpret_cast<const uint8_t*>(text);
+    size_t pos = 0;
+    const size_t len = strlen(text);
+    while (pos < len && cx < kPaperS3Width) {
+        uint32_t ch = decodeUtf8(bytes, pos, len);
+        if (ch == '\n') break;
+        drawSmallGlyph(ch, cx, y, color);
+        uint8_t adv = font_.getCharAdvance(ch);
+        cx += adv > 0 ? adv : (ch < 128 ? 8 : smallFontSize());
+    }
+}
+
 void CjkTextRenderer::drawCentered(int16_t x, int16_t y, int16_t w, int16_t h, const char* text, uint16_t color) {
     const int16_t tw = textWidth(text ? text : "");
     // Leave room for descenders below the baseline; otherwise g/p/y look like
     // uppercase-height glyphs when centered in buttons and tabs.
     const int16_t th = static_cast<int16_t>(fontSize()) + 6;
     drawText(x + (w - tw) / 2, y + (h - th) / 2, text, color);
+}
+
+void CjkTextRenderer::drawSmallCentered(int16_t x, int16_t y, int16_t w, int16_t h, const char* text, uint16_t color) {
+    const int16_t tw = smallTextWidth(text ? text : "");
+    const int16_t th = static_cast<int16_t>(smallFontSize()) + 4;
+    drawSmallText(x + (w - tw) / 2, y + (h - th) / 2, text, color);
 }
 
 void CjkTextRenderer::drawRight(int16_t rightX, int16_t y, const char* text, uint16_t color) {

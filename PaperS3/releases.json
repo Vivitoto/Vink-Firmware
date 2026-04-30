@@ -6,14 +6,14 @@
   "releases": [
     {
       "version": "v0.3.7-rc",
-      "name": "Vink-PaperS3 v0.3.7-rc 24px 字体基线修复 RC",
-      "summary": "基于真机照片反馈保留 24px UI 字体与现有卡片布局，只修复字体 baseline：英文大小写混排对齐、g/p/y 等下探字符正常低于基线、中文标签/右侧值在同一行盒内对齐。",
+      "name": "Vink-PaperS3 v0.3.7-rc 按钮文字居中 & 小字备注 RC",
+      "summary": "基于已确认的 24px UI 字体 baseline 修复，继续：按钮文字精确居中（不受 descender 影响）、secondary 备注和提示改用 16px 小字、Reader 书架提示页标点位置使用字库 yOffset。",
       "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.3.7-rc",
-      "changelog": "## Vink-PaperS3 v0.3.7-rc 24px 字体基线修复 RC\n\n### 目的\n- 用户真机确认：24px 字号没有问题，卡片布局也没有问题。\n- 当前问题集中在字体显示：英文大小写混排没有对齐，`Legado` 中 `g` 等下探字符没有低于大写字母基线，中文如“设置”“进度同步”视觉上不在同一水平线。\n\n### 改动\n- 保留 24px UI 字体与原卡片布局，不做布局密度调整。\n- UI 字体绘制从“每个 glyph 按 bitmap 高度单独居中”改为“同一 line-box 内共用 FreeType baseline”。\n- 英文大小写混排按同一 baseline 绘制；`g/p/y/j/q` 等 descender 可自然下探到 baseline 下方。\n- 中文标签、右侧值与英文混排共享同一 UI line-box，减少“设置 / 进度同步”等字看起来不在一条线上的问题。\n- 设置行仍保持 label/value/arrow 由同一个 row center 派生，触摸热区与原布局一致。\n\n### 官方依据与验证边界\n- 官方依据：PaperS3 为 960×540 / 16 级灰度 EPD；官方触摸示例使用 `M5.begin()`、`setRotation(0)`、`M5.update()`、`M5.Touch.getDetail()`。\n- 经验判断 / 需要真机验证：FreeType glyph bearing/baseline 到 Vink UI line-box 的映射，以及电子纸实际视觉基线观感。\n\n### 验证状态\n- 本地已验证：host 字形度量确认 `Legado` 中 `g` 低于 `L/e/a/d/o`；source smoke；PlatformIO build；buildfs；full 16MB merge。\n- 需要真机验证：英文大小写、descender、中文同一水平线、设置页/同步页实际观感。",
+      "changelog": "## Vink-PaperS3 v0.3.7-rc 按钮文字居中 & 小字备注 RC\n\n### 目的\n- 用户真机反馈：按钮文字应居中，底下的 secondary 备注/提示应比主标签小一号。\n\n### 改动\n- 按钮文字按主字体（24px）在按钮几何中心精确居中，不受 descender 影响。\n- 卡片 secondary 说明文字改为 16px SPIFFS 内置字体渲染，视觉上比 24px 标签低一个层级。\n- 页脚提示文字改为 16px 小字。\n- Reader 书架提示页英文标点（`.` `o` `v` `,`）使用 ReadPaper 字库自带 `yOffset`，不再被居中抬高。\n- 保留 24px 简体 UI 字体、英文大小写统一 baseline、descender 下探。\n\n### 官方依据与验证边界\n- 官方依据：PaperS3 为 960×540 / 16 级灰度 EPD。\n- 经验判断 / 需要真机验证：按钮内文字视觉居中感、16px 备注在电子纸上的实际可读性。\n\n### 验证状态\n- 本地已验证：source smoke、PlatformIO build、buildfs、full 16MB merge。\n- 需要真机验证：按钮居中效果、16px 备注可读性、Reader 提示页标点位置。",
       "assets": {
         "full": {
-          "name": "Vink-PaperS3-v0.3.7-rc-ui-font24-baseline-only-full-16MB.bin",
-          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.3.7-rc/Vink-PaperS3-v0.3.7-rc-ui-font24-baseline-only-full-16MB.bin",
+          "name": "Vink-PaperS3-v0.3.7-rc-reader-small-note-full-16MB.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.3.7-rc/Vink-PaperS3-v0.3.7-rc-reader-small-note-full-16MB.bin",
           "size": 16777216,
           "flashOffset": 0
         }
