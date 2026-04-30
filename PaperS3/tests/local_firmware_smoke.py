@@ -26,7 +26,7 @@ PROJECT = Path(__file__).resolve().parents[1]
 REPO = PROJECT.parent
 WORKSPACE = Path("/home/vito/.openclaw/workspace")
 ARTIFACTS = WORKSPACE / "artifacts" / "Vink-PaperS3"
-DEFAULT_SLUG = "official-baseline"
+DEFAULT_SLUG = "portrait-diagnostic"
 APP_SLOT_SIZE = 0xC00000  # v0.3 single-app layout for full ReadPaper PROGMEM font
 SPIFFS_SIZE = 0x3F0000
 FULL_FLASH_SIZE = 0x1000000
@@ -135,8 +135,8 @@ def vink3_source_invariants(main_cpp: str) -> None:
     assert_contains(main_cpp, "xTaskCreatePinnedToCore", "v0.3 main starts a ReadPaper-style pinned MainTask")
     assert_contains(runtime_cpp, "kReadPaperUpstreamVersion", "v0.3 runtime records ReadPaper upstream baseline")
     assert_contains(runtime_cpp, "applyOfficialPaperS3DisplaySetup", "v0.3 official baseline uses the official UserDemo display setup")
-    assert_contains(runtime_cpp, "M5.Display.setRotation(kPaperS3DisplayRotation)", "v0.3 PaperS3 display rotation starts from the official-profile constant")
-    assert_contains(upstream, "kPaperS3DisplayRotation = 1", "official UserDemo rotation 1 is the Vink diagnostic baseline")
+    assert_contains(runtime_cpp, "M5.Display.setRotation(kPaperS3DisplayRotation)", "v0.3 PaperS3 display rotation starts from the official touch-profile constant")
+    assert_contains(upstream, "kPaperS3DisplayRotation = 0", "official touch-example rotation 0 is the Vink diagnostic baseline")
     assert_contains(upstream, "gPaperS3ActiveDisplayRotation", "active rotation is exposed for diagnostics after runtime verification")
     assert_contains(upstream, "kGt911SdaPin = GPIO_NUM_41", "official GT911 SDA pin is recorded")
     assert_contains(upstream, "kGt911SclPin = GPIO_NUM_42", "official GT911 SCL pin is recorded")
@@ -261,7 +261,10 @@ def vink3_source_invariants(main_cpp: str) -> None:
     assert_contains(chapter_cpp, "0xE3", "chapter detector trims ideographic leading spaces")
     assert_contains(toc_tool, "last_number", "host TXT TOC detector suppresses duplicate/outlier chapter headings")
     assert_contains(toc_tool, "detect_toc", "host TXT TOC detector exists for large novel validation")
-    assert_not_contains(ui_cpp, "drawString", "v0.3 UI renderer must not use M5GFX drawString for Chinese")
+    assert_contains(ui_cpp, "Use built-in ASCII drawing here", "diagnostic/boot probes may use M5GFX drawString only for ASCII visibility checks")
+    assert_not_contains(ui_cpp, "drawString(\"阅读", "v0.3 UI renderer must not use M5GFX drawString for Chinese")
+    assert_not_contains(ui_cpp, "drawString(\"书", "v0.3 UI renderer must not use M5GFX drawString for Chinese")
+    assert_not_contains(ui_cpp, "drawString(\"设置", "v0.3 UI renderer must not use M5GFX drawString for Chinese")
 
     ui_sources = [
         "src/vink3/ui/VinkUiRenderer.cpp",

@@ -19,13 +19,13 @@ constexpr int16_t kLongPressMovePx = 34;
 constexpr int16_t kSwipeThresholdPx = 80;
 
 const char* touchCoordModeName(TouchCoordMode) {
-    return "official-raw-960x540";
+    return "official-raw-540x960";
 }
 
 TouchPoint transformRawPaperS3Point(int rawX, int rawY) {
-    // Official touch example draws touchDetail.x/y directly after
-    // M5.Display.setRotation(0/1) and M5.update(). For this official baseline
-    // RC, do not infer, scale, rotate, or remap coordinates in the input layer.
+    // Official PaperS3 touch example draws touchDetail.x/y directly after
+    // M5.Display.setRotation(0) and M5.update(). For this official portrait
+    // baseline, do not infer, scale, rotate, or remap coordinates in the input layer.
     int x = rawX;
     int y = rawY;
     if (x < 0) x = 0;

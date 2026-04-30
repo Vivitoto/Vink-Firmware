@@ -10,12 +10,12 @@
     "device": "paper_s3",
     "versions": [
       {
-        "version": "v0.3.5-rc official-baseline full 16MB",
-        "file": "v0.3.5-rc/Vink-PaperS3-v0.3.5-rc-official-baseline-full-16MB.bin",
-        "published_at": "2026-04-30T01:25:00Z",
+        "version": "v0.3.6-rc portrait-diagnostic full 16MB",
+        "file": "v0.3.6-rc/Vink-PaperS3-v0.3.6-rc-portrait-diagnostic-full-16MB.bin",
+        "published_at": "2026-04-30T02:28:00Z",
         "is_stable": false,
         "size": 16777216,
-        "change_log": "Official low-level baseline RC: M5.begin + rotation 1 + epd_quality direct boot probe, full-only 16MB image."
+        "change_log": "Return to official touch-example rotation 0 portrait 540x960; keep boot probe, then show ASCII portrait diagnostic for Vink canvas takeover and raw touch."
       }
     ]
   }

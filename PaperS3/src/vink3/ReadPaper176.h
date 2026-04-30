@@ -13,15 +13,15 @@ static constexpr const char* kReadPaperUpstreamVersion = "V1.7.6";
 
 // Official M5Stack PaperS3 hardware profile.
 // Source: http://docs.m5stack.com/zh_CN/core/PaperS3
-static constexpr int16_t kPaperS3Width = 960;   // official UserDemo display width at rotation 1
-static constexpr int16_t kPaperS3Height = 540;  // official UserDemo display height at rotation 1
+static constexpr int16_t kPaperS3Width = 540;   // official touch-example portrait width at rotation 0
+static constexpr int16_t kPaperS3Height = 960;  // official touch-example portrait height at rotation 0
 static constexpr int16_t kPaperS3PhysicalWidth = 960;
 static constexpr int16_t kPaperS3PhysicalHeight = 540;
-static constexpr uint8_t kPaperS3DisplayRotation = 1; // official M5PaperS3-UserDemo baseline
+static constexpr uint8_t kPaperS3DisplayRotation = 0; // official M5PaperS3 touch-example baseline
 extern uint8_t gPaperS3ActiveDisplayRotation;
 
 enum class TouchCoordMode : uint8_t {
-    OfficialRaw960x540 = 0,
+    OfficialRaw540x960 = 0,
 };
 extern volatile TouchCoordMode gPaperS3TouchCoordMode;
 

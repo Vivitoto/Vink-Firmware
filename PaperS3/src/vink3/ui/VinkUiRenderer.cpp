@@ -186,8 +186,21 @@ void VinkUiRenderer::drawFooterHint(const char* hint) {
 void VinkUiRenderer::renderBoot() {
     if (!canvas_) return;
     clear();
-    g_cjkText.drawCentered(0, 390, kPaperS3Width, 48, "Vink", TFT_BLACK);
-    g_cjkText.drawCentered(0, 460, kPaperS3Width, 28, "v0.3.2-rc · ReadPaper V1.7.6 底层", kGrayText);
+    // Use built-in ASCII drawing here, not the bundled CJK font path. The goal
+    // is to prove that the Vink canvas + display-service takeover is visible
+    // immediately after the official direct M5.Display boot probe.
+    canvas_->setTextColor(TFT_BLACK, TFT_WHITE);
+    canvas_->setTextDatum(middle_center);
+    canvas_->setTextSize(3);
+    canvas_->drawString("VINK CANVAS PROBE", kPaperS3Width / 2, 210);
+    canvas_->setTextSize(2);
+    canvas_->drawString("after official M5.Display probe", kPaperS3Width / 2, 260);
+    canvas_->drawString("960x540 rotation=1", kPaperS3Width / 2, 300);
+    canvas_->drawRect(16, 16, kPaperS3Width - 32, kPaperS3Height - 32, TFT_BLACK);
+    canvas_->drawFastHLine(16, kPaperS3Height / 2, kPaperS3Width - 32, TFT_BLACK);
+    canvas_->drawFastVLine(kPaperS3Width / 2, 16, kPaperS3Height - 32, TFT_BLACK);
+    canvas_->setTextDatum(top_left);
+    canvas_->setTextSize(1);
 }
 
 void VinkUiRenderer::renderHome(SystemState state) {
@@ -256,43 +269,67 @@ void VinkUiRenderer::renderSettings() {
 void VinkUiRenderer::renderDiagnostics(const Message& lastTouch, const char* eventName) {
     if (!canvas_) return;
     clear();
-    drawStatusBar("硬件诊断");
-    drawTabs(SystemState::Settings);
 
-    char line[96];
-    drawCard(28, kContentY, 484, 158, "官方 PaperS3", "EPD_ED047TC1 · GT911 · 16MB Flash · 8MB PSRAM");
-    snprintf(line, sizeof(line), "rotation %u · logical %dx%d · display %dx%d", gPaperS3ActiveDisplayRotation, kPaperS3Width, kPaperS3Height, M5.Display.width(), M5.Display.height());
-    g_cjkText.drawText(50, kContentY + 86, line, kGrayText);
-    snprintf(line, sizeof(line), "physical %dx%d · mode %s", kPaperS3PhysicalWidth, kPaperS3PhysicalHeight, touchCoordModeLabel());
-    g_cjkText.drawText(50, kContentY + 112, line, kGrayText);
+    char line[128];
+    canvas_->setTextColor(TFT_BLACK, TFT_WHITE);
+    canvas_->setTextDatum(top_left);
+    canvas_->setTextSize(2);
+    canvas_->drawString("VINK DIAGNOSTIC", 24, 22);
+    canvas_->drawString("OFFICIAL PORTRAIT", 24, 52);
+    canvas_->setTextSize(1);
+    canvas_->drawString("rotation 0 / 540x960 / raw touch", 28, 88);
+    canvas_->drawFastHLine(24, 114, kPaperS3Width - 48, TFT_BLACK);
+
+    canvas_->drawRoundRect(24, 136, 492, 178, 14, TFT_BLACK);
+    canvas_->setTextSize(2);
+    canvas_->drawString("DISPLAY", 48, 158);
+    canvas_->setTextSize(1);
+    snprintf(line, sizeof(line), "rotation=%u logical=%dx%d", gPaperS3ActiveDisplayRotation, kPaperS3Width, kPaperS3Height);
+    canvas_->drawString(line, 48, 198);
+    snprintf(line, sizeof(line), "M5.Display=%dx%d", M5.Display.width(), M5.Display.height());
+    canvas_->drawString(line, 48, 226);
     snprintf(line, sizeof(line), "USB:%s CHG:%s BAT:%.2fV", isOfficialUsbConnected() ? "IN" : "--", isOfficialChargeStateActive() ? "ON" : "--", readOfficialBatteryVoltage());
-    g_cjkText.drawText(50, kContentY + 138, line, kGrayText);
+    canvas_->drawString(line, 48, 254);
+    canvas_->drawString("If visible: Vink canvas takeover works", 48, 282);
 
-    drawCard(28, 316, 484, 174, "Touch / GT911", "按压屏幕任意位置，查看 raw 与 normalized 坐标");
-    snprintf(line, sizeof(line), "event: %s · count:%ld", eventName ? eventName : "等待触摸", static_cast<long>(lastTouch.value));
-    g_cjkText.drawText(50, 392, line, TFT_BLACK);
+    canvas_->drawRoundRect(24, 342, 492, 178, 14, TFT_BLACK);
+    canvas_->setTextSize(2);
+    canvas_->drawString("TOUCH RAW", 48, 364);
+    canvas_->setTextSize(1);
+    snprintf(line, sizeof(line), "event: %s  count:%ld", eventName ? eventName : "wait", static_cast<long>(lastTouch.value));
+    canvas_->drawString(line, 48, 404);
     snprintf(line, sizeof(line), "raw: %d, %d", lastTouch.rawTouch.x, lastTouch.rawTouch.y);
-    g_cjkText.drawText(50, 430, line, TFT_BLACK);
+    canvas_->drawString(line, 48, 436);
     snprintf(line, sizeof(line), "norm: %d, %d", lastTouch.touch.x, lastTouch.touch.y);
-    g_cjkText.drawText(286, 430, line, TFT_BLACK);
+    canvas_->drawString(line, 48, 468);
+    canvas_->drawString("Touch: dot should match your finger", 48, 496);
 
-    drawCard(28, 526, 484, 260, "3x3 命中网格", "实机看触摸点是否落在对应格子");
-    const int16_t gx = 66;
-    const int16_t gy = 612;
-    const int16_t gw = 408;
-    const int16_t gh = 132;
-    canvas_->drawRect(gx, gy, gw, gh, TFT_BLACK);
-    canvas_->drawFastVLine(gx + gw / 3, gy, gh, TFT_BLACK);
-    canvas_->drawFastVLine(gx + gw * 2 / 3, gy, gh, TFT_BLACK);
-    canvas_->drawFastHLine(gx, gy + gh / 3, gw, TFT_BLACK);
-    canvas_->drawFastHLine(gx, gy + gh * 2 / 3, gw, TFT_BLACK);
+    const int16_t gx = 54;
+    const int16_t gy = 580;
+    const int16_t gw = 432;
+    const int16_t gh = 300;
+    canvas_->drawRoundRect(24, 548, 492, 372, 14, TFT_BLACK);
+    canvas_->setTextSize(2);
+    canvas_->drawString("3x3 HIT GRID", 54, 566);
+    canvas_->drawRect(gx, gy + 36, gw, gh, TFT_BLACK);
+    canvas_->drawFastVLine(gx + gw / 3, gy + 36, gh, TFT_BLACK);
+    canvas_->drawFastVLine(gx + gw * 2 / 3, gy + 36, gh, TFT_BLACK);
+    canvas_->drawFastHLine(gx, gy + 36 + gh / 3, gw, TFT_BLACK);
+    canvas_->drawFastHLine(gx, gy + 36 + gh * 2 / 3, gw, TFT_BLACK);
+    canvas_->setTextSize(1);
+    canvas_->drawString("TOP", gx + gw / 2 - 12, gy + 48);
+    canvas_->drawString("LEFT", gx + 12, gy + 36 + gh / 2);
+    canvas_->drawString("RIGHT", gx + gw - 52, gy + 36 + gh / 2);
+    canvas_->drawString("BOTTOM", gx + gw / 2 - 22, gy + 36 + gh - 20);
+
     if (lastTouch.timestampMs != 0) {
         const int16_t px = gx + (static_cast<int32_t>(lastTouch.touch.x) * gw) / kPaperS3Width;
-        const int16_t py = gy + (static_cast<int32_t>(lastTouch.touch.y) * gh) / kPaperS3Height;
-        canvas_->fillCircle(px, py, 8, TFT_BLACK);
-        canvas_->drawCircle(px, py, 14, TFT_BLACK);
+        const int16_t py = gy + 36 + (static_cast<int32_t>(lastTouch.touch.y) * gh) / kPaperS3Height;
+        canvas_->fillCircle(px, py, 10, TFT_BLACK);
+        canvas_->drawCircle(px, py, 20, TFT_BLACK);
     }
-    drawFooterHint("顶部标签可退出；诊断结果以真机为准");
+
+    canvas_->setTextSize(1);
 }
 
 void VinkUiRenderer::renderShutdown(const char* reason) {

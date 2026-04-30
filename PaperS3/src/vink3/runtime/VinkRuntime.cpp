@@ -14,7 +14,7 @@
 namespace vink3 {
 
 uint8_t gPaperS3ActiveDisplayRotation = kPaperS3DisplayRotation;
-volatile TouchCoordMode gPaperS3TouchCoordMode = TouchCoordMode::OfficialRaw960x540;
+volatile TouchCoordMode gPaperS3TouchCoordMode = TouchCoordMode::OfficialRaw540x960;
 VinkRuntime g_runtime;
 
 namespace {
@@ -31,9 +31,9 @@ void configureOfficialPaperS3Gpios() {
 }
 
 void applyOfficialPaperS3DisplaySetup() {
-    // Official M5PaperS3-UserDemo baseline: M5.begin(); Display.setRotation(1).
-    // Do not search rotations or remap the framebuffer here; first prove the
-    // vendor display path boots and refreshes exactly like the official demo.
+    // Official M5PaperS3 touch example baseline: M5.begin(); Display.setRotation(0),
+    // then M5.update() + M5.Touch.getDetail() with raw x/y used directly.
+    // Keep Vink's UI in the PaperS3 portrait geometry exposed by this rotation.
     M5.Display.setRotation(kPaperS3DisplayRotation);
     gPaperS3ActiveDisplayRotation = kPaperS3DisplayRotation;
 }
@@ -45,7 +45,7 @@ void drawOfficialBootProbe() {
     M5.Display.fillScreen(TFT_WHITE);
     delay(200);
     M5.Display.drawString("Vink PaperS3 official boot", M5.Display.width() / 2, M5.Display.height() / 2 - 28);
-    M5.Display.drawString("M5.begin + rotation 1", M5.Display.width() / 2, M5.Display.height() / 2 + 18);
+    M5.Display.drawString("M5.begin + rotation 0", M5.Display.width() / 2, M5.Display.height() / 2 + 18);
     M5.Display.waitDisplay();
     delay(800);
 }
@@ -88,7 +88,7 @@ bool VinkRuntime::beginHardware() {
     M5.Display.setEpdMode(kQualityRefresh);
     M5.Display.setColorDepth(kTextColorDepthHigh);
     applyOfficialPaperS3DisplaySetup();
-    Serial.printf("[vink3][display] official rotation=%u expected=%dx%d actual=%dx%d\n",
+    Serial.printf("[vink3][display] official touch rotation=%u expected=%dx%d actual=%dx%d\n",
                   gPaperS3ActiveDisplayRotation, kPaperS3Width, kPaperS3Height,
                   M5.Display.width(), M5.Display.height());
     drawOfficialBootProbe();

@@ -144,9 +144,13 @@ void StateMachine::taskLoop() {
 void StateMachine::handle(const Message& message) {
     switch (message.type) {
         case MessageType::BootComplete:
-            state_ = SystemState::Reader;
+            // v0.3.6-rc: the official direct boot probe is confirmed visible on
+            // real PaperS3. Start in a Vink-owned portrait diagnostic screen next
+            // so we can validate canvas/display-service takeover and raw touch
+            // coordinates before restoring the full reader UI.
+            state_ = SystemState::Diagnostics;
             renderState(state_);
-            g_displayService.enqueueFull(false, 100);
+            g_displayService.enqueueFull(true, 100);
             suppressAfterTransition(300);
             break;
 
