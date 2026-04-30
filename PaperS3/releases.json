@@ -6,14 +6,14 @@
   "releases": [
     {
       "version": "v0.3.7-rc",
-      "name": "Vink-PaperS3 v0.3.7-rc 字体显示修复 RC",
-      "summary": "基于 v0.3.7-rc UI 恢复版继续修复真机 UI 字体问题：统一固件版本显示，增加 CJK 逐字 fallback，修复中英文混排/英文单词字母上下错位的 line-box 对齐问题。",
+      "name": "Vink-PaperS3 v0.3.7-rc 24px UI 字体 RC",
+      "summary": "基于 v0.3.7-rc 字体显示修复继续按真机反馈放大系统 UI：使用编译内置 Noto Sans CJK SC Bold 24px 简体中文字体，UI 不再依赖 SPIFFS；设置页同步放大行高和分组高度，避免文字、右侧值和箭头拥挤。",
       "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.3.7-rc",
-      "changelog": "## Vink-PaperS3 v0.3.7-rc 字体显示修复 RC\n\n### 目的\n- 针对真机 UI 反馈：中文大面积不显示或很弱、英文同一个单词字母上下错位。\n- 本版仍沿用 v0.3.6-rc 已真机确认的官方 PaperS3 显示/触摸基线：`M5.begin()` + `M5.Display.setRotation(0)` + `M5.update()` + `M5.Touch.getDetail()` raw 坐标。\n\n### 改动\n- 新增统一版本常量，启动日志、阅读管理页、设置页“关于”等统一显示 `v0.3.7-rc`。\n- UI 简中 SPIFFS 字体仍优先；ReadPaper PROGMEM UI 子集作为逐字 fallback，避免缺字时静默空白。\n- 如果 SPIFFS 简中字库没有真正成为主字体，会在串口日志明确显示 fallback 状态。\n- 修复 CJK/UI 字体行盒计算：布局高度跟随当前主字体，不再被 fallback 字体高度干扰。\n- 修复灰度字体与 ReadPaper fallback 字体的 glyph y 对齐，避免英文单词内部字母一高一低。\n- Reader 管理页（书架、目录、书籍入口）同步修复字体 line-box 对齐。\n- local smoke test 增加字体 fallback、版本一致性、line-box 不变量检查。\n\n### 官方依据与验证边界\n- 官方依据：PaperS3 为 960×540 / 16 级灰度 EPD，官方触摸示例使用 `M5.begin()`、`setRotation(0)`、`M5.update()`、`M5.Touch.getDetail()`。\n- 经验判断 / 需要真机验证：自定义字体 `bearingY/yOffset` 到 Vink UI line-box 的映射，官方文档没有直接规定。\n\n### 验证状态\n- 已真机确认：v0.3.6-rc 的竖屏显示、Vink Canvas 接管、raw touch 诊断链路。\n- 本地已验证：source smoke、PlatformIO build、buildfs、full 16MB merge。\n- 需要真机验证：首页/顶部 Tab/书架/设置页的中文显示、英文基线、排版观感与触摸命中。",
+      "changelog": "## Vink-PaperS3 v0.3.7-rc 24px UI 字体 RC\n\n### 目的\n- 用户真机反馈：16px/18px 系统 UI 字体仍偏小。\n- 本版继续优先处理显示基础与字体可读性，不扩展功能。\n\n### 改动\n- UI 主字体改为编译内置 `Noto Sans CJK SC Bold 24px` 简体中文灰度字库。\n- CJK 渲染器优先使用 PROGMEM 24px UI 字体，SPIFFS 字体只作为后备，ReadPaper UI subset 仅作为最后兜底。\n- 避免正常 UI 混入 32px ReadPaper fallback 导致中文忽大忽小、重叠或错位。\n- 设置页行高放大到 60px，分组高度放大到 186px，标签/右侧值/箭头继续共用同一行中心线。\n- local smoke test 增加 24px 编译内置 UI 字体约束。\n\n### 官方依据与验证边界\n- 官方依据：PaperS3 为 960×540 / 16 级灰度 EPD；官方触摸示例使用 `M5.begin()`、`setRotation(0)`、`M5.update()`、`M5.Touch.getDetail()`。\n- 经验判断 / 需要真机验证：24px Bold 简体 UI 字体大小、视觉清晰度、设置页行高/分组间距和电子纸实际观感。\n\n### 验证状态\n- 已真机确认：v0.3.6-rc 的竖屏显示、Vink Canvas 接管、raw touch 诊断链路。\n- 本地已验证：source smoke、PlatformIO build、buildfs、full 16MB merge。\n- 需要真机验证：首页/顶部 Tab/书架/设置页 24px 中文显示、英文基线、排版观感与触摸命中。",
       "assets": {
         "full": {
-          "name": "Vink-PaperS3-v0.3.7-rc-font-linebox-fix2-full-16MB.bin",
-          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.3.7-rc/Vink-PaperS3-v0.3.7-rc-font-linebox-fix2-full-16MB.bin",
+          "name": "Vink-PaperS3-v0.3.7-rc-ui-font24-full-16MB.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.3.7-rc/Vink-PaperS3-v0.3.7-rc-ui-font24-full-16MB.bin",
           "size": 16777216,
           "flashOffset": 0
         }
