@@ -5,6 +5,21 @@
   "description": "面向 M5Stack PaperS3 的 Vink 电子书阅读固件。",
   "releases": [
     {
+      "version": "v0.3.9-rc",
+      "name": "Vink-PaperS3 v0.3.9-rc WebUI 传书与阅读闭环增强版",
+      "summary": "补齐手机浏览器 WebUI 的传书/文件维护能力，并合入阅读闭环增强：TXT 目录识别、章节分页缓存、进度恢复、书架/目录跳转、Legado 同步与系统信息展示。",
+      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.3.9-rc",
+      "changelog": "## Vink-PaperS3 v0.3.9-rc WebUI 传书与阅读闭环增强版\n\n### WebUI 传书/维护\n- AP WebUI 可从 `/` 与 `/index.html` 打开，兼容旧根路径跳转。\n- 文件页支持 SD 根目录、`/books` 一键创建/进入、`/spiffs` 系统资源查看、刷新。\n- 支持多文件上传、下载、删除、重命名、新建目录；上传/删除/重命名会保留当前目录。\n- HTTP 文件 API 支持通配路径、encoded absolute path 归一化、JSON 文件名转义、目录前缀清理。\n- 系统页显示固件版本、可用堆、SPIFFS 容量/占用、SD 容量/占用、运行时间。\n\n### 阅读闭环\n- 书架扫描 `/books`，展示进度、TOC、分页缓存状态和文件大小。\n- 打开 TXT 时执行章节识别、GBK 转换、TOC 缓存、章节分页缓存，长章节分页有上限日志保护。\n- 支持阅读进度保存/恢复、跨章节翻页、TOC 当前章节标记、从目录跳转到章节预览。\n- 阅读页采用大区域三分区点击：左侧上一页、右侧下一页、中间进入书籍菜单。\n\n### Legado / 配置\n- Legado 服务封装为独立同步服务，配置页可维护 WiFi、Legado、阅读排版、刷新策略、自动休眠等参数。\n- 配置 JSON 输出对 SSID/Host 等字符串做转义，避免特殊字符破坏 WebUI。\n\n### 验证状态\n- 本地已验证：source smoke、PlatformIO build、buildfs、full 16MB merge。\n- 需要真机验证：AP WebUI 实机上传/下载/重命名、SD 容量显示、TXT 首次分页耗时、目录跳转与阅读翻页触控。",
+      "assets": {
+        "full": {
+          "name": "Vink-PaperS3-v0.3.9-rc-webui-reader-full-16MB.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.3.9-rc/Vink-PaperS3-v0.3.9-rc-webui-reader-full-16MB.bin",
+          "size": 16777216,
+          "flashOffset": 0
+        }
+      }
+    },
+    {
       "version": "v0.3.8-rc",
       "name": "Vink-PaperS3 v0.3.8-rc A+B+D 三合一优化版",
       "summary": "三合一优化：epd_text LUT 改善文字刷新质量、线性 kRemap 消除激进压缩导致的 Bayer 节结、ReaderTextRenderer 全部走 pixelColorForNibble 统一 AA 路径。",

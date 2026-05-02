@@ -5,7 +5,7 @@
 
 namespace vink3 {
 
-static constexpr const char* kVinkPaperS3FirmwareVersion = "v0.3.7-rc";
+static constexpr const char* kVinkPaperS3FirmwareVersion = "v0.3.9-rc";
 
 // Upstream baseline used for the v0.3.0 rewrite.
 // Source: https://github.com/shinemoon/M5ReadPaper main @ e910d29 (data/version: V1.7.6)

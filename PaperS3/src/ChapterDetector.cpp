@@ -125,26 +125,55 @@ int ChapterDetector::detect(File& file, ChapterDetectResult* results, int maxRes
 }
 
 bool ChapterDetector::matchLine(const char* line, int lineLen, ChapterDetectResult& out) {
+    auto trimHeading = [](const char*& p, int& n) {
+        bool changed = true;
+        while (changed && n > 0) {
+            changed = false;
+            while (n > 0 && (*p == ' ' || *p == '\t' || *p == '\r')) { p++; n--; changed = true; }
+            while (n >= 3 &&
+                   static_cast<uint8_t>(p[0]) == 0xE3 &&
+                   static_cast<uint8_t>(p[1]) == 0x80 &&
+                   static_cast<uint8_t>(p[2]) == 0x80) { // U+3000 ideographic space
+                p += 3; n -= 3; changed = true;
+            }
+            while (n > 0 && (p[n - 1] == ' ' || p[n - 1] == '\t' || p[n - 1] == '\r')) { n--; changed = true; }
+            while (n >= 3 &&
+                   static_cast<uint8_t>(p[n - 3]) == 0xE3 &&
+                   static_cast<uint8_t>(p[n - 2]) == 0x80 &&
+                   static_cast<uint8_t>(p[n - 1]) == 0x80) {
+                n -= 3; changed = true;
+            }
+        }
+    };
+
     // Trim ASCII whitespace and common full-width/ideographic spaces. TXT novel
     // chapter headings often start with two U+3000 spaces after GBK→UTF-8 conversion.
-    while (lineLen > 0) {
-        if (*line == ' ' || *line == '\t') {
-            line++;
-            lineLen--;
-            continue;
-        }
-        if (lineLen >= 3 &&
-            static_cast<uint8_t>(line[0]) == 0xE3 &&
-            static_cast<uint8_t>(line[1]) == 0x80 &&
-            static_cast<uint8_t>(line[2]) == 0x80) {
-            line += 3;
-            lineLen -= 3;
-            continue;
-        }
-        break;
+    trimHeading(line, lineLen);
+
+    // Web TXT often wraps headings as 【第十二章】 or prefixes them as “正文 第三章”.
+    // Strip only presentation wrappers/prefixes here; actual scoring still happens below.
+    if (lineLen >= 6 &&
+        static_cast<uint8_t>(line[0]) == 0xE3 && static_cast<uint8_t>(line[1]) == 0x80 && static_cast<uint8_t>(line[2]) == 0x90 && // 【
+        static_cast<uint8_t>(line[lineLen - 3]) == 0xE3 && static_cast<uint8_t>(line[lineLen - 2]) == 0x80 && static_cast<uint8_t>(line[lineLen - 1]) == 0x91) { // 】
+        line += 3;
+        lineLen -= 6;
+        trimHeading(line, lineLen);
     }
-    while (lineLen > 0 && (line[lineLen - 1] == ' ' || line[lineLen - 1] == '\t' || line[lineLen - 1] == '\r')) {
-        lineLen--;
+    if (lineLen >= 2 && ((line[0] == '[' && line[lineLen - 1] == ']') ||
+                         (line[0] == '(' && line[lineLen - 1] == ')'))) {
+        line++;
+        lineLen -= 2;
+        trimHeading(line, lineLen);
+    }
+    if (lineLen >= 6 &&
+        static_cast<uint8_t>(line[0]) == 0xE6 && static_cast<uint8_t>(line[1]) == 0xAD && static_cast<uint8_t>(line[2]) == 0xA3 &&
+        static_cast<uint8_t>(line[3]) == 0xE6 && static_cast<uint8_t>(line[4]) == 0x96 && static_cast<uint8_t>(line[5]) == 0x87) { // 正文
+        const char* p = line + 6;
+        int n = lineLen - 6;
+        while (n > 0 && (*p == ' ' || *p == '\t' || *p == ':' || *p == '-')) { p++; n--; }
+        if (n >= 3 && static_cast<uint8_t>(p[0]) == 0xEF && static_cast<uint8_t>(p[1]) == 0xBC && static_cast<uint8_t>(p[2]) == 0x9A) { p += 3; n -= 3; } // ：
+        trimHeading(p, n);
+        if (n > 0) { line = p; lineLen = n; }
     }
 
     // 截断过长的行（标题通常不超过50字）
@@ -338,7 +367,7 @@ bool ChapterDetector::matchEnglishChapter(const char* line, int len, ChapterDete
 }
 
 bool ChapterDetector::matchVolume(const char* line, int len, ChapterDetectResult& out) {
-    // 模式：[中文数字] + 卷/册/部/篇
+    // 模式：[中文数字] + 卷/册/部/篇，或“卷一 / 部二 / 篇三”。
     if (len < 3) return false;
 
     const char* keywords[] = {
@@ -351,6 +380,30 @@ bool ChapterDetector::matchVolume(const char* line, int len, ChapterDetectResult
 
     for (int k = 0; k < 4; k++) {
         const char* kw = keywords[k];
+
+        // Prefix form: 卷一 风起 / 部2 旧事
+        if (len > 3 &&
+            static_cast<uint8_t>(line[0]) == static_cast<uint8_t>(kw[0]) &&
+            static_cast<uint8_t>(line[1]) == static_cast<uint8_t>(kw[1]) &&
+            static_cast<uint8_t>(line[2]) == static_cast<uint8_t>(kw[2])) {
+            int numEnd = 3;
+            while (numEnd < len && line[numEnd] != ' ' && line[numEnd] != '\t') numEnd++;
+            int num = chineseToNumber(line + 3, numEnd - 3);
+            if (num > 0) {
+                out.title = String("第") + String(num) + String(keywordNames[k]);
+                if (numEnd < len) {
+                    while (numEnd < len && (line[numEnd] == ' ' || line[numEnd] == '\t')) numEnd++;
+                    if (numEnd < len) {
+                        out.title += " ";
+                        out.title += String(line + numEnd, len - numEnd);
+                    }
+                }
+                out.score = 70;
+                out.chapterNumber = num;
+                return true;
+            }
+        }
+
         for (int i = 0; i < len - 2; i++) {
             if ((unsigned char)line[i] == (unsigned char)kw[0] &&
                 (unsigned char)line[i+1] == (unsigned char)kw[1] &&
@@ -489,16 +542,21 @@ int ChapterDetector::chineseToNumber(const char* str, int len) {
 
     for (int i = 0; i < len; ) {
         uint32_t cp = nextCodepoint(str, len, i);
-        if (cp >= '0' && cp <= '9') {
-            int n = cp - '0';
+        if ((cp >= '0' && cp <= '9') || (cp >= U'０' && cp <= U'９')) {
+            int n = (cp <= '9') ? static_cast<int>(cp - '0') : static_cast<int>(cp - U'０');
             while (i < len) {
                 int before = i;
                 uint32_t next = nextCodepoint(str, len, i);
-                if (next < '0' || next > '9') {
-                    i = before;
-                    break;
+                if (next >= '0' && next <= '9') {
+                    n = n * 10 + static_cast<int>(next - '0');
+                    continue;
                 }
-                n = n * 10 + static_cast<int>(next - '0');
+                if (next >= U'０' && next <= U'９') {
+                    n = n * 10 + static_cast<int>(next - U'０');
+                    continue;
+                }
+                i = before;
+                break;
             }
             number = n;
             continue;

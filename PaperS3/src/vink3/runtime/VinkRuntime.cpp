@@ -1,11 +1,14 @@
 #include "VinkRuntime.h"
+#include "../config/ConfigService.h"
 #include "../display/DisplayService.h"
+#include "../sync/LegadoService.h"
+#include "../sync/WifiService.h"
 #include "../input/InputService.h"
 #include "../reader/ReaderBookService.h"
 #include "../reader/ReaderTextRenderer.h"
 #include "../state/StateMachine.h"
-#include "../sync/LegadoService.h"
 #include "../ui/VinkUiRenderer.h"
+#include "../webui/WebUiService.h"
 #include <SPIFFS.h>
 #include <SD.h>
 #include "esp_sleep.h"
@@ -84,6 +87,9 @@ bool VinkRuntime::beginHardware() {
     (void)cfg;
     M5.begin();
     delay(50);
+    // Disable M5Unified default hold detection so InputService owns power-button logic exclusively.
+    M5.BtnPWR.setDebounceThresh(0);
+    M5.BtnPWR.setHoldThresh(0);
     configureOfficialPaperS3Gpios();
 
     M5.Display.setEpdMode(kQualityRefresh);
@@ -117,13 +123,16 @@ bool VinkRuntime::beginCanvas() {
 }
 
 bool VinkRuntime::beginServices() {
+    g_configService.begin();
+    g_webUi.begin(&g_configService);
     if (!g_uiRenderer.begin(&canvas_)) return false;
     if (!g_readerText.begin(&canvas_)) return false;
     if (!g_readerBook.begin()) return false;
     if (!g_displayService.begin(&canvas_)) return false;
     if (!g_stateMachine.begin()) return false;
     if (!g_inputService.begin(&g_stateMachine)) return false;
-    if (!g_legadoService.begin(&g_stateMachine)) return false;
+    if (!g_wifiService.begin()) return false;
+    if (!g_legadoService.begin()) return false;
     return true;
 }
 
@@ -148,6 +157,19 @@ void VinkRuntime::loop() {
                       static_cast<unsigned long>(g_displayService.pushCount()),
                       ESP.getFreeHeap(), ESP.getFreePsram());
     }
+
+    // Auto-sleep: check idle timeout every loop tick.
+    const auto& cfg = g_configService.get();
+    if (cfg.autoSleepEnabled && cfg.autoSleepMinutes > 0) {
+        const uint32_t idleMs = now - g_stateMachine.lastActivityMs();
+        if (idleMs >= static_cast<uint32_t>(cfg.autoSleepMinutes) * 60000) {
+            Message msg;
+            msg.type = MessageType::SleepTimeout;
+            msg.timestampMs = now;
+            g_stateMachine.post(msg, 0);
+        }
+    }
+
     delay(1000);
 }
 

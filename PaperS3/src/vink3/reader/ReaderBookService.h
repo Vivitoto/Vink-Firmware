@@ -78,6 +78,7 @@ private:
     uint32_t activeTextSize() const;
     bool loadProgress();
     void saveProgress();
+    uint32_t pageLayoutKey() const;
     bool loadChapterPageCache(int index, uint32_t start, uint32_t end);
     void saveChapterPageCache(int index, uint32_t start, uint32_t end);
     bool buildChapterPages(int index);

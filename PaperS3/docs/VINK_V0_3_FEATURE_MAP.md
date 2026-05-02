@@ -7,6 +7,8 @@ Baseline references:
 
 ## Principle
 
+Target hardware is M5Stack PaperS3: ESP32-S3, 540×960 portrait e-paper, GT911 touch, SD `/books`. Feature choices should stay PaperS3-first: calm manual reading, low-refresh UI, large touch targets, and no phone/tablet-style interaction assumptions.
+
 ReadPaper's features should be reused, but not its product UI structure. Vink keeps four primary tabs:
 
 1. Reader
@@ -38,13 +40,19 @@ ReadPaper features that fit here:
 - Current page rendering.
 - Previous/next page.
 - Center tap opens reader menu.
-- Auto-read / auto page turning.
-- Manual bookmark/tag for current page.
 - TOC / chapter list.
+- Chapter recognition quality and chapter jump flow.
+- Manual bookmark/tag for current page.
 - Bookmark/tag list.
 - Jump to page.
 - Reading statistics.
 - Current-page screenshot action.
+
+Explicit non-goals for this PaperS3 line:
+
+- No auto-read / auto page turning in the detailed reading experience.
+- No in-chapter full-text search for now.
+- Prioritize stable TXT chapter detection, chapter list rendering, and chapter selection/jump on the 540×960 e-paper UI.
 - Quick reader menu actions:
   - refresh/current page
   - current reading font scale quick adjustment
@@ -185,7 +193,6 @@ ReadPaper features that fit here:
 - Default horizontal/vertical text preference.
 - Default simplified/traditional conversion mode.
 - Label position / mark theme / page style defaults.
-- Auto-read default speed.
 - Main menu file count.
 - Sleep/shutdown timers.
 - WiFi credentials.
