@@ -1461,6 +1461,72 @@ bool ReaderBookService::renderChapterPreview(int index) {
     return true;
 }
 
+bool ReaderBookService::rebuildCurrentChapter() {
+    if (currentTocIndex_ < 0 || currentTocIndex_ >= tocCount_) return false;
+    const uint32_t start = chapterContentStart(currentTocIndex_);
+    return buildChapterPagesFrom(currentTocIndex_, start, false) && renderCurrentReadingPage();
+}
+
+void ReaderBookService::rebuildCurrentChapterAsync() {
+    if (layoutRebuildTask_) {
+        vTaskDelete(layoutRebuildTask_);
+        layoutRebuildTask_ = nullptr;
+    }
+    layoutRebuildChapter_ = currentTocIndex_;
+    layoutRebuildTargetPage_ = currentPage_;
+    lastLayoutKey_ = pageLayoutKey();
+    xTaskCreatePinnedToCore(
+        [](void* arg) {
+            static_cast<ReaderBookService*>(arg)->layoutRebuildTaskEntry();
+        },
+        "vink3-layout-rebuild",
+        8192,
+        this,
+        2,
+        &layoutRebuildTask_,
+        1);
+}
+
+void ReaderBookService::layoutRebuildTaskEntry() {
+    if (layoutRebuildChapter_ < 0 || layoutRebuildChapter_ >= tocCount_) {
+        layoutRebuildTask_ = nullptr;
+        vTaskDelete(nullptr);
+        return;
+    }
+    renderChapterLoadingPage(layoutRebuildChapter_);
+    g_displayService.enqueueFull(true, 100);
+    {
+        const uint32_t start = chapterContentStart(layoutRebuildChapter_);
+        if (!buildChapterPagesFrom(layoutRebuildChapter_, start, false)) {
+            layoutRebuildTask_ = nullptr;
+            vTaskDelete(nullptr);
+            return;
+        }
+    }
+    if (layoutRebuildTargetPage_ >= pageCount_) {
+        layoutRebuildTargetPage_ = max(0, pageCount_ - 1);
+    }
+    currentPage_ = layoutRebuildTargetPage_;
+    layoutRebuildTask_ = nullptr;
+    renderCurrentReadingPage();
+    g_displayService.enqueueFull(true, 100);
+    vTaskDelete(nullptr);
+}
+
+void ReaderBookService::onLayoutChanged() {
+    if (!open_ || !bookPath_[0]) return;
+    char path[192];
+    getPageCachePath(path, sizeof(path));
+    if (SD.exists(path)) SD.remove(path);
+}
+
+void ReaderBookService::invalidateAllPageCache() {
+    if (!open_ || !bookPath_[0]) return;
+    char path[192];
+    getPageCachePath(path, sizeof(path));
+    if (SD.exists(path)) SD.remove(path);
+}
+
 } // namespace vink3
 
 namespace vink3 {

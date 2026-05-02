@@ -38,6 +38,7 @@ enum class UiAction : uint8_t {
     CycleLineSpacing,
     CycleSimplified,
     CycleJustify,
+    CycleMarginLeft,
 
     // ── Settings save / toggle ───────────────────────────────────
     SaveLegadoSettings,

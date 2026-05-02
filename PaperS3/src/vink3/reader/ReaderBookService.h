@@ -49,6 +49,11 @@ public:
     void syncProgressToLegado();
     void syncProgressFromLegado();
 
+    bool rebuildCurrentChapter();
+    void rebuildCurrentChapterAsync();
+    void onLayoutChanged();
+    void invalidateAllPageCache();
+
 private:
     static constexpr int kMaxTocEntries = 1200;
     static constexpr int kTocEntriesPerPage = 13;
@@ -149,6 +154,12 @@ private:
     Bookmark bookmarks_[kMaxBookmarks];
     int bookmarkCount_ = 0;
     uint16_t bookmarkPage_ = 0;
+    // Async layout-rebuild tracking
+    TaskHandle_t layoutRebuildTask_ = nullptr;
+    int layoutRebuildChapter_ = -1;
+    int layoutRebuildTargetPage_ = 0;
+    uint32_t lastLayoutKey_ = 0;
+    void layoutRebuildTaskEntry();
 };
 
 extern ReaderBookService g_readerBook;

@@ -1090,9 +1090,9 @@ UiAction VinkUiRenderer::hitTest(SystemState state, int16_t x, int16_t y) const 
             if (inRect(x, y, kRowX, kGrpY_Reading + 118, kValueRight - kRowX + 40, kRowH)) {
                 return UiAction::CycleLineSpacing;
             }
-            // Margins row
+            // Margins row (cycles left/right together)
             if (inRect(x, y, kRowX, kGrpY_Display + 58, kValueRight - kRowX + 40, kRowH)) {
-                return UiAction::OpenSettingsLayout;  // future: margin editor
+                return UiAction::CycleMarginLeft;
             }
             // Justify row (cycling)
             if (inRect(x, y, kRowX, kGrpY_Display + 118, kValueRight - kRowX + 40, kRowH)) {

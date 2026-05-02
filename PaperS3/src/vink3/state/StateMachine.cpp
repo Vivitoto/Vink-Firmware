@@ -482,7 +482,6 @@ void StateMachine::handle(const Message& message) {
 
                 case UiAction::CycleFontSize:
                 {
-                    // Cycle: 18 → 24 → 30 → 36 → 18
                     uint8_t sizes[] = { 18, 24, 30, 36 };
                     uint8_t cur = g_configService.get().fontSize;
                     uint8_t next = sizes[0];
@@ -491,8 +490,8 @@ void StateMachine::handle(const Message& message) {
                     }
                     g_configService.setFontSize(next);
                     g_configService.save();
-                    renderState(state_);
-                    g_displayService.enqueueFull(false, 100);
+                    g_readerBook.onLayoutChanged();
+                    g_readerBook.rebuildCurrentChapterAsync();
                     break;
                 }
 
@@ -506,12 +505,11 @@ void StateMachine::handle(const Message& message) {
                     uint8_t nextIdx = (curIdx + 1) % count;
                     g_configService.setFontIndex(nextIdx);
                     g_configService.save();
-                    // Load new font into reader text renderer
                     if (paths[nextIdx][0]) {
                         g_readerText.loadFont(paths[nextIdx]);
                     }
-                    renderState(state_);
-                    g_displayService.enqueueFull(false, 100);
+                    g_readerBook.onLayoutChanged();
+                    g_readerBook.rebuildCurrentChapterAsync();
                     break;
                 }
 
@@ -525,8 +523,8 @@ void StateMachine::handle(const Message& message) {
                     }
                     g_configService.setLineSpacing(next);
                     g_configService.save();
-                    renderState(state_);
-                    g_displayService.enqueueFull(false, 100);
+                    g_readerBook.onLayoutChanged();
+                    g_readerBook.rebuildCurrentChapterAsync();
                     break;
                 }
 
@@ -534,8 +532,8 @@ void StateMachine::handle(const Message& message) {
                 {
                     g_configService.setJustify(!g_configService.get().justify);
                     g_configService.save();
-                    renderState(state_);
-                    g_displayService.enqueueFull(false, 100);
+                    g_readerBook.onLayoutChanged();
+                    g_readerBook.rebuildCurrentChapterAsync();
                     break;
                 }
 
@@ -543,8 +541,25 @@ void StateMachine::handle(const Message& message) {
                 {
                     g_configService.setSimplifiedChinese(!g_configService.get().simplifiedChinese);
                     g_configService.save();
-                    renderState(state_);
-                    g_displayService.enqueueFull(false, 100);
+                    g_readerBook.onLayoutChanged();
+                    g_readerBook.rebuildCurrentChapterAsync();
+                    break;
+                }
+
+                case UiAction::CycleMarginLeft:
+                {
+                    static const uint8_t kMarginValues[] = { 16, 24, 34, 48, 64 };
+                    uint8_t cur = g_configService.get().marginLeft;
+                    uint8_t next = kMarginValues[0];
+                    for (size_t i = 0; i < sizeof(kMarginValues); i++) {
+                        if (cur < kMarginValues[i]) { next = kMarginValues[i]; break; }
+                    }
+                    g_configService.setMargins(next, next,
+                        g_configService.get().marginTop,
+                        g_configService.get().marginBottom);
+                    g_configService.save();
+                    g_readerBook.onLayoutChanged();
+                    g_readerBook.rebuildCurrentChapterAsync();
                     break;
                 }
 
