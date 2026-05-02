@@ -34,6 +34,7 @@ enum class UiAction : uint8_t {
     // ── In-page value cycling ────────────────────────────────────
     CycleRefreshFrequency,
     CycleFontSize,
+    CycleFontFamily,
     CycleLineSpacing,
     CycleSimplified,
     CycleJustify,
@@ -41,6 +42,7 @@ enum class UiAction : uint8_t {
     // ── Settings save / toggle ───────────────────────────────────
     SaveLegadoSettings,
     CycleLegadoEnabled,
+    CycleLegadoSyncEnabled,
     SaveWifiSettings,
 
     // ── Transfer / sync sub-pages ────────────────────────────────
@@ -51,6 +53,9 @@ enum class UiAction : uint8_t {
 
     // ── WiFi mode actions ───────────────────────────────────────
     CycleWifiMode,
+    SetWifiOff,
+    SetWifiApWebUi,
+    SetWifiSta,
     ToggleWifiAp,
     ToggleWebUi,
 };
@@ -78,6 +83,10 @@ public:
     void renderShutdown(const char* reason);
     void renderLegadoSync(const char* status);
     void renderLegadoSync(const char* status, int bookCount, const char* errorMsg);
+
+    // Shared time/battery formatters for use by other services (e.g. reader overlay)
+    static void formatTimeStr(char* out, size_t outSize);
+    static void formatBatterySimple(char* out, size_t outSize);
 
     UiAction hitTest(SystemState state, int16_t x, int16_t y) const;
 

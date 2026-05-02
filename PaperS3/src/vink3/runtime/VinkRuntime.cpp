@@ -8,6 +8,7 @@
 #include "../reader/ReaderTextRenderer.h"
 #include "../state/StateMachine.h"
 #include "../ui/VinkUiRenderer.h"
+#include "../../FontManager.h"
 #include "../webui/WebUiService.h"
 #include <SPIFFS.h>
 #include <SD.h>
@@ -124,6 +125,20 @@ bool VinkRuntime::beginCanvas() {
 
 bool VinkRuntime::beginServices() {
     g_configService.begin();
+    // Apply saved font selection (if any SD/SPIFFS fonts are available)
+    {
+        char paths[32][128];
+        char names[32][64];
+        int count = FontManager::scanFonts(paths, names, 32);
+        if (count > 0) {
+            uint8_t fi = g_configService.get().fontIndex;
+            if (fi >= count) fi = 0;
+            if (paths[fi][0]) {
+                g_readerText.loadFont(paths[fi]);
+                Serial.printf("[vink3][runtime] font loaded: %s\n", names[fi]);
+            }
+        }
+    }
     g_webUi.begin(&g_configService);
     if (!g_uiRenderer.begin(&canvas_)) return false;
     if (!g_readerText.begin(&canvas_)) return false;

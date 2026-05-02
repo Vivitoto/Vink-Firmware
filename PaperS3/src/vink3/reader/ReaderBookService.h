@@ -16,6 +16,18 @@ public:
     const char* path() const { return bookPath_; }
 
     void renderOpenOrHelp();
+    void renderBookmarkPage(uint16_t page = 0);
+    bool nextBookmarkPage();
+    bool prevBookmarkPage();
+    bool handleBookmarkTap(int16_t x, int16_t y);
+    bool loadBookmarks();
+    void saveBookmarks();
+    bool addBookmarkAtCurrent();
+    void getBookmarkSidecarPath(char* out, size_t len) const;
+    void renderReaderMenuOverlay();
+    bool isShowingReaderMenu() const { return showingReaderMenu_; }
+    void dismissReaderMenu() { showingReaderMenu_ = false; }
+    bool handleReaderMenuTap(int16_t x, int16_t y);
     void renderCurrent();
     void renderBookLoadingPage(const char* stage);
     void renderChapterLoadingPage(int index);
@@ -30,8 +42,12 @@ public:
     bool nextTocPage();
     bool prevTocPage();
     bool handleTap(int16_t x, int16_t y);
+    bool handleLongPress(int16_t x, int16_t y);
     bool openTocEntry(int index);
     void saveCurrentProgress();
+    // Sync progress to/from Legado if configured and connected
+    void syncProgressToLegado();
+    void syncProgressFromLegado();
 
 private:
     static constexpr int kMaxTocEntries = 1200;
@@ -51,7 +67,7 @@ private:
     static constexpr int16_t kEntryContinueY = 560;
     static constexpr int16_t kEntryTocY = 660;
     static constexpr int16_t kEntryRestartY = 760;
-    static constexpr int kMaxChapterPages = 512;
+    static constexpr int kMaxChapterPages = 4096;
 
     bool ensureTocBuffer();
     bool ensureBookBuffers();
@@ -65,6 +81,19 @@ private:
     void getSidecarPath(char* out, size_t len, const char* suffix) const;
     void getSidecarPathForBook(char* out, size_t len, const char* bookPath, const char* suffix) const;
     uint8_t detectBookFlags(const char* bookPath) const;
+    static constexpr int kMaxBookmarks = 64;
+    static constexpr int kBookmarkPages = 10;
+
+    struct Bookmark {
+        uint16_t chapter;
+        uint16_t page;
+        uint32_t offset;
+        char excerpt[80];
+        uint32_t createdAt;
+    };
+
+    // Returns 0-100 for a book's reading progress, or -1 if no progress found.
+    int readBookProgressPercent(const char* bookPath, uint16_t& outChapter, uint16_t& outPage) const;
     uint32_t bookFileSize(const char* bookPath) const;
     void formatBytes(uint32_t bytes, char* out, size_t len) const;
     void formatBookFlags(uint8_t flags, char* out, size_t len) const;
@@ -82,6 +111,7 @@ private:
     bool loadChapterPageCache(int index, uint32_t start, uint32_t end);
     void saveChapterPageCache(int index, uint32_t start, uint32_t end);
     bool buildChapterPages(int index);
+    bool buildChapterPagesFrom(int index, uint32_t start, bool allowCache);
     bool renderCurrentReadingPage();
     bool renderChapterPreview(int index);
     bool continueReading();
@@ -108,9 +138,17 @@ private:
     int currentTocIndex_ = -1;
     int pageCount_ = 0;
     int currentPage_ = 0;
+    uint32_t pageWindowStart_ = 0;
+    uint32_t pageWindowEnd_ = 0;
+    bool pageWindowTruncated_ = false;
     bool hasProgress_ = false;
     bool showingBookEntry_ = false;
     bool showingToc_ = true;
+    bool showingBookmarks_ = false;
+    bool showingReaderMenu_ = false;
+    Bookmark bookmarks_[kMaxBookmarks];
+    int bookmarkCount_ = 0;
+    uint16_t bookmarkPage_ = 0;
 };
 
 extern ReaderBookService g_readerBook;

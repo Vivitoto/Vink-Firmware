@@ -5,15 +5,15 @@
   "description": "面向 M5Stack PaperS3 的 Vink 电子书阅读固件。",
   "releases": [
     {
-      "version": "v0.3.9-rc",
-      "name": "Vink-PaperS3 v0.3.9-rc WebUI 传书与阅读闭环增强版",
-      "summary": "补齐手机浏览器 WebUI 的传书/文件维护能力，并合入阅读闭环增强：TXT 目录识别、章节分页缓存、进度恢复、书架/目录跳转、Legado 同步与系统信息展示。",
-      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.3.9-rc",
-      "changelog": "## Vink-PaperS3 v0.3.9-rc WebUI 传书与阅读闭环增强版\n\n### WebUI 传书/维护\n- AP WebUI 可从 `/` 与 `/index.html` 打开，兼容旧根路径跳转。\n- 文件页支持 SD 根目录、`/books` 一键创建/进入、`/spiffs` 系统资源查看、刷新。\n- 支持多文件上传、下载、删除、重命名、新建目录；上传/删除/重命名会保留当前目录。\n- HTTP 文件 API 支持通配路径、encoded absolute path 归一化、JSON 文件名转义、目录前缀清理。\n- 系统页显示固件版本、可用堆、SPIFFS 容量/占用、SD 容量/占用、运行时间。\n\n### 阅读闭环\n- 书架扫描 `/books`，展示进度、TOC、分页缓存状态和文件大小。\n- 打开 TXT 时执行章节识别、GBK 转换、TOC 缓存、章节分页缓存，长章节分页有上限日志保护。\n- 支持阅读进度保存/恢复、跨章节翻页、TOC 当前章节标记、从目录跳转到章节预览。\n- 阅读页采用大区域三分区点击：左侧上一页、右侧下一页、中间进入书籍菜单。\n\n### Legado / 配置\n- Legado 服务封装为独立同步服务，配置页可维护 WiFi、Legado、阅读排版、刷新策略、自动休眠等参数。\n- 配置 JSON 输出对 SSID/Host 等字符串做转义，避免特殊字符破坏 WebUI。\n\n### 验证状态\n- 本地已验证：source smoke、PlatformIO build、buildfs、full 16MB merge。\n- 需要真机验证：AP WebUI 实机上传/下载/重命名、SD 容量显示、TXT 首次分页耗时、目录跳转与阅读翻页触控。",
+      "version": "v0.3.9-rc-ui-restore",
+      "name": "Vink-PaperS3 v0.3.9-rc-ui-restore 阅读体验增强版",
+      "summary": "阅读体验全面增强：书架显示进度百分比、阅读中呼出菜单栏（中央点击）、左右滑翻页改为左右滑切换 Tab、Legado 自动同步开关、完整书签功能、字体切换 UI（设置页扫描 SD/SPIFFS 字库切换）。",
+      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.3.9-rc-ui-restore",
+      "changelog": "## Vink-PaperS3 v0.3.9-rc-ui-restore 阅读体验增强版\n\n### 阅读体验\n- **书架进度**：书架每本书后显示阅读进度百分比（XX%）。\n- **阅读菜单**：阅读时点击屏幕中央呼出白色菜单栏，包含字号 +/-、目录、书签、进度、深色模式切换。\n- **左右滑还原**：原左右滑动调节字号改为左右滑切换 Tab（阅读→书架→同步→设置），字号调节移至菜单栏按钮。\n- **书签**：完整书签功能，支持添加当前页为书签、书签列表、点击跳转、自动保存在书籍同目录下 `.vink-bookmarks` sidecar。\n\n### 设置与同步\n- **字体切换**：设置 → 阅读排版 增加字体切换行，扫描 SD `/fonts/` 和 SPIFFS 字库文件，保存字体索引，启动时自动加载。\n- **Legado 自动同步开关**：同步页新增「自动同步」行，点击切换开启/关闭；开启时开书自动拉取 Legado 进度、关书自动推送当前进度。\n\n### 验证状态\n- 本地已验证：source smoke、PlatformIO build、buildfs、full 16MB merge。\n- 需要真机验证：书架进度百分比、阅读菜单呼出/按钮触控、书签添加与跳转、字体切换后渲染效果、Legado 同步开关。",
       "assets": {
         "full": {
-          "name": "Vink-PaperS3-v0.3.9-rc-webui-reader-full-16MB.bin",
-          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.3.9-rc/Vink-PaperS3-v0.3.9-rc-webui-reader-full-16MB.bin",
+          "name": "Vink-PaperS3-v0.3.9-rc-ui-restore-full-16MB.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.3.9-rc-ui-restore/Vink-PaperS3-v0.3.9-rc-ui-restore-full-16MB.bin",
           "size": 16777216,
           "flashOffset": 0
         }

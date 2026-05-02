@@ -26,6 +26,7 @@ public:
     bool loadFont(const char* path);
     bool ready() const;
     uint16_t fontSize() const;
+    M5Canvas* canvas() const { return canvas_; }
     void setOptionsFontSize(uint8_t s) { optionsFontSize_ = s; }
 
     void renderPlaceholderPage();

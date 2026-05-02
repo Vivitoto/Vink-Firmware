@@ -2,6 +2,9 @@
 #include "ReaderTextRenderer.h"
 #include "../display/DisplayService.h"
 #include "../config/ConfigService.h"
+#include "../ui/VinkUiRenderer.h"
+#include "../text/CjkTextRenderer.h"
+#include "../sync/LegadoService.h"
 #include "../ReadPaper176.h"
 #include "../../Config.h"
 #include "../../TextCodec.h"
@@ -159,6 +162,9 @@ void ReaderBookService::closeCurrent() {
     currentTocIndex_ = -1;
     pageCount_ = 0;
     currentPage_ = 0;
+    pageWindowStart_ = 0;
+    pageWindowEnd_ = 0;
+    pageWindowTruncated_ = false;
     hasProgress_ = false;
     showingBookEntry_ = false;
     showingToc_ = true;
@@ -207,6 +213,42 @@ uint8_t ReaderBookService::detectBookFlags(const char* bookPath) const {
     getSidecarPathForBook(sidecar, sizeof(sidecar), bookPath, ".vink-pages");
     if (sidecar[0] && SD.exists(sidecar)) flags |= kBookHasPageCache;
     return flags;
+}
+
+int ReaderBookService::readBookProgressPercent(const char* bookPath, uint16_t& outChapter, uint16_t& outPage) const {
+    if (!bookPath || !bookPath[0]) return -1;
+    char sidecar[160];
+    getSidecarPathForBook(sidecar, sizeof(sidecar), bookPath, ".vink-progress");
+    if (!SD.exists(sidecar)) return -1;
+    File f = SD.open(sidecar, FILE_READ);
+    if (!f) return -1;
+    uint32_t magic = 0, cachedSize = 0;
+    uint16_t chapter = 0, page = 0;
+    f.read(reinterpret_cast<uint8_t*>(&magic), sizeof(magic));
+    f.read(reinterpret_cast<uint8_t*>(&cachedSize), sizeof(cachedSize));
+    f.read(reinterpret_cast<uint8_t*>(&chapter), sizeof(chapter));
+    f.read(reinterpret_cast<uint8_t*>(&page), sizeof(page));
+    f.close();
+    if ((magic != 0x56505232UL && magic != 0x56505233UL)) return -1;
+    // Load TOC to get chapter count for progress calculation
+    char tocPath[160];
+    getSidecarPathForBook(tocPath, sizeof(tocPath), bookPath, ".vink-toc");
+    if (!SD.exists(tocPath)) return -1;
+    File tf = SD.open(tocPath, FILE_READ);
+    if (!tf) return -1;
+    uint32_t tMagic = 0, tSize = 0, tVer = 0;
+    uint16_t tCount = 0;
+    tf.read(reinterpret_cast<uint8_t*>(&tMagic), sizeof(tMagic));
+    tf.read(reinterpret_cast<uint8_t*>(&tSize), sizeof(tSize));
+    tf.read(reinterpret_cast<uint8_t*>(&tVer), sizeof(tVer));
+    tf.read(reinterpret_cast<uint8_t*>(&tCount), sizeof(tCount));
+    tf.close();
+    if (tMagic != 0x56435433UL || tCount == 0) return -1;
+    outChapter = chapter;
+    outPage = page;
+    // Progress: how far through the book (chapter + relative page within chapter)
+    // We approximate as: (chapter / totalChapters) * 100
+    return min(100, (int)((uint32_t)chapter * 100 / tCount));
 }
 
 uint32_t ReaderBookService::bookFileSize(const char* bookPath) const {
@@ -270,7 +312,7 @@ void ReaderBookService::getPageCachePath(char* out, size_t len) const {
 
 bool ReaderBookService::loadTocCache() {
     if (!ensureTocBuffer() || !bookPath_[0]) return false;
-    char cachePath[96];
+    char cachePath[192];
     getTocCachePath(cachePath, sizeof(cachePath));
     File f = SD.open(cachePath, FILE_READ);
     if (!f) return false;
@@ -282,7 +324,7 @@ bool ReaderBookService::loadTocCache() {
     f.read(reinterpret_cast<uint8_t*>(&cachedSize), sizeof(cachedSize));
     f.read(reinterpret_cast<uint8_t*>(&detectorVersion), sizeof(detectorVersion));
     f.read(reinterpret_cast<uint8_t*>(&count), sizeof(count));
-    if (magic != 0x56435432UL || cachedSize != activeTextSize() || detectorVersion != 20260502UL || count == 0 || count > kMaxTocEntries) {
+    if (magic != 0x56435433UL || cachedSize != activeTextSize() || detectorVersion != 20260502UL || count == 0 || count > kMaxTocEntries) {
         f.close();
         return false;
     }
@@ -309,11 +351,11 @@ bool ReaderBookService::loadTocCache() {
 
 void ReaderBookService::saveTocCache() {
     if (!bookPath_[0] || tocCount_ <= 0 || !ensureSdReady()) return;
-    char cachePath[96];
+    char cachePath[192];
     getTocCachePath(cachePath, sizeof(cachePath));
     File f = SD.open(cachePath, FILE_WRITE);
     if (!f) return;
-    uint32_t magic = 0x56435432UL; // VCT2: file-size + detector-version guarded
+    uint32_t magic = 0x56435433UL; // VCT3: byte-accurate offsets + detector-version guarded
     uint32_t fileSize = activeTextSize();
     uint32_t detectorVersion = 20260502UL;
     uint16_t count = static_cast<uint16_t>(tocCount_);
@@ -347,7 +389,7 @@ uint32_t ReaderBookService::activeTextSize() const {
 
 bool ReaderBookService::loadProgress() {
     if (!bookPath_[0] || !ensureSdReady()) return false;
-    char path[96];
+    char path[192];
     getProgressPath(path, sizeof(path));
     File f = SD.open(path, FILE_READ);
     if (!f) return false;
@@ -384,7 +426,7 @@ bool ReaderBookService::loadProgress() {
 
 void ReaderBookService::saveProgress() {
     if (!bookPath_[0] || currentTocIndex_ < 0 || !ensureSdReady()) return;
-    char path[96];
+    char path[192];
     getProgressPath(path, sizeof(path));
     File f = SD.open(path, FILE_WRITE);
     if (!f) return;
@@ -399,6 +441,218 @@ void ReaderBookService::saveProgress() {
     f.write(reinterpret_cast<const uint8_t*>(&page), sizeof(page));
     f.write(reinterpret_cast<const uint8_t*>(&pageOffset), sizeof(pageOffset));
     f.close();
+    // Also sync to Legado if configured
+    syncProgressToLegado();
+}
+
+void ReaderBookService::syncProgressToLegado() {
+    if (!open_ || !g_legadoService.isConnected()) return;
+    if (!g_configService.get().legadoEnabled) return;
+    BookProgress bp;
+    bp.name = title_;
+    bp.durChapterIndex = currentTocIndex_;
+    bp.durChapterPos = currentPage_;
+    bp.durChapterTime = millis();
+    if (currentTocIndex_ >= 0 && currentTocIndex_ < tocCount_) {
+        bp.durChapterTitle = toc_[currentTocIndex_].title.c_str();
+    }
+    if (!g_legadoService.saveBookProgress(bp)) {
+        Serial.printf("[vink3][book] legado sync save failed: %s\n", g_legadoService.lastError().c_str());
+    } else {
+        Serial.printf("[vink3][book] progresso synced to legado: ch=%d pg=%d\n", currentTocIndex_, currentPage_);
+    }
+}
+
+void ReaderBookService::syncProgressFromLegado() {
+    if (!open_ || !g_legadoService.isConnected()) return;
+    if (!g_configService.get().legadoEnabled) return;
+    // Use book path as the key for legado progress lookup
+    BookProgress bp;
+    if (!g_legadoService.fetchBookProgress(bookPath_, bp)) return;
+    // Only apply if Legado has a more recent chapter position
+    if (bp.durChapterIndex <= 0 && bp.durChapterPos <= 0) return;
+    if (bp.durChapterIndex > currentTocIndex_ ||
+        (bp.durChapterIndex == currentTocIndex_ && bp.durChapterPos > currentPage_)) {
+        currentTocIndex_ = bp.durChapterIndex;
+        currentPage_ = bp.durChapterPos;
+        hasProgress_ = true;
+        showingToc_ = false;
+        Serial.printf("[vink3][book] progress restored from legado: ch=%d pg=%d\n", currentTocIndex_, currentPage_);
+    }
+}
+
+void ReaderBookService::getBookmarkSidecarPath(char* out, size_t len) const {
+    getSidecarPath(out, len, ".vink-bookmarks");
+}
+
+bool ReaderBookService::loadBookmarks() {
+    if (!bookPath_[0] || !ensureSdReady()) return false;
+    bookmarkCount_ = 0;
+    char path[192];
+    getBookmarkSidecarPath(path, sizeof(path));
+    File f = SD.open(path, FILE_READ);
+    if (!f) return false;
+    uint32_t magic = 0, fileSize = 0;
+    uint16_t count = 0;
+    f.read(reinterpret_cast<uint8_t*>(&magic), sizeof(magic));
+    f.read(reinterpret_cast<uint8_t*>(&fileSize), sizeof(fileSize));
+    f.read(reinterpret_cast<uint8_t*>(&count), sizeof(count));
+    if (magic != 0x56424B33UL || count > kMaxBookmarks) { f.close(); return false; }
+    // Validate against current book size
+    if (fileSize != activeTextSize()) { f.close(); return false; }
+    int n = min<int>(count, kMaxBookmarks);
+    for (int i = 0; i < n; ++i) {
+        f.read(reinterpret_cast<uint8_t*>(&bookmarks_[i].chapter), sizeof(bookmarks_[i].chapter));
+        f.read(reinterpret_cast<uint8_t*>(&bookmarks_[i].page), sizeof(bookmarks_[i].page));
+        f.read(reinterpret_cast<uint8_t*>(&bookmarks_[i].offset), sizeof(bookmarks_[i].offset));
+        uint8_t exLen = 0;
+        f.read(&exLen, 1);
+        if (exLen > 0) {
+            size_t r = f.read(reinterpret_cast<uint8_t*>(bookmarks_[i].excerpt), min<uint8_t>(exLen, sizeof(bookmarks_[i].excerpt) - 1));
+            bookmarks_[i].excerpt[r] = '\0';
+        } else {
+            bookmarks_[i].excerpt[0] = '\0';
+        }
+        f.read(reinterpret_cast<uint8_t*>(&bookmarks_[i].createdAt), sizeof(bookmarks_[i].createdAt));
+    }
+    f.close();
+    bookmarkCount_ = n;
+    Serial.printf("[vink3][book] bookmarks loaded: %d\n", bookmarkCount_);
+    return true;
+}
+
+void ReaderBookService::saveBookmarks() {
+    if (!bookPath_[0] || !ensureSdReady() || bookmarkCount_ <= 0) return;
+    char path[192];
+    getBookmarkSidecarPath(path, sizeof(path));
+    File f = SD.open(path, FILE_WRITE);
+    if (!f) return;
+    uint32_t magic = 0x56424B33UL; // VBK3
+    uint32_t fileSize = activeTextSize();
+    uint16_t count = static_cast<uint16_t>(bookmarkCount_);
+    f.write(reinterpret_cast<const uint8_t*>(&magic), sizeof(magic));
+    f.write(reinterpret_cast<const uint8_t*>(&fileSize), sizeof(fileSize));
+    f.write(reinterpret_cast<const uint8_t*>(&count), sizeof(count));
+    for (int i = 0; i < bookmarkCount_; ++i) {
+        f.write(reinterpret_cast<const uint8_t*>(&bookmarks_[i].chapter), sizeof(bookmarks_[i].chapter));
+        f.write(reinterpret_cast<const uint8_t*>(&bookmarks_[i].page), sizeof(bookmarks_[i].page));
+        f.write(reinterpret_cast<const uint8_t*>(&bookmarks_[i].offset), sizeof(bookmarks_[i].offset));
+        uint8_t exLen = strlen(bookmarks_[i].excerpt);
+        f.write(&exLen, 1);
+        if (exLen > 0) f.write(reinterpret_cast<const uint8_t*>(bookmarks_[i].excerpt), exLen);
+        f.write(reinterpret_cast<const uint8_t*>(&bookmarks_[i].createdAt), sizeof(bookmarks_[i].createdAt));
+    }
+    f.close();
+    Serial.printf("[vink3][book] bookmarks saved: %d\n", bookmarkCount_);
+}
+
+bool ReaderBookService::addBookmarkAtCurrent() {
+    if (!open_ || bookmarkCount_ >= kMaxBookmarks) return false;
+    Bookmark& b = bookmarks_[bookmarkCount_];
+    b.chapter = static_cast<uint16_t>(max(0, currentTocIndex_));
+    b.page = static_cast<uint16_t>(currentPage_);
+    b.offset = (pageStarts_ && currentPage_ < pageCount_) ? pageStarts_[currentPage_] : 0;
+    b.createdAt = millis();
+    // Extract excerpt: up to 60 chars from current page text
+    b.excerpt[0] = '\0';
+    if (pageStarts_ && currentPage_ < pageCount_) {
+        File fh = SD.open(bookPath_, FILE_READ);
+        if (fh) {
+            uint32_t start = pageStarts_[currentPage_];
+            fh.seek(start);
+            char buf[64];
+            size_t r = fh.read(reinterpret_cast<uint8_t*>(buf), sizeof(buf) - 1);
+            buf[r] = '\0';
+            // Trim to first line or 60 chars
+            buf[min<size_t>(r, 60)] = '\0';
+            char* lf = strchr(buf, '\n');
+            if (lf) *lf = '\0';
+            strlcpy(b.excerpt, buf, sizeof(b.excerpt));
+            fh.close();
+        }
+    }
+    bookmarkCount_++;
+    saveBookmarks();
+    Serial.printf("[vink3][book] bookmark added: ch=%d pg=%d\n", b.chapter, b.page);
+    return true;
+}
+
+void ReaderBookService::renderBookmarkPage(uint16_t page) {
+    if (!open_) { renderOpenOrHelp(); return; }
+    if (bookmarkCount_ == 0) {
+        loadBookmarks();
+        if (bookmarkCount_ == 0) {
+            char body[] = "暂无书签。\n\n阅读时在屏幕中央区域长按可添加书签。\n\n书签会自动保存在书籍同目录下。";
+            g_readerText.renderTextPage("书签", body, 1, 1);
+            return;
+        }
+    }
+    const uint16_t totalPages = max(1, (bookmarkCount_ + kBookmarkPages - 1) / kBookmarkPages);
+    if (page >= totalPages) page = totalPages - 1;
+    bookmarkPage_ = page;
+    char rows[kBookmarkPages][96];
+    const char* rowPtrs[kBookmarkPages];
+    int rowCount = 0;
+    const int start = bookmarkPage_ * kBookmarkPages;
+    const int end = min(bookmarkCount_, start + kBookmarkPages);
+    for (int i = start; i < end; ++i) {
+        char chapterTitle[40] = "";
+        if (bookmarks_[i].chapter < tocCount_) {
+            strlcpy(chapterTitle, toc_[bookmarks_[i].chapter].title.c_str(), sizeof(chapterTitle));
+        }
+        snprintf(rows[rowCount], sizeof(rows[rowCount]), "%s 第%d页 %s",
+                 chapterTitle[0] ? chapterTitle : "", bookmarks_[i].page + 1,
+                 bookmarks_[i].excerpt[0] ? bookmarks_[i].excerpt : "");
+        rowPtrs[rowCount] = rows[rowCount];
+        rowCount++;
+    }
+    char summary[40];
+    snprintf(summary, sizeof(summary), "共 %d 个书签", bookmarkCount_);
+    g_readerText.renderListPage("书签", summary, rowPtrs, rowCount, kListFirstRowY, kListRowH,
+                                bookmarkPage_ + 1, totalPages, 1);
+}
+
+bool ReaderBookService::nextBookmarkPage() {
+    if (bookmarkCount_ == 0) return false;
+    const uint16_t totalPages = (bookmarkCount_ + kBookmarkPages - 1) / kBookmarkPages;
+    if (bookmarkPage_ + 1 >= totalPages) return false;
+    bookmarkPage_++;
+    renderBookmarkPage(bookmarkPage_);
+    return true;
+}
+
+bool ReaderBookService::prevBookmarkPage() {
+    if (bookmarkCount_ == 0 || bookmarkPage_ == 0) return false;
+    bookmarkPage_--;
+    renderBookmarkPage(bookmarkPage_);
+    return true;
+}
+
+bool ReaderBookService::handleBookmarkTap(int16_t x, int16_t y) {
+    if (!open_ || bookmarkCount_ == 0) return false;
+    if (y < kListFirstRowY || y >= kListFirstRowY + kBookmarkPages * kListRowH) return false;
+    int row = (y - kListFirstRowY) / kListRowH;
+    int index = bookmarkPage_ * kBookmarkPages + row;
+    if (index < 0 || index >= bookmarkCount_) return false;
+    // Jump to bookmarked position
+    int ch = bookmarks_[index].chapter;
+    if (ch >= 0 && ch < tocCount_) {
+        if (!buildChapterPages(ch)) return false;
+        currentTocIndex_ = ch;
+        // Find nearest page to saved offset
+        uint32_t targetOffset = bookmarks_[index].offset;
+        currentPage_ = 0;
+        if (pageStarts_ && pageCount_ > 0) {
+            for (int i = 0; i < pageCount_; ++i) {
+                if (pageStarts_[i] > targetOffset) break;
+                currentPage_ = i;
+            }
+        }
+        showingToc_ = false;
+        showingBookmarks_ = false;
+        return renderCurrentReadingPage();
+    }
+    return false;
 }
 
 uint32_t ReaderBookService::pageLayoutKey() const {
@@ -422,7 +676,7 @@ uint32_t ReaderBookService::pageLayoutKey() const {
 
 bool ReaderBookService::loadChapterPageCache(int index, uint32_t start, uint32_t end) {
     if (!bookPath_[0] || !pageStarts_ || !ensureSdReady()) return false;
-    char path[96];
+    char path[192];
     getPageCachePath(path, sizeof(path));
     File f = SD.open(path, FILE_READ);
     if (!f) return false;
@@ -450,13 +704,16 @@ bool ReaderBookService::loadChapterPageCache(int index, uint32_t start, uint32_t
     if (got != need) return false;
     pageCount_ = count;
     currentPage_ = 0;
+    pageWindowStart_ = cachedStart;
+    pageWindowEnd_ = cachedEnd;
+    pageWindowTruncated_ = false;
     Serial.printf("[vink3][book] page cache loaded: chapter=%d pages=%d\n", index, pageCount_);
     return true;
 }
 
 void ReaderBookService::saveChapterPageCache(int index, uint32_t start, uint32_t end) {
     if (!bookPath_[0] || !pageStarts_ || pageCount_ <= 0 || !ensureSdReady()) return;
-    char path[96];
+    char path[192];
     getPageCachePath(path, sizeof(path));
     File f = SD.open(path, FILE_WRITE);
     if (!f) return;
@@ -524,6 +781,7 @@ bool ReaderBookService::openBook(const char* path) {
         }
     }
     hasProgress_ = loadProgress();
+    syncProgressFromLegado();
     showingBookEntry_ = true;
     return true;
 }
@@ -566,7 +824,12 @@ void ReaderBookService::renderLibraryPage(uint16_t page) {
         trimUtf8Tail(titleBuf, strlen(titleBuf));
         char flags[16];
         formatBookFlags(bookFlags_[i], flags, sizeof(flags));
-        snprintf(rows[rowCount], sizeof(rows[rowCount]), "%c%03d [%s] %s", current ? '*' : ' ', i + 1, flags, titleBuf);
+        uint16_t ch = 0, pg = 0;
+        int pct = g_readerBook.readBookProgressPercent(bookPaths_[i], ch, pg);
+        char pctBuf[24] = "";
+        if (pct >= 0) snprintf(pctBuf, sizeof(pctBuf), " %d%%", pct);
+        snprintf(rows[rowCount], sizeof(rows[rowCount]), "%c%03d [%s]%s %s",
+                 current ? '*' : ' ', i + 1, flags, pctBuf, titleBuf);
         rowPtrs[rowCount] = rows[rowCount];
         rowCount++;
     }
@@ -718,6 +981,9 @@ bool ReaderBookService::nextPage() {
         currentPage_++;
         return renderCurrentReadingPage();
     }
+    if (pageWindowTruncated_ && pageWindowEnd_ < chapterEndOffset(currentTocIndex_)) {
+        return buildChapterPagesFrom(currentTocIndex_, pageWindowEnd_, false) && renderCurrentReadingPage();
+    }
     if (currentTocIndex_ + 1 < tocCount_) {
         return openTocEntry(currentTocIndex_ + 1);
     }
@@ -759,6 +1025,8 @@ bool ReaderBookService::prevTocPage() {
 
 bool ReaderBookService::handleTap(int16_t x, int16_t y) {
     if (!open_) return false;
+    if (showingBookmarks_) return handleBookmarkTap(x, y);
+    if (showingReaderMenu_) return handleReaderMenuTap(x, y);
     if (showingBookEntry_) {
         if (x >= kEntryButtonX && x < kEntryButtonX + kEntryButtonW && y >= kEntryContinueY && y < kEntryContinueY + kEntryButtonH) return continueReading();
         if (x >= kEntryButtonX && x < kEntryButtonX + kEntryButtonW && y >= kEntryTocY && y < kEntryTocY + kEntryButtonH) {
@@ -789,9 +1057,8 @@ bool ReaderBookService::handleTap(int16_t x, int16_t y) {
         }
         if (x < kPaperS3Width / 3) return prevPage();
         if (x > (kPaperS3Width * 2) / 3) return nextPage();
-        showingBookEntry_ = true;
-        showingToc_ = false;
-        renderBookEntryPage();
+        // Center tap → show reader menu overlay
+        renderReaderMenuOverlay();
         return true;
     }
     if (tocCount_ <= 0) return false;
@@ -800,6 +1067,136 @@ bool ReaderBookService::handleTap(int16_t x, int16_t y) {
     int index = tocPage_ * kTocEntriesPerPage + row;
     if (index < 0 || index >= tocCount_) return false;
     return openTocEntry(index);
+}
+
+bool ReaderBookService::handleLongPress(int16_t x, int16_t y) {
+    if (!open_ || showingToc_ || showingBookEntry_ || showingBookmarks_) return false;
+    if (y < 90 || y > kPaperS3Height - 50) return false;
+    // Long press center zone adds bookmark
+    if (x >= 170 && x <= 370) {
+        if (addBookmarkAtCurrent()) {
+            // Briefly flash a confirmation overlay via a text page
+            char msg[80];
+            snprintf(msg, sizeof(msg), "书签已添加：第%d页", currentPage_ + 1);
+            g_readerText.renderTextPage("书签", msg, 1, 1);
+            g_displayService.enqueueFull(false, 100);
+            delay(1200);
+            renderCurrentReadingPage();
+            g_displayService.enqueueFull(false, 100);
+        }
+        return true;
+    }
+    return false;
+}
+
+void ReaderBookService::renderReaderMenuOverlay() {
+    showingReaderMenu_ = true;
+    M5Canvas* c = g_readerText.canvas();
+    if (!c) return;
+    c->fillRect(0, 0, kPaperS3Width, kPaperS3Height, 0x8410);
+    c->fillRect(20, 180, kPaperS3Width - 40, 600, TFT_WHITE);
+    c->drawRoundRect(20, 180, kPaperS3Width - 40, 600, 18, TFT_BLACK);
+
+    // Header: time left, battery right
+    char timeBuf[12];
+    char battBuf[16];
+    g_uiRenderer.formatTimeStr(timeBuf, sizeof(timeBuf));
+    g_uiRenderer.formatBatterySimple(battBuf, sizeof(battBuf));
+    c->setTextColor(TFT_BLACK, TFT_WHITE);
+    g_cjkText.drawText(40, 200, timeBuf, 0x8410);
+    g_cjkText.drawRight(kPaperS3Width - 40, 200, battBuf, 0x8410);
+
+    // Title: font size + current chapter
+    char titleBuf[80];
+    snprintf(titleBuf, sizeof(titleBuf), "字号: %d", g_configService.get().fontSize);
+    g_cjkText.drawCentered(60, 240, kPaperS3Width - 80, 40, titleBuf, TFT_BLACK);
+
+    // Button row 1: font- (40,310,180,64) / font+ (260,310,180,64)
+    const int16_t btnW = 180;
+    const int16_t btnH = 64;
+    const int16_t btnRow1Y = 310;
+    c->fillRoundRect(40, btnRow1Y, btnW, btnH, 18, TFT_WHITE);
+    c->drawRoundRect(40, btnRow1Y, btnW, btnH, 18, TFT_BLACK);
+    g_cjkText.drawCentered(40, btnRow1Y, btnW, btnH, "字号 -", TFT_BLACK);
+    c->fillRoundRect(260, btnRow1Y, btnW, btnH, 18, TFT_WHITE);
+    c->drawRoundRect(260, btnRow1Y, btnW, btnH, 18, TFT_BLACK);
+    g_cjkText.drawCentered(260, btnRow1Y, btnW, btnH, "字号 +", TFT_BLACK);
+
+    // Button row 2: TOC (40,400) / bookmarks (260,400)
+    const int16_t btnRow2Y = 400;
+    c->fillRoundRect(40, btnRow2Y, btnW, btnH, 18, TFT_WHITE);
+    c->drawRoundRect(40, btnRow2Y, btnW, btnH, 18, TFT_BLACK);
+    g_cjkText.drawCentered(40, btnRow2Y, btnW, btnH, "目录", TFT_BLACK);
+    c->fillRoundRect(260, btnRow2Y, btnW, btnH, 18, TFT_WHITE);
+    c->drawRoundRect(260, btnRow2Y, btnW, btnH, 18, TFT_BLACK);
+    g_cjkText.drawCentered(260, btnRow2Y, btnW, btnH, "书签", TFT_BLACK);
+
+    // Button row 3: progress (40,490) / dark mode (260,490)
+    const int16_t btnRow3Y = 490;
+    c->fillRoundRect(40, btnRow3Y, btnW, btnH, 18, TFT_WHITE);
+    c->drawRoundRect(40, btnRow3Y, btnW, btnH, 18, TFT_BLACK);
+    g_cjkText.drawCentered(40, btnRow3Y, btnW, btnH, "进度", TFT_BLACK);
+    c->fillRoundRect(260, btnRow3Y, btnW, btnH, 18, TFT_WHITE);
+    c->drawRoundRect(260, btnRow3Y, btnW, btnH, 18, TFT_BLACK);
+    g_cjkText.drawCentered(260, btnRow3Y, btnW, btnH, "深色", TFT_BLACK);
+
+    // Close hint at bottom
+    g_cjkText.drawCentered(40, 580, kPaperS3Width - 80, 40, "点击屏幕边缘关闭", 0x8410);
+}
+
+bool ReaderBookService::handleReaderMenuTap(int16_t x, int16_t y) {
+    // Click outside the white panel closes the menu
+    if (x < 20 || x > 520 || y < 180 || y > 780) {
+        showingReaderMenu_ = false;
+        renderCurrentReadingPage();
+        return true;
+    }
+    // Button row 1: 字号- (40,310,180,64) / 字号+ (260,310,180,64)
+    if (y >= 310 && y < 374) {
+        if (x >= 40 && x < 220) {
+            uint8_t cur = g_configService.get().fontSize;
+            if (cur > 12) { g_configService.setFontSize(cur - 2); g_configService.save(); }
+        } else if (x >= 260 && x < 440) {
+            uint8_t cur = g_configService.get().fontSize;
+            if (cur < 48) { g_configService.setFontSize(cur + 2); g_configService.save(); }
+        }
+        showingReaderMenu_ = false;
+        renderCurrentReadingPage();
+        return true;
+    }
+    // Button row 2: 目录 (40,400) / 书签 (260,400)
+    if (y >= 400 && y < 464) {
+        if (x >= 40 && x < 220) {
+            showingReaderMenu_ = false;
+            showingToc_ = true;
+            if (currentTocIndex_ >= 0) tocPage_ = currentTocIndex_ / kTocEntriesPerPage;
+            renderTocPage(tocPage_);
+            return true;
+        } else if (x >= 260 && x < 440) {
+            showingReaderMenu_ = false;
+            showingBookmarks_ = true;
+            bookmarkPage_ = 0;
+            renderBookmarkPage(0);
+            return true;
+        }
+    }
+    // Button row 3: 进度 (40,490) / 深色 (260,490)
+    if (y >= 490 && y < 554) {
+        if (x >= 40 && x < 220) {
+            showingReaderMenu_ = false;
+            showingBookEntry_ = true;
+            renderBookEntryPage();
+            return true;
+        } else if (x >= 260 && x < 440) {
+            // Toggle dark mode
+            g_configService.mut().darkModeDefault = !g_configService.get().darkModeDefault;
+            g_configService.save();
+            showingReaderMenu_ = false;
+            renderCurrentReadingPage();
+            return true;
+        }
+    }
+    return false;
 }
 
 bool ReaderBookService::openTocEntry(int index) {
@@ -927,9 +1324,14 @@ uint32_t ReaderBookService::chapterEndOffset(int index) {
 bool ReaderBookService::buildChapterPages(int index) {
     if (index < 0 || index >= tocCount_ || !activeTextPath_[0] || !pageStarts_) return false;
     const uint32_t start = chapterContentStart(index);
-    const uint32_t end = chapterEndOffset(index);
-    if (end <= start) return false;
-    if (loadChapterPageCache(index, start, end)) return true;
+    return buildChapterPagesFrom(index, start, true);
+}
+
+bool ReaderBookService::buildChapterPagesFrom(int index, uint32_t start, bool allowCache) {
+    if (index < 0 || index >= tocCount_ || !activeTextPath_[0] || !pageStarts_) return false;
+    const uint32_t fullEnd = chapterEndOffset(index);
+    if (fullEnd <= start) return false;
+    if (allowCache && start == chapterContentStart(index) && loadChapterPageCache(index, start, fullEnd)) return true;
     showBlockingChapterStatus(index);
     File f = SD.open(activeTextPath_, FILE_READ);
     if (!f) return false;
@@ -949,11 +1351,13 @@ bool ReaderBookService::buildChapterPages(int index) {
 
     uint32_t offset = start;
     pageCount_ = 0;
-    bool truncated = false;
-    while (offset < end && pageCount_ < kMaxChapterPages) {
+    pageWindowStart_ = start;
+    pageWindowEnd_ = start;
+    pageWindowTruncated_ = false;
+    while (offset < fullEnd && pageCount_ < kMaxChapterPages) {
         pageStarts_[pageCount_++] = offset;
         if (!f.seek(offset)) break;
-        const uint32_t toRead = min<uint32_t>(4095, end - offset);
+        const uint32_t toRead = min<uint32_t>(4095, fullEnd - offset);
         char buf[4096];
         int n = f.read(reinterpret_cast<uint8_t*>(buf), toRead);
         if (n <= 0) break;
@@ -963,23 +1367,25 @@ bool ReaderBookService::buildChapterPages(int index) {
         if (consumed == 0) break;
         offset += consumed;
     }
-    if (offset < end && pageCount_ >= kMaxChapterPages) {
-        truncated = true;
+    if (offset < fullEnd && pageCount_ >= kMaxChapterPages) {
+        pageWindowTruncated_ = true;
         Serial.printf("[vink3][book] chapter pagination hit page cap: toc=%d cap=%d offset=%lu end=%lu\n",
-                      index, kMaxChapterPages, static_cast<unsigned long>(offset), static_cast<unsigned long>(end));
+                      index, kMaxChapterPages, static_cast<unsigned long>(offset), static_cast<unsigned long>(fullEnd));
     }
+    pageWindowEnd_ = pageWindowTruncated_ ? offset : fullEnd;
     f.close();
     currentPage_ = 0;
-    Serial.printf("[vink3][book] chapter pages built: toc=%d pages=%d layout=%08lx\n",
-                  index, pageCount_, static_cast<unsigned long>(pageLayoutKey()));
-    if (pageCount_ > 0 && !truncated) saveChapterPageCache(index, start, end);
+    Serial.printf("[vink3][book] chapter pages built: toc=%d pages=%d window=%lu-%lu layout=%08lx\n",
+                  index, pageCount_, static_cast<unsigned long>(pageWindowStart_),
+                  static_cast<unsigned long>(pageWindowEnd_), static_cast<unsigned long>(pageLayoutKey()));
+    if (pageCount_ > 0 && !pageWindowTruncated_ && start == chapterContentStart(index)) saveChapterPageCache(index, start, fullEnd);
     return pageCount_ > 0;
 }
 
 bool ReaderBookService::renderCurrentReadingPage() {
     if (currentTocIndex_ < 0 || currentTocIndex_ >= tocCount_ || pageCount_ <= 0 || !pageStarts_) return false;
     const uint32_t start = pageStarts_[currentPage_];
-    const uint32_t end = (currentPage_ + 1 < pageCount_) ? pageStarts_[currentPage_ + 1] : chapterEndOffset(currentTocIndex_);
+    const uint32_t end = (currentPage_ + 1 < pageCount_) ? pageStarts_[currentPage_ + 1] : pageWindowEnd_;
     if (end <= start) return false;
     File f = SD.open(activeTextPath_, FILE_READ);
     if (!f || !f.seek(start)) {

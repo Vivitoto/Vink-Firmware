@@ -5,9 +5,9 @@
 #include "../sync/WifiService.h"
 #include "../reader/ReaderBookService.h"
 #include "../reader/ReaderTextRenderer.h"
-#include "../sync/LegadoService.h"
 #include "../ui/VinkUiRenderer.h"
 #include "../input/InputService.h"
+#include "../../FontManager.h"
 #include "../ReadPaper176.h"
 #include <esp_sleep.h>
 
@@ -26,17 +26,22 @@ SystemState tabStateForAction(UiAction action) {
     }
 }
 
-void pulsePaperS3PowerOffPin() {
-    // Drive GPIO44 HIGH → LOW to signal PMIC power-off.
-    // Hold HIGH long enough for the PMIC to recognise the pulse
-    // (PaperS3 PMIC may need >150ms; use 500ms as safe margin).
-    pinMode(static_cast<int>(kPowerOffPulsePin), OUTPUT);
-    digitalWrite(static_cast<int>(kPowerOffPulsePin), HIGH);
-    delay(500);
-    digitalWrite(static_cast<int>(kPowerOffPulsePin), LOW);
-    // After the pulse the pin floats; leave it as input (high-Z) so it
-    // does not fight the PMIC pull-down.
-    pinMode(static_cast<int>(kPowerOffPulsePin), INPUT);
+String buildLegadoBaseUrl(const VinkConfig& cfg) {
+    String base = cfg.legadoHost;
+    base.trim();
+    if (base.isEmpty()) return base;
+    if (!base.startsWith("http://") && !base.startsWith("https://")) {
+        base = "http://" + base;
+    }
+    const int scheme = base.indexOf("://");
+    const int hostStart = scheme >= 0 ? scheme + 3 : 0;
+    int slash = base.indexOf('/', hostStart);
+    if (slash < 0) slash = base.length();
+    const String hostPort = base.substring(hostStart, slash);
+    if (hostPort.indexOf(':') < 0 && cfg.legadoPort > 0) {
+        base = base.substring(0, slash) + ":" + String(cfg.legadoPort) + base.substring(slash);
+    }
+    return base;
 }
 
 // Wait indefinitely for the power button to be released.
@@ -57,23 +62,14 @@ static void waitPowerKeyRelease(uint32_t timeoutMs = 10000) {
 }
 
 static void enterSleep(const char* reason) {
-    Serial.println("[vink3][power] entering light sleep");
-    g_uiRenderer.renderShutdown(reason ? reason : "自动休眠");
-    g_displayService.enqueueFull(true, 500);
-    g_displayService.waitIdle(5000);
-    M5.Display.sleep();
-    M5.Display.waitDisplay();
-    // Light sleep — shallow, wake on any touch/power-button.
-    esp_sleep_enable_ext0_wakeup(static_cast<gpio_num_t>(GPIO_NUM_38), 0);  // INT pin
-    esp_light_sleep_start();
-    // Wake: re-init display and return to reader home.
-    M5.Display.wakeup();
-    M5.Display.clearDisplay();
-    Message msg;
-    msg.type = MessageType::BootComplete;
-    msg.timestampMs = millis();
+    // Auto sleep is deliberately disabled by default until the PaperS3 wake
+    // source is validated on real hardware. GPIO38 is SD MOSI, not GT911 INT;
+    // do not arm it as a wake source. If the user explicitly enables the setting
+    // before wake validation, show a safe notice and keep the device awake.
+    Serial.println("[vink3][power] auto sleep requested but wake path is not validated; staying awake");
+    g_uiRenderer.renderShutdown(reason ? "自动休眠未启用：唤醒路径待真机验证" : "休眠待验证");
+    g_displayService.enqueueFull(false, 100);
     g_stateMachine.onActivity();
-    g_stateMachine.post(msg, 0);
 }
 
 void shutdownPaperS3(const char* reason) {
@@ -85,7 +81,8 @@ void shutdownPaperS3(const char* reason) {
     delay(300);
 
     // Official/factory order: sleep the EPD, wait for it, then ask M5Unified
-    // to power off. GPIO44 pulse is retained as a hardware fallback.
+    // to power off. Do not add a manual GPIO44 pulse unless real-device logs
+    // prove M5Unified's PaperS3 LOW→HIGH pulse sequence is insufficient.
     waitPowerKeyRelease();  // blocking; do NOT enter sleep while button is held
     M5.Display.sleep();
     M5.Display.waitDisplay();
@@ -98,17 +95,16 @@ void shutdownPaperS3(const char* reason) {
     // device will wake from deep sleep (see below) and the user sees a boot -
     // this is unavoidable when powerOff() does not guarantee hard power-cut.
     delay(2000);
-    pulsePaperS3PowerOffPin();
 
     // Final safety net: ensure the button is released before deep sleep.
     // If it is still held, enter deep sleep anyway — the shutdown has been
     // triggered; the next release will wake the device which is expected.
     waitPowerKeyRelease(8000);
 
-    // Configure EXT0 on GPIO38 (touch INT) as deep-sleep wake source so that
-    // touching the screen after a failed powerOff() wakes the device cleanly
-    // instead of leaving it in an undefined state.
-    esp_sleep_enable_ext0_wakeup(static_cast<gpio_num_t>(GPIO_NUM_38), 0);
+    // Do not configure a touch wake source here yet: official GT911 INT is
+    // GPIO48, while GPIO38 is SD MOSI. Deep-sleep wake capability for GPIO48
+    // must be verified before enabling touch wake. Use deep sleep only as a
+    // last-resort CPU halt if powerOff() did not cut power.
     esp_deep_sleep_start();
     // esp_deep_sleep_start() never returns; if we are here something is wrong
     // with the CPU or the compiler.
@@ -321,6 +317,29 @@ void StateMachine::handle(const Message& message) {
                     break;
                 }
 
+                case UiAction::CycleLegadoSyncEnabled:
+                {
+                    bool cur = g_configService.get().legadoEnabled;
+                    g_configService.mut().legadoEnabled = !cur;
+                    g_configService.save();
+                    // Reconfigure service if enabled
+                    if (!cur) {
+                        const auto& cfg = g_configService.get();
+                        if (cfg.legadoEnabled && !cfg.legadoHost.isEmpty()) {
+                            LegadoConfig lc;
+                            lc.baseUrl = cfg.legadoHost;
+                            lc.token   = cfg.legadoToken;
+                            lc.enabled = cfg.legadoEnabled;
+                            g_legadoService.configure(lc);
+                        }
+                    } else {
+                        g_legadoService.configure(LegadoConfig{});
+                    }
+                    g_uiRenderer.renderTransferLegadoStatus();
+                    g_displayService.enqueueFull(false, 100);
+                    break;
+                }
+
                 case UiAction::SaveLegadoSettings:
                 {
                     // Configure Legado service with current saved config.
@@ -403,13 +422,44 @@ void StateMachine::handle(const Message& message) {
 
                 case UiAction::CycleWifiMode:
                     if (state_ == SystemState::TransferWifiAp) {
-                        // Cycle: Off → ApWebUi → Ap → Off
+                        // Legacy fallback: Off → ApWebUi → Ap → Off.
                         WifiOpMode cur = g_wifiService.mode();
                         if (cur == WifiOpMode::Off) {
                             g_wifiService.startAp("Vink-PaperS3", String(), true);
                         } else if (cur == WifiOpMode::ApWebUi) {
                             g_wifiService.stop();
                             g_wifiService.startAp("Vink-PaperS3", String(), false);
+                        } else {
+                            g_wifiService.stop();
+                        }
+                        g_uiRenderer.renderTransferWifiAp();
+                        g_displayService.enqueueFull(false, 100);
+                    }
+                    break;
+
+                case UiAction::SetWifiOff:
+                    if (state_ == SystemState::TransferWifiAp) {
+                        g_wifiService.stop();
+                        g_uiRenderer.renderTransferWifiAp();
+                        g_displayService.enqueueFull(false, 100);
+                    }
+                    break;
+
+                case UiAction::SetWifiApWebUi:
+                    if (state_ == SystemState::TransferWifiAp) {
+                        g_wifiService.startAp("Vink-PaperS3", String(), true);
+                        g_uiRenderer.renderTransferWifiAp();
+                        g_displayService.enqueueFull(false, 100);
+                    }
+                    break;
+
+                case UiAction::SetWifiSta:
+                    if (state_ == SystemState::TransferWifiAp) {
+                        const auto& cfg = g_configService.get();
+                        if (!cfg.wifiSsid.isEmpty()) {
+                            g_wifiService.stop();
+                            g_wifiService.configureSta(cfg.wifiSsid, cfg.wifiPassword);
+                            g_wifiService.connectSta();
                         } else {
                             g_wifiService.stop();
                         }
@@ -441,6 +491,25 @@ void StateMachine::handle(const Message& message) {
                     }
                     g_configService.setFontSize(next);
                     g_configService.save();
+                    renderState(state_);
+                    g_displayService.enqueueFull(false, 100);
+                    break;
+                }
+
+                case UiAction::CycleFontFamily:
+                {
+                    char paths[32][128];
+                    char names[32][64];
+                    int count = FontManager::scanFonts(paths, names, 32);
+                    if (count <= 0) break;
+                    uint8_t curIdx = g_configService.get().fontIndex;
+                    uint8_t nextIdx = (curIdx + 1) % count;
+                    g_configService.setFontIndex(nextIdx);
+                    g_configService.save();
+                    // Load new font into reader text renderer
+                    if (paths[nextIdx][0]) {
+                        g_readerText.loadFont(paths[nextIdx]);
+                    }
                     renderState(state_);
                     g_displayService.enqueueFull(false, 100);
                     break;
@@ -554,7 +623,13 @@ void StateMachine::handle(const Message& message) {
                 else { state_ = SystemState::Transfer; renderState(state_); g_displayService.enqueueFull(false, 100); }
                 break;
             }
-            if (state_ == SystemState::Reader) state_ = SystemState::Library;
+            if (state_ == SystemState::Reader) {
+                // Swipe left → previous tab
+                state_ = SystemState::Library;
+                renderState(state_);
+                g_displayService.enqueueFull(false, 100);
+                break;
+            }
             else if (state_ == SystemState::Transfer) state_ = SystemState::Settings;
             else if (state_ == SystemState::SettingsLayout ||
                      state_ == SystemState::SettingsRefresh ||
@@ -586,7 +661,13 @@ void StateMachine::handle(const Message& message) {
                 else { state_ = SystemState::Reader; renderState(state_); g_displayService.enqueueFull(false, 100); }
                 break;
             }
-            if (state_ == SystemState::Settings) state_ = SystemState::Transfer;
+            if (state_ == SystemState::Reader) {
+                // Swipe right → next tab
+                state_ = SystemState::Transfer;
+                renderState(state_);
+                g_displayService.enqueueFull(false, 100);
+                break;
+            }
             else if (state_ == SystemState::Transfer) state_ = SystemState::Library;
             renderState(state_);
             g_displayService.enqueueFull(false, 100);
@@ -630,22 +711,21 @@ void StateMachine::handle(const Message& message) {
             const auto& cfg = g_configService.get();
             if (cfg.legadoEnabled && !cfg.legadoHost.isEmpty()) {
                 LegadoConfig lc;
-                lc.baseUrl  = cfg.legadoHost;
+                lc.baseUrl  = buildLegadoBaseUrl(cfg);
                 lc.token    = cfg.legadoToken;
                 lc.enabled  = cfg.legadoEnabled;
                 g_legadoService.configure(lc);
 
-                // Attempt to fetch bookshelf count as connectivity test.
-                JsonArray books = g_legadoService.getBookshelf();
-                if (books.isNull()) {
-                    // Returned JsonArray() means network or parse error
+                // Attempt to fetch bookshelf count as connectivity test without
+                // returning ArduinoJson views backed by temporary documents.
+                int count = 0;
+                if (!g_legadoService.getBookshelfCount(count)) {
                     String err = g_legadoService.lastError();
                     Message failed;
                     failed.type = MessageType::LegadoSyncFailed;
                     failed.timestampMs = millis();
                     post(failed, 0);
                 } else {
-                    int count = books.size();
                     Message done;
                     done.type = MessageType::LegadoSyncDone;
                     done.timestampMs = millis();
@@ -682,6 +762,13 @@ void StateMachine::handle(const Message& message) {
             if (state_ == SystemState::Diagnostics) {
                 g_uiRenderer.renderDiagnostics(message, "long-press");
                 g_displayService.enqueueFull(false, 100);
+                break;
+            }
+            if (state_ == SystemState::Reader) {
+                if (g_readerBook.handleLongPress(message.touch.x, message.touch.y)) {
+                    g_displayService.enqueueFull(false, 100);
+                }
+                break;
             }
             break;
 

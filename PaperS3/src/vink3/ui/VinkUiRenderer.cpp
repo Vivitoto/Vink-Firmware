@@ -4,6 +4,7 @@
 #include "../sync/LegadoService.h"
 #include "../sync/WifiService.h"
 #include "../text/CjkTextRenderer.h"
+#include "../../FontManager.h"
 
 namespace vink3 {
 
@@ -90,20 +91,46 @@ void formatBatteryPercent(char* out, size_t outSize) {
     if (!out || outSize == 0) return;
     int level = M5.Power.getBatteryLevel();
     if (level > 0 && level <= 100) {
-        snprintf(out, outSize, "%s%d%%", isOfficialUsbConnected() ? "USB " : "", level);
+        snprintf(out, outSize, "%d%%", level);
         return;
     }
-    const float voltage = readOfficialBatteryVoltage();
-    if (voltage > 0.1f) {
-        snprintf(out, outSize, "%s%.2fV", isOfficialUsbConnected() ? "USB " : "", voltage);
-        return;
+    snprintf(out, outSize, "--%%");
+}
+
+void formatBatteryPercentSimple(char* out, size_t outSize) {
+    // Simple percentage only (no USB prefix, no voltage fallback)
+    if (!out || outSize == 0) return;
+    int level = M5.Power.getBatteryLevel();
+    if (level > 0 && level <= 100) {
+        snprintf(out, outSize, "%d%%", level);
+    } else {
+        snprintf(out, outSize, "--%%");
     }
-    snprintf(out, outSize, "%s--%%", isOfficialUsbConnected() ? "USB " : "");
 }
 
 } // anonymous namespace
 
 // ── VinkUiRenderer inline helpers (need canvas_) ─────────────────────────────
+
+void VinkUiRenderer::formatTimeStr(char* out, size_t outSize) {
+    m5::rtc_time_t rtc;
+    if (M5.Rtc.isEnabled() && M5.Rtc.getTime(&rtc) &&
+        rtc.hours < 24 && rtc.minutes < 60) {
+        snprintf(out, outSize, "%02d:%02d", rtc.hours, rtc.minutes);
+    } else {
+        snprintf(out, outSize, "--:--");
+    }
+}
+
+void VinkUiRenderer::formatBatterySimple(char* out, size_t outSize) {
+    if (!out || outSize == 0) return;
+    int level = M5.Power.getBatteryLevel();
+    if (level > 0 && level <= 100) {
+        snprintf(out, outSize, "%d%%", level);
+    } else {
+        snprintf(out, outSize, "--%%");
+    }
+}
 
 void VinkUiRenderer::drawSettingsRowRaw(int16_t rowTopY, const char* label, const char* value) {
     // Keep label/value/arrow on 同一水平线; all derive from the row center.
@@ -389,11 +416,13 @@ void VinkUiRenderer::renderTransferLegadoStatus() {
                 ? (lc ? "已连接" : "未连接")
                 : "未配置");
         canvas_->drawFastHLine(56, kGrpY_Display + kRowDividerY, 424, kGrayMid);
+        drawCyclingRow(kGrpY_Display + 118, "自动同步", cfg.legadoEnabled ? "开启" : "关闭");
+        canvas_->drawFastHLine(56, kGrpY_Display + 178, 424, kGrayMid);
         if (g_legadoService.lastError().length() > 0) {
-            drawCyclingRow(kGrpY_Display + 118, "错误",
+            drawCyclingRow(kGrpY_Display + 238, "错误",
                 g_legadoService.lastError().substring(0, 28).c_str());
         } else {
-            drawCyclingRow(kGrpY_Display + 118, "错误", "无");
+            drawCyclingRow(kGrpY_Display + 238, "错误", "无");
         }
     }
 
@@ -425,7 +454,7 @@ void VinkUiRenderer::renderTransferWifiAp() {
     // Mode selector card — three options
     {
         constexpr int16_t optH = 58;
-        const char* opts[3] = { "AP 热点 (关闭)", "AP + Web UI", "STA 连接路由器" };
+        const char* opts[3] = { "关闭 WiFi", "AP + Web UI", "STA 连接路由器" };
         for (int i = 0; i < 3; ++i) {
             const int16_t optY = kGrpY_Display + i * (optH + 4);
             canvas_->fillRoundRect(kCardX, optY, kCardW, optH, 12, TFT_WHITE);
@@ -599,6 +628,26 @@ void VinkUiRenderer::renderSettingsLayout() {
     drawCyclingRow(kGrpY_Connect + 58, "简体中文", cfg.simplifiedChinese ? "开启" : "关闭");
     canvas_->drawFastHLine(56, kGrpY_Connect + kRowDividerY, 424, kGrayMid);
     drawCyclingRow(kGrpY_Connect + 118, "返回", "← 设置");
+
+    // Group 4: font family (SD / SPIFFS fonts)
+    static char kFontNames[32][64] = {{0}};
+    static char kFontPaths[32][128] = {{0}};
+    static int sFontCount = -1;
+    if (sFontCount < 0) {
+        sFontCount = FontManager::scanFonts(kFontPaths, kFontNames, 32);
+        if (sFontCount <= 0) {
+            strlcpy(kFontNames[0], "无可用字体", 64);
+            sFontCount = 1;
+        }
+    }
+    const char* curFontName = (cfg.fontIndex < (uint8_t)sFontCount)
+        ? kFontNames[cfg.fontIndex] : kFontNames[0];
+    canvas_->fillRoundRect(kCardX, kGrpY_System, kCardW, kGroupH, kCardRound, TFT_WHITE);
+    canvas_->drawRoundRect(kCardX, kGrpY_System, kCardW, kGroupH, kCardRound, TFT_BLACK);
+    g_cjkText.drawText(56, kGrpY_System + 16, "阅读字体", kGrayText);
+    drawCyclingRow(kGrpY_System + 58, "字体", curFontName);
+    canvas_->drawFastHLine(56, kGrpY_System + kRowDividerY, 424, kGrayMid);
+    drawCyclingRow(kGrpY_System + 118, "返回", "← 设置");
 
     // Bottom hint
     // drawFooterHint("点击数值切换；左右滑动返回");
@@ -950,6 +999,10 @@ UiAction VinkUiRenderer::hitTest(SystemState state, int16_t x, int16_t y) const 
             // Back / Sync buttons
             if (inRect(x, y, 56, kGrpY_Connect + 20, 180, 48)) return UiAction::TabTransfer;
             if (inRect(x, y, 304, kGrpY_Connect + 20, 180, 48)) return UiAction::StartLegadoSync;
+            // Auto-sync toggle row in last-sync card
+            if (inRect(x, y, kRowX, kGrpY_Display + 118, kValueRight - kRowX + 60, kRowH)) {
+                return UiAction::CycleLegadoSyncEnabled;
+            }
             break;
 
         case SystemState::TransferWifiAp:
@@ -963,7 +1016,9 @@ UiAction VinkUiRenderer::hitTest(SystemState state, int16_t x, int16_t y) const 
                 for (int i = 0; i < 3; ++i) {
                     const int16_t optY = kGrpY_Display + i * (optH + 4);
                     if (inRect(x, y, kCardX, optY, kCardW, optH)) {
-                        return UiAction::CycleWifiMode;  // cycle handled in state machine
+                        if (i == 0) return UiAction::SetWifiOff;
+                        if (i == 1) return UiAction::SetWifiApWebUi;
+                        return UiAction::SetWifiSta;
                     }
                 }
             }
@@ -1047,8 +1102,16 @@ UiAction VinkUiRenderer::hitTest(SystemState state, int16_t x, int16_t y) const 
             if (inRect(x, y, kRowX, kGrpY_Connect + 58, kValueRight - kRowX + 40, kRowH)) {
                 return UiAction::CycleSimplified;
             }
-            // Back row
+            // Back row (group 3)
             if (inRect(x, y, kRowX, kGrpY_Connect + 118, kValueRight - kRowX + 40, kRowH)) {
+                return UiAction::TabSettings;
+            }
+            // Font family row (group 4)
+            if (inRect(x, y, kRowX, kGrpY_System + 58, kValueRight - kRowX + 40, kRowH)) {
+                return UiAction::CycleFontFamily;
+            }
+            // Back row (group 4)
+            if (inRect(x, y, kRowX, kGrpY_System + 118, kValueRight - kRowX + 40, kRowH)) {
                 return UiAction::TabSettings;
             }
             break;

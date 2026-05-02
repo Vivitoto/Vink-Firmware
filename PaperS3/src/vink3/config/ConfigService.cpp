@@ -31,12 +31,15 @@ bool ConfigService::loadFromFile() {
 
 bool ConfigService::loadFromJson(JsonObjectConst obj) {
     // Layout
-    if (obj.containsKey("fontSize"))       config_.fontSize      = obj["fontSize"].as<uint8_t>();
-    if (obj.containsKey("lineSpacing"))    config_.lineSpacing   = obj["lineSpacing"].as<uint8_t>();
-    if (obj.containsKey("marginLeft"))    config_.marginLeft    = obj["marginLeft"].as<uint8_t>();
-    if (obj.containsKey("marginRight"))   config_.marginRight   = obj["marginRight"].as<uint8_t>();
-    if (obj.containsKey("marginTop"))     config_.marginTop     = obj["marginTop"].as<uint8_t>();
-    if (obj.containsKey("marginBottom"))   config_.marginBottom = obj["marginBottom"].as<uint8_t>();
+    if (obj.containsKey("fontSize"))       config_.fontSize      = constrain(obj["fontSize"].as<uint8_t>(), 12, 48);
+    if (obj.containsKey("fontIndex"))      config_.fontIndex     = constrain(obj["fontIndex"].as<uint8_t>(), 0, 31);
+    if (obj.containsKey("lineSpacing"))    config_.lineSpacing   = constrain(obj["lineSpacing"].as<uint8_t>(), 30, 200);
+    if (obj.containsKey("marginLeft"))     config_.marginLeft    = constrain(obj["marginLeft"].as<uint8_t>(), 0, 120);
+    if (obj.containsKey("marginRight"))    config_.marginRight   = constrain(obj["marginRight"].as<uint8_t>(), 0, 120);
+    if (obj.containsKey("marginTop"))      config_.marginTop     = constrain(obj["marginTop"].as<uint8_t>(), 0, 160);
+    if (obj.containsKey("marginBottom"))   config_.marginBottom  = constrain(obj["marginBottom"].as<uint8_t>(), 0, 160);
+    if (obj.containsKey("paragraphSpacing")) config_.paragraphSpacing = constrain(obj["paragraphSpacing"].as<uint8_t>(), 0, 100);
+    if (obj.containsKey("indentFirstLine"))  config_.indentFirstLine  = constrain(obj["indentFirstLine"].as<uint8_t>(), 0, 4);
     if (obj.containsKey("justify"))       config_.justify       = obj["justify"].as<bool>();
 
     // Refresh
@@ -51,12 +54,12 @@ bool ConfigService::loadFromJson(JsonObjectConst obj) {
 
     // Legado
     if (obj.containsKey("legadoHost"))    config_.legadoHost    = obj["legadoHost"].as<String>();
-    if (obj.containsKey("legadoPort"))    config_.legadoPort    = obj["legadoPort"].as<uint16_t>();
+    if (obj.containsKey("legadoPort"))    config_.legadoPort    = constrain(obj["legadoPort"].as<uint16_t>(), 1, 65535);
     if (obj.containsKey("legadoToken"))   config_.legadoToken   = obj["legadoToken"].as<String>();
     if (obj.containsKey("legadoEnabled")) config_.legadoEnabled = obj["legadoEnabled"].as<bool>();
 
     // System
-    if (obj.containsKey("autoSleepMinutes")) config_.autoSleepMinutes = obj["autoSleepMinutes"].as<uint8_t>();
+    if (obj.containsKey("autoSleepMinutes")) config_.autoSleepMinutes = constrain(obj["autoSleepMinutes"].as<uint8_t>(), 0, 60);
     if (obj.containsKey("autoSleepEnabled"))  config_.autoSleepEnabled  = obj["autoSleepEnabled"].as<bool>();
     if (obj.containsKey("darkModeDefault"))   config_.darkModeDefault   = obj["darkModeDefault"].as<bool>();
     if (obj.containsKey("verticalTextDefault")) config_.verticalTextDefault = obj["verticalTextDefault"].as<bool>();
@@ -72,11 +75,14 @@ bool ConfigService::save() const {
 
     // Layout
     obj["fontSize"]      = config_.fontSize;
+    obj["fontIndex"]     = config_.fontIndex;
     obj["lineSpacing"]   = config_.lineSpacing;
     obj["marginLeft"]    = config_.marginLeft;
     obj["marginRight"]   = config_.marginRight;
     obj["marginTop"]     = config_.marginTop;
     obj["marginBottom"]  = config_.marginBottom;
+    obj["paragraphSpacing"] = config_.paragraphSpacing;
+    obj["indentFirstLine"]  = config_.indentFirstLine;
     obj["justify"]       = config_.justify;
 
     // Refresh
@@ -119,8 +125,8 @@ LayoutConfig ConfigService::layout() const {
     lc.marginTop        = config_.marginTop;
     lc.marginBottom     = config_.marginBottom;
     lc.justify          = config_.justify;
-    lc.indentFirstLine  = 2;
-    lc.paragraphSpacing = 50;
+    lc.indentFirstLine  = config_.indentFirstLine;
+    lc.paragraphSpacing = config_.paragraphSpacing;
     return lc;
 }
 
@@ -128,6 +134,10 @@ LayoutConfig ConfigService::layout() const {
 
 void ConfigService::setFontSize(uint8_t v) {
     config_.fontSize = (v < 12) ? 12 : (v > 48) ? 48 : v;
+}
+
+void ConfigService::setFontIndex(uint8_t v) {
+    config_.fontIndex = v;
 }
 
 void ConfigService::setLineSpacing(uint8_t v) {

@@ -8,11 +8,14 @@ namespace vink3 {
 struct VinkConfig {
     // ── Layout ──────────────────────────────────────────────────
     uint8_t fontSize       = 24;
+    uint8_t fontIndex       = 0;    // index into available font list (SD / SPIFFS)
     uint8_t lineSpacing     = 60;   // percent of fontSize
     uint8_t marginLeft      = 24;
     uint8_t marginRight     = 24;
     uint8_t marginTop       = 20;
     uint8_t marginBottom    = 20;
+    uint8_t paragraphSpacing = 50;
+    uint8_t indentFirstLine  = 2;
     bool    justify         = false;
 
     // ── Refresh ─────────────────────────────────────────────────
@@ -30,7 +33,7 @@ struct VinkConfig {
 
     // ── System ─────────────────────────────────────────────────
     uint8_t autoSleepMinutes = 5;
-    bool    autoSleepEnabled = true;
+    bool    autoSleepEnabled = false;
     bool    darkModeDefault  = false;
     bool    verticalTextDefault = false;
     bool    simplifiedChinese = true;  // true=简体 false=繁体
@@ -54,6 +57,7 @@ public:
     RefreshFrequency refreshFrequency() const { return config_.refreshFrequency; }
 
     void setFontSize(uint8_t v);
+    void setFontIndex(uint8_t v);
     void setLineSpacing(uint8_t v);
     void setMargins(uint8_t l, uint8_t r, uint8_t t, uint8_t b);
     void setRefreshFrequency(RefreshFrequency f);
