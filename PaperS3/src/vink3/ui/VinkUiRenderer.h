@@ -21,6 +21,8 @@ enum class UiAction : uint8_t {
     OpenSettings,
     OpenDiagnostics,
     RequestShutdown,
+    LockScreen,
+    WakeFromLockScreen,
     StartLegadoSync,
     BackHome,
 
@@ -82,6 +84,7 @@ public:
     void renderTransferExport();
     void renderDiagnostics(const Message& lastTouch, const char* eventName);
     void renderShutdown(const char* reason);
+    void renderLockScreen(const String& imagePath);
     void renderLegadoSync(const char* status);
     void renderLegadoSync(const char* status, int bookCount, const char* errorMsg);
 

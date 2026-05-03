@@ -11,6 +11,9 @@ public:
     SystemState state() const;
     uint32_t lastActivityMs() const { return lastActivityMs_; }
     void onActivity() { lastActivityMs_ = millis(); }
+    void enterLockScreen();
+    void wakeFromLockScreen();
+    bool isLocked() const { return locked_; }
 
 private:
     static void taskThunk(void* arg);
@@ -21,6 +24,7 @@ private:
     TaskHandle_t task_ = nullptr;
     SystemState state_ = SystemState::Boot;
     uint32_t lastActivityMs_ = 0;
+    bool    locked_ = false;
 };
 
 extern StateMachine g_stateMachine;

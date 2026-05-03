@@ -1478,6 +1478,10 @@ bool ReaderBookService::renderEndOfBookPage() {
     return true;
 }
 
+bool ReaderBookService::renderCurrentPage() {
+    return renderCurrentReadingPage();
+}
+
 bool ReaderBookService::renderChapterPreview(int index) {
     if (index < 0 || index >= tocCount_ || !activeTextPath_[0]) return false;
     File f = SD.open(activeTextPath_, FILE_READ);

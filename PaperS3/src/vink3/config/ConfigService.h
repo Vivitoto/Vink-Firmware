@@ -35,6 +35,12 @@ struct VinkConfig {
     uint8_t autoSleepMinutes = 5;
     bool    autoSleepEnabled = false;
     bool    darkModeDefault  = false;
+    // ── Lock Screen ───────────────────────────────────────────────
+    String  lockScreenImagePath;
+    bool    lockScreenEnabled   = false;
+    bool    lockScreenWakeOnDoubleClick = true;  // false=power-button only
+
+    // ── Text ─────────────────────────────────────────────────────
     bool    verticalTextDefault = false;
     bool    simplifiedChinese = true;  // true=简体 false=繁体
 };

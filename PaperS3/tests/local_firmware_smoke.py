@@ -24,7 +24,7 @@ PROJECT = Path(__file__).resolve().parents[1]
 REPO = PROJECT.parent
 WORKSPACE = Path("/home/vito/.openclaw/workspace")
 ARTIFACTS = WORKSPACE / "artifacts" / "Vink-PaperS3"
-DEFAULT_SLUG = "legado-sync"
+DEFAULT_SLUG = "lockscreen"
 APP_SLOT_SIZE = 0xC00000  # v0.3 single-app layout for full ReadPaper PROGMEM font
 SPIFFS_SIZE = 0x3F0000
 FULL_FLASH_SIZE = 0x1000000
@@ -121,7 +121,7 @@ def vink3_source_invariants(main_cpp: str) -> None:
     platformio = read("platformio.ini")
 
     assert_contains(main_cpp, "xTaskCreatePinnedToCore", "v0.3 main starts a ReadPaper-style pinned MainTask")
-    assert_contains(upstream, "kVinkPaperS3FirmwareVersion = \"v0.3.11-rc-legado-sync\"", "single firmware version constant matches the manifest top version")
+    assert_contains(upstream, "kVinkPaperS3FirmwareVersion = \"v0.3.12-rc-lockscreen\"", "single firmware version constant matches the manifest top version")
     assert_contains(main_cpp, "kVinkPaperS3FirmwareVersion", "main task init log uses the shared firmware version")
     assert_contains(runtime_cpp, "kVinkPaperS3FirmwareVersion", "runtime boot logs use the shared firmware version")
     assert_not_contains(main_cpp, "v0.3.2-rc", "main task must not show stale firmware version")

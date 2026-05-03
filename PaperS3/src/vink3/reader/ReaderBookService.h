@@ -33,9 +33,11 @@ public:
     void renderChapterLoadingPage(int index);
     void renderBookEntryPage();
     void renderLibraryPage(uint16_t page = 0);
+    bool openLibrary();
     bool nextLibraryPage();
     bool prevLibraryPage();
     bool handleLibraryTap(int16_t x, int16_t y);
+    bool openBookEntry(int index);
     void renderTocPage(uint16_t page = 0);
     bool nextPage();
     bool prevPage();
@@ -54,7 +56,19 @@ public:
     void onLayoutChanged();
     void invalidateAllPageCache();
 
-private:
+    // Page rendering (called by StateMachine for lock/wake re-render)
+    bool renderCurrentReadingPage();
+    bool renderChapterPreview(int index);
+    bool renderEndOfBookPage();
+    bool continueReading();
+    bool restartReading();
+    bool renderCurrentPage();
+
+    // ── Library ────────────────────────────────────────────────────
+    uint32_t chapterContentStart(int index);
+    uint32_t chapterEndOffset(int index);
+    size_t trimUtf8Tail(char* text, size_t len) const;
+
     static constexpr int kMaxTocEntries = 1200;
     static constexpr int kTocEntriesPerPage = 13;
     static constexpr int kMaxBooks = 80;
@@ -117,14 +131,6 @@ private:
     void saveChapterPageCache(int index, uint32_t start, uint32_t end);
     bool buildChapterPages(int index);
     bool buildChapterPagesFrom(int index, uint32_t start, bool allowCache);
-    bool renderCurrentReadingPage();
-    bool renderChapterPreview(int index);
-    bool renderEndOfBookPage();
-    bool continueReading();
-    bool restartReading();
-    uint32_t chapterContentStart(int index);
-    uint32_t chapterEndOffset(int index);
-    size_t trimUtf8Tail(char* text, size_t len) const;
 
     bool sdReady_ = false;
     bool open_ = false;

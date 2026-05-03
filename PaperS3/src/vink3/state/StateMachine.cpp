@@ -10,6 +10,7 @@
 #include "../../FontManager.h"
 #include "../ReadPaper176.h"
 #include <esp_sleep.h>
+#include <SD.h>
 
 namespace vink3 {
 
@@ -171,6 +172,10 @@ void renderState(SystemState state) {
         case SystemState::LegadoSync:
             g_uiRenderer.renderLegadoSync("Legado 同步服务已就绪");
             break;
+        case SystemState::Locked:
+            // Handled by enterLockScreen() on entry; no further render needed
+            // until wakeFromLockScreen() is called.
+            break;
         default:
             g_uiRenderer.renderHome(state);
             break;
@@ -207,6 +212,36 @@ void StateMachine::taskThunk(void* arg) {
     static_cast<StateMachine*>(arg)->taskLoop();
 }
 
+// Double-tap lock detection (file-level static to survive task loop iterations)
+static TouchPoint lastLockTap_;
+static uint32_t  lastLockTapMs_ = 0;
+static bool      waitingSecondLockTap_ = false;
+
+void StateMachine::enterLockScreen() {
+    if (locked_) return;
+    const auto& cfg = g_configService.get();
+    if (!cfg.lockScreenEnabled) return;
+
+    locked_ = true;
+    state_ = SystemState::Locked;
+    g_uiRenderer.renderLockScreen(cfg.lockScreenImagePath);
+    g_displayService.enqueueFull(true, 100);
+    g_displayService.waitIdle(5000);
+    Serial.println("[vink3][lock] screen locked");
+}
+
+void StateMachine::wakeFromLockScreen() {
+    if (!locked_) return;
+    locked_ = false;
+    lastLockTapMs_ = 0;
+    waitingSecondLockTap_ = false;
+    g_displayService.enqueueFull(true, 100);
+    g_displayService.waitIdle(2000);
+    g_readerBook.renderCurrentPage();
+    g_displayService.enqueueFull(true, 100);
+    Serial.println("[vink3][lock] screen awakened");
+}
+
 void StateMachine::taskLoop() {
     Message message;
     for (;;) {
@@ -232,7 +267,27 @@ void StateMachine::handle(const Message& message) {
         case MessageType::Tap:
             onActivity();
             {
-                if (state_ == SystemState::Diagnostics) {
+                // Locked state: all taps go to double-tap detector only.
+                if (state_ == SystemState::Locked) {
+                    const int16_t zoneX = (kPaperS3Width * 2) / 3;  // right 1/3
+                    const int16_t zoneY = (kPaperS3Height * 2) / 3; // bottom 1/3
+                    if (message.touch.x >= zoneX && message.touch.y >= zoneY) {
+                        uint32_t now = message.timestampMs;
+                        if (waitingSecondLockTap_ && (now - lastLockTapMs_ <= 500)) {
+                            waitingSecondLockTap_ = false;
+                            lastLockTapMs_ = 0;
+                            if (g_configService.get().lockScreenWakeOnDoubleClick) {
+                                wakeFromLockScreen();
+                            }
+                        } else {
+                            waitingSecondLockTap_ = true;
+                            lastLockTapMs_ = now;
+                        }
+                    }
+                    break;
+                }
+
+            if (state_ == SystemState::Diagnostics) {
                 g_uiRenderer.renderDiagnostics(message, "tap");
                 g_displayService.enqueueFull(false, 100);
                 break;
@@ -785,11 +840,28 @@ void StateMachine::handle(const Message& message) {
                 }
                 break;
             }
+            if (locked_) {
+                // When locked, all taps are consumed by the double-tap detector.
+                // LongPress carries no additional information here — just break.
+                break;
+            }
             break;
 
         case MessageType::PowerButton:
-            state_ = SystemState::Shutdown;
-            shutdownPaperS3("正在关机");
+            if (locked_) {
+                wakeFromLockScreen();
+            } else {
+                state_ = SystemState::Shutdown;
+                shutdownPaperS3("正在关机");
+            }
+            break;
+
+        case MessageType::LockScreen:
+            enterLockScreen();
+            break;
+
+        case MessageType::WakeFromLockScreen:
+            wakeFromLockScreen();
             break;
 
         case MessageType::SleepTimeout:

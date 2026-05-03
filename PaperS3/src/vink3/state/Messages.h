@@ -25,6 +25,7 @@ enum class SystemState : uint8_t {
     // ── Diagnostics ──────────────────────────────────────────────
     Diagnostics,
     LegadoSync,
+    Locked,        // 锁屏状态（双击右下角触发，电源键/双击唤醒）
     Sleeping,
     Shutdown,
 };
@@ -50,6 +51,8 @@ enum class MessageType : uint8_t {
     LegadoSyncFailed,
     SleepTimeout,
     PowerButton,
+    LockScreen,
+    WakeFromLockScreen,
 };
 
 struct TouchPoint {

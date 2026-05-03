@@ -5,7 +5,7 @@
 
 namespace vink3 {
 
-static constexpr const char* kVinkPaperS3FirmwareVersion = "v0.3.11-rc-legado-sync";
+static constexpr const char* kVinkPaperS3FirmwareVersion = "v0.3.12-rc-lockscreen";
 
 // Upstream baseline used for the v0.3.0 rewrite.
 // Source: https://github.com/shinemoon/M5ReadPaper main @ e910d29 (data/version: V1.7.6)
@@ -60,5 +60,11 @@ static constexpr epd_mode_t kQualityRefresh = epd_mode_t::epd_quality;
 static constexpr epd_mode_t kMiddleRefresh = epd_mode_t::epd_fast;
 static constexpr epd_mode_t kNormalRefresh = epd_mode_t::epd_text;
 static constexpr epd_mode_t kLowRefresh = epd_mode_t::epd_fastest;
+
+// ── Colour constants (e-paper safe palette) ──────────────────────────────────
+// Background / canvas clear colour for the 4-bit greyscale panel.
+// 0x7BEF is the neutral mid-grey used throughout ReadPaper 1.7.6 — sits
+// cleanly on unheated e-ink without ghosting.
+static constexpr uint16_t COLOR_BG = 0x7BEF;
 
 } // namespace vink3

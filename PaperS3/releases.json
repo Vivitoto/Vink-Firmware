@@ -5,6 +5,21 @@
   "description": "面向 M5Stack PaperS3 的 Vink 电子书阅读固件。",
   "releases": [
     {
+      "version": "v0.3.12-rc-lockscreen",
+      "name": "Vink-PaperS3 v0.3.12-rc-lockscreen 锁屏功能版",
+      "summary": "新增锁屏功能：SD 卡图片作为锁屏画面，右下角双击加锁，解锁方式可配置为双击或电源键；WebUI 增加锁屏图片路径/启用/唤醒方式配置项；保留 v0.3.11 Legado 同步修正和 v0.3.10 阅读体验改进。",
+      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.3.12-rc-lockscreen",
+      "changelog": "## Vink-PaperS3 v0.3.12-rc-lockscreen 锁屏功能版\n\n### 锁屏功能\n- **SD 卡图片锁屏**：用户可在 SD 卡指定路径放一张 PNG/JPG 图片，启用锁屏后息屏显示该图片，不再是黑屏或关机。\n- **加锁**：阅读界面右下角区域双击 → 加锁，显示锁屏图片。\n- **唤醒方式（WebUI 可配置）**：\n  - 默认双击右下角唤醒（和加锁同一区域）。\n  - 关闭\"双击唤醒\"后，仅电源键可唤醒，双击区域不再响应。\n- **锁屏状态下其他区域触摸均忽略**，避免误解锁。\n- 系统关机前会自动保存当前阅读进度。\n\n### 保留 v0.3.11 Legado 同步修正\n- `/saveBookProgress` 使用官方 `BookProgress.name/author` 字段。\n- 进度拉取改用 `/getBookshelf` 匹配 `name/author`。\n- 开机时自动加载已保存的 Legado 配置。\n\n### 保留 v0.3.10 阅读体验\n- 异步分页重建、边距循环、WebUI 排版参数、底部进度条、深色模式正文、书末完成页、长按书签路由均保留。\n\n### 验证状态\n- 本地已验证：source smoke、PlatformIO build、buildfs、full 16MB merge。\n- 需要真机验证：锁屏图片加载（SD 卡路径正确性）、右下角双击区域感知、唤醒方式可靠性、锁屏下其他区域触摸屏蔽、电源键唤醒与锁屏逻辑联动。",
+      "assets": {
+        "full": {
+          "name": "Vink-PaperS3-v0.3.12-rc-lockscreen-lockscreen-full-16MB.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.3.12-rc-lockscreen/Vink-PaperS3-v0.3.12-rc-lockscreen-lockscreen-full-16MB.bin",
+          "size": 16777216,
+          "flashOffset": 0
+        }
+      }
+    },
+    {
       "version": "v0.3.11-rc-legado-sync",
       "name": "Vink-PaperS3 v0.3.11-rc-legado-sync Legado 官方进度同步修正版",
       "summary": "修正 Legado 进度同步为官方 Web API 形态：/saveBookProgress 使用 BookProgress.name/author 字段；拉取进度改从 /getBookshelf 读取书架记录，不再调用不存在的 /getBookProgress；启动时自动加载已保存的 Legado 配置。",
@@ -74,21 +89,6 @@
         "full": {
           "name": "Vink-PaperS3-v0.3.7-rc-aa-unified-24px-full-16MB.bin",
           "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.3.7-rc/Vink-PaperS3-v0.3.7-rc-aa-unified-24px-full-16MB.bin",
-          "size": 16777216,
-          "flashOffset": 0
-        }
-      }
-    },
-    {
-      "version": "v0.3.6-rc",
-      "name": "Vink-PaperS3 v0.3.6-rc 竖屏接管诊断 RC",
-      "summary": "修正 v0.3.5 真机反馈的横屏问题：按官方触摸示例回到 rotation 0 / 540×960 竖屏；保留官方启动探针，随后进入 ASCII 竖屏诊断页验证 Vink Canvas 接管和 raw 触摸坐标。",
-      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.3.6-rc",
-      "changelog": "## Vink-PaperS3 v0.3.6-rc 竖屏接管诊断 RC\n\n### 目的\n- 用户真机确认 v0.3.5-rc 官方启动探针有显示，且触摸能点中。\n- 同时反馈显示变横屏、中文字没有显示出来。\n- 因此本版不再查 bootloader/合包，而是修正显示基准并隔离字体路径。\n\n### 改动\n- 显示/触摸基准改回官方 PaperS3 触摸示例：`M5.begin()` + `M5.Display.setRotation(0)` + `M5.update()` + `M5.Touch.getDetail()` raw 坐标。\n- Vink 逻辑画布恢复竖屏 `540×960`。\n- 保留 direct `M5.Display` 官方启动探针，但文字改为 `M5.begin + rotation 0`。\n- `BootComplete` 后先进入诊断页，不进入阅读器主页。\n- 诊断页使用英文 ASCII / M5Canvas 内置字体绘制，暂时绕开中文 CJK 字体路径，避免“字没显示”影响底层判断。\n- 诊断页显示 display 尺寸、rotation、USB/CHG/BAT、raw/norm 触摸坐标和 3×3 命中网格。\n\n### 验证状态\n- 本地已验证：编译、buildfs、full 16MB merge、local smoke。\n- 需要真机验证：是否竖屏显示 `VINK DIAGNOSTIC / OFFICIAL PORTRAIT`；触摸后 raw/norm 和黑点是否变化且位置正确。",
-      "assets": {
-        "full": {
-          "name": "Vink-PaperS3-v0.3.6-rc-portrait-diagnostic-full-16MB.bin",
-          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.3.6-rc/Vink-PaperS3-v0.3.6-rc-portrait-diagnostic-full-16MB.bin",
           "size": 16777216,
           "flashOffset": 0
         }

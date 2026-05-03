@@ -902,6 +902,40 @@ void VinkUiRenderer::renderDiagnostics(const Message& lastTouch, const char* eve
 
 // ── Shutdown / Legado sync ────────────────────────────────────────────────────
 
+void VinkUiRenderer::renderLockScreen(const String& imagePath) {
+    canvas_->fillScreen(0x7BEF);  // e-paper mid-gray background
+    if (!imagePath.isEmpty()) {
+        File f = SD.open(imagePath.c_str(), FILE_READ);
+        if (f) {
+            size_t len = f.size();
+            std::unique_ptr<uint8_t[]> buf(new uint8_t[len]);
+            if (buf) {
+                size_t got = f.read(buf.get(), len);
+                f.close();
+                if (got == len) {
+                    if (imagePath.endsWith(".png") || imagePath.endsWith(".PNG")) {
+                        canvas_->drawPng(buf.get(), len);
+                    } else {
+                        canvas_->drawJpg(buf.get(), len);
+                    }
+                    Serial.printf("[vink3][lock] lock image loaded from MEM: %s (%u bytes)\n",
+                                  imagePath.c_str(), static_cast<unsigned>(len));
+                } else {
+                    Serial.printf("[vink3][lock] short read lock image: %s\n", imagePath.c_str());
+                    canvas_->fillScreen(0x7BEF);
+                }
+            } else {
+                f.close();
+                Serial.printf("[vink3][lock] OOM for lock image: %s\n", imagePath.c_str());
+                canvas_->fillScreen(0x7BEF);
+            }
+        } else {
+            Serial.printf("[vink3][lock] could not open lock image: %s\n", imagePath.c_str());
+            canvas_->fillScreen(0x7BEF);
+        }
+    }
+}
+
 void VinkUiRenderer::renderShutdown(const char* reason) {
     if (!canvas_) return;
     clear();

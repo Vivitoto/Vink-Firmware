@@ -65,6 +65,11 @@ bool ConfigService::loadFromJson(JsonObjectConst obj) {
     if (obj.containsKey("verticalTextDefault")) config_.verticalTextDefault = obj["verticalTextDefault"].as<bool>();
     if (obj.containsKey("simplifiedChinese"))  config_.simplifiedChinese = obj["simplifiedChinese"].as<bool>();
 
+    // Lock Screen
+    if (obj.containsKey("lockScreenImagePath"))      config_.lockScreenImagePath       = obj["lockScreenImagePath"].as<String>();
+    if (obj.containsKey("lockScreenEnabled"))        config_.lockScreenEnabled        = obj["lockScreenEnabled"].as<bool>();
+    if (obj.containsKey("lockScreenWakeOnDoubleClick")) config_.lockScreenWakeOnDoubleClick = obj["lockScreenWakeOnDoubleClick"].as<bool>();
+
     Serial.println("[vink3][config] loaded from JSON");
     return true;
 }
@@ -104,6 +109,11 @@ bool ConfigService::save() const {
     obj["darkModeDefault"]  = config_.darkModeDefault;
     obj["verticalTextDefault"] = config_.verticalTextDefault;
     obj["simplifiedChinese"] = config_.simplifiedChinese;
+
+    // Lock Screen
+    obj["lockScreenImagePath"]      = config_.lockScreenImagePath.c_str();
+    obj["lockScreenEnabled"]       = config_.lockScreenEnabled;
+    obj["lockScreenWakeOnDoubleClick"] = config_.lockScreenWakeOnDoubleClick;
 
     File f = SPIFFS.open(kConfigFilePath, FILE_WRITE);
     if (!f) {

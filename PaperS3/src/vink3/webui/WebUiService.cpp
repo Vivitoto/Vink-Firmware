@@ -851,6 +851,9 @@ function loadConfig() {
     $('legadoPort').value = c.legadoPort;
     $('legadoToken').value = '';
     $('legadoToken').placeholder = c.legadoToken?'●●●●●●●':'留空不修改';
+    $('lockScreenImagePath').value = c.lockScreenImagePath || '';
+    $('lockScreenEnabled').checked = c.lockScreenEnabled;
+    $('lockScreenWakeOnDoubleClick').checked = c.lockScreenWakeOnDoubleClick;
     $('autoSleepEnabled').checked = c.autoSleepEnabled;
     $('autoSleepMinutes').value = c.autoSleepMinutes;
     $('simplifiedChinese').checked = c.simplifiedChinese;
@@ -873,6 +876,9 @@ function saveConfig() {
     legadoEnabled: $('legadoEnabled').checked,
     legadoHost: $('legadoHost').value,
     legadoPort: +$('legadoPort').value,
+    lockScreenImagePath: $('lockScreenImagePath').value,
+    lockScreenEnabled: $('lockScreenEnabled').checked,
+    lockScreenWakeOnDoubleClick: $('lockScreenWakeOnDoubleClick').checked,
     autoSleepEnabled: $('autoSleepEnabled').checked,
     autoSleepMinutes: +$('autoSleepMinutes').value,
     simplifiedChinese: $('simplifiedChinese').checked
