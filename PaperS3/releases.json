@@ -1,0 +1,98 @@
+{
+  "schema": 1,
+  "device": "PaperS3",
+  "firmwareName": "Vink-PaperS3",
+  "description": "面向 M5Stack PaperS3 的 Vink 电子书阅读固件。",
+  "releases": [
+    {
+      "version": "v0.3.11-rc-legado-sync",
+      "name": "Vink-PaperS3 v0.3.11-rc-legado-sync Legado 官方进度同步修正版",
+      "summary": "修正 Legado 进度同步为官方 Web API 形态：/saveBookProgress 使用 BookProgress.name/author 字段；拉取进度改从 /getBookshelf 读取书架记录，不再调用不存在的 /getBookProgress；启动时自动加载已保存的 Legado 配置。",
+      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.3.11-rc-legado-sync",
+      "changelog": "## Vink-PaperS3 v0.3.11-rc-legado-sync Legado 官方进度同步修正版\n\n### Legado 官方依据\n- Legado 官方 `api.md` 要求先启用 Web 服务，Web API 提供 `/getBookshelf`、`/getChapterList`、`/getBookContent`、`/saveBookProgress`。\n- Legado 官方 `BookProgress.kt` 字段为 `name`、`author`、`durChapterIndex`、`durChapterPos`、`durChapterTime`、`durChapterTitle`。\n- Legado 官方 `BookController.saveBookProgress` 会按 `name + author` 找书、更新进度，并调用 `AppWebDav.uploadBookProgress`。因此 Vink 固件不需要额外自建 WebDAV 服务；如果手机端 Legado 已配置 WebDAV 和同步阅读进度，Legado 会负责上传。\n\n### 修正内容\n- `/saveBookProgress` POST JSON 改为官方 `BookProgress` 字段，不再发送错误的 `bookUrl` 字段。\n- 拉取进度不再调用官方 Web API 中不存在的 `/getBookProgress`，改为通过 `/getBookshelf` 匹配 `name/author` 并读取 `durChapterIndex/durChapterPos`。\n- GET 请求也携带可选 Authorization token，和 POST 保持一致。\n- 开机启动服务时自动根据已保存的 Legado host/port/token 配置 `LegadoService`，不需要先手动进入同步页才能连通。\n- 配置页/同步页保存 Legado 设置时统一补全 scheme 与端口，例如 `192.168.1.10 + 1122` 会规范为 `http://192.168.1.10:1122`。\n- 从 Legado 恢复进度时会先构建目标章节页表，再跳到对应页，避免只写入索引但继续阅读仍从头开始。\n\n### 保留 v0.3.10 改动\n- 阅读排版异步重建、边距循环、WebUI 排版参数、底部进度条、深色模式正文、书末完成页、长按书签路由、WebUI SD-only 文件管理、TXT/GBK/TOC 修复均保留。\n\n### 验证状态\n- 本地已验证：source smoke、PlatformIO build、buildfs、full 16MB merge。\n- 需要真机验证：Legado Web 服务连通、同名书籍 `name/author` 匹配、进度推送后手机端 Legado 是否更新并触发其 WebDAV 上传、从 `/getBookshelf` 恢复进度、阅读页跳转位置。",
+      "assets": {
+        "full": {
+          "name": "Vink-PaperS3-v0.3.11-rc-legado-sync-legado-sync-full-16MB.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.3.11-rc-legado-sync/Vink-PaperS3-v0.3.11-rc-legado-sync-legado-sync-full-16MB.bin",
+          "size": 16777216,
+          "flashOffset": 0
+        }
+      }
+    },
+    {
+      "version": "v0.3.10-rc-async-rebuild",
+      "name": "Vink-PaperS3 v0.3.10-rc-async-rebuild 排版异步重建 + 阅读体验收尾版",
+      "summary": "阅读排版体验收尾：字号/行距/边距调整后异步重建分页，避免 UI 卡顿；边距循环；WebUI 暴露排版参数；阅读页增加底部进度条、深色模式渲染、书末完成页，并修复长按书签路由。",
+      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.3.10-rc-async-rebuild",
+      "changelog": "## Vink-PaperS3 v0.3.10-rc-async-rebuild 排版异步重建 + 阅读体验收尾版\n\n### 阅读排版\n- **异步分页重建**：字号、行距、边距变更后标记布局 dirty，由后台 rebuild，减少设置操作阻塞。\n- **即时生效**：字号和行距调整后立即保存配置并触发布局重建。\n- **边距循环**：边距设置改为小/中/大循环，避免单向调整不可回退。\n- **WebUI 排版设置补齐**：WebUI 配置接口和页面暴露段间距、首行缩进、上下左右边距，和固件端阅读配置保持一致。\n\n### 阅读体验\n- **底部进度条**：阅读页除了 `页码 / 总页数 · 百分比`，底部增加细进度条，扫一眼就能判断章节进度。\n- **书末完成页**：读到最后一页后继续翻页会显示“本书已读完”，不再像无响应；左侧点击/右滑可回最后一页，中间或右侧点击进入书籍入口。\n- **深色模式生效**：阅读正文页和书末页现在会遵循深色模式配置。\n- **长按书签修复**：阅读状态实际是 `ReaderMenu`，长按事件已改为路由到阅读服务，长按中区添加书签不再不可达。\n\n### 文本/同步/WebUI 稳定性\n- Legado JSON 解析不再返回由局部 `StaticJsonDocument` 支撑的 `JsonArray` 视图，避免生命周期悬空。\n- GBK 转 UTF-8 前会清理旧临时文件，避免源 TXT 变化后读到 stale temp。\n- TXT 目录偏移改为真实文件 byte offset，固件端与 host TOC 工具保持一致。\n- WebUI 文件管理收敛为 SD-only，拒绝危险路径，修复 query 精确解析、目录项关闭、上传完整性和 mkdir 错误返回。\n- WiFi AP/WebUI 启动检查失败路径，失败时回滚到 Off，避免 UI 显示与实际状态不一致。\n\n### 验证状态\n- 本地已验证：source smoke、PlatformIO build、buildfs、full 16MB merge。\n- 需要真机验证：字号/行距/边距调整后的分页重建速度、阅读页刷新稳定性、触摸设置项命中与视觉一致性、长按书签、深色模式可读性、书末页流程、WebUI SD 文件管理、Legado 连通性。",
+      "assets": {
+        "full": {
+          "name": "Vink-PaperS3-v0.3.10-rc-async-rebuild-async-rebuild-full-16MB.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.3.10-rc-async-rebuild/Vink-PaperS3-v0.3.10-rc-async-rebuild-async-rebuild-full-16MB.bin",
+          "size": 16777216,
+          "flashOffset": 0
+        }
+      }
+    },
+    {
+      "version": "v0.3.9-rc-ui-restore",
+      "name": "Vink-PaperS3 v0.3.9-rc-ui-restore 阅读体验增强版",
+      "summary": "阅读体验全面增强：书架显示进度百分比、阅读中呼出菜单栏（中央点击）、左右滑翻页改为左右滑切换 Tab、Legado 自动同步开关、完整书签功能、字体切换 UI（设置页扫描 SD/SPIFFS 字库切换）。",
+      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.3.9-rc-ui-restore",
+      "changelog": "## Vink-PaperS3 v0.3.9-rc-ui-restore 阅读体验增强版\n\n### 阅读体验\n- **书架进度**：书架每本书后显示阅读进度百分比（XX%）。\n- **阅读菜单**：阅读时点击屏幕中央呼出白色菜单栏，包含字号 +/-、目录、书签、进度、深色模式切换。\n- **左右滑还原**：原左右滑动调节字号改为左右滑切换 Tab（阅读→书架→同步→设置），字号调节移至菜单栏按钮。\n- **书签**：完整书签功能，支持添加当前页为书签、书签列表、点击跳转、自动保存在书籍同目录下 `.vink-bookmarks` sidecar。\n\n### 设置与同步\n- **字体切换**：设置 → 阅读排版 增加字体切换行，扫描 SD `/fonts/` 和 SPIFFS 字库文件，保存字体索引，启动时自动加载。\n- **Legado 自动同步开关**：同步页新增「自动同步」行，点击切换开启/关闭；开启时开书自动拉取 Legado 进度、关书自动推送当前进度。\n\n### 验证状态\n- 本地已验证：source smoke、PlatformIO build、buildfs、full 16MB merge。\n- 需要真机验证：书架进度百分比、阅读菜单呼出/按钮触控、书签添加与跳转、字体切换后渲染效果、Legado 同步开关。",
+      "assets": {
+        "full": {
+          "name": "Vink-PaperS3-v0.3.9-rc-ui-restore-full-16MB.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.3.9-rc-ui-restore/Vink-PaperS3-v0.3.9-rc-ui-restore-full-16MB.bin",
+          "size": 16777216,
+          "flashOffset": 0
+        }
+      }
+    },
+    {
+      "version": "v0.3.8-rc",
+      "name": "Vink-PaperS3 v0.3.8-rc A+B+D 三合一优化版",
+      "summary": "三合一优化：epd_text LUT 改善文字刷新质量、线性 kRemap 消除激进压缩导致的 Bayer 节结、ReaderTextRenderer 全部走 pixelColorForNibble 统一 AA 路径。",
+      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.3.8-rc",
+      "changelog": "## Vink-PaperS3 v0.3.8-rc A+B+D 三合一优化版\n\n### 三项优化\n- **A. epd_text LUT**：普通 UI push 改用 epd_text (kNormalRefresh) 而非 epd_quality，改善文字/UI 刷新质量。\n- **B. 线性 kRemap**：CjkTextRenderer + ReaderTextRenderer 的 kRemap 表改为完全线性（无激进压缩），消除激进压缩导致的 Bayer dithering 节结/锯齿。\n- **D. Reader 统一 AA 路径**：ReaderTextRenderer 不再对 nibble 分级硬编码颜色，全部走 pixelColorForNibble 统一映射。\n\n### 改动\n- DisplayService::chooseRefreshMode：普通 push 返回 kNormalRefresh (epd_text)；质量请求仍用 epd_quality。\n- VinkRuntime 启动探针后同样用 epd_text。\n- CjkTextRenderer::pixelColorForNibble：kRemap 注释更新为线性版本。\n- ReaderTextRenderer::pixelColorForNibble：kRemap 注释更新为线性版本；drawReadPaperGlyph 不再硬编码颜色分段，全部走 pixelColorForNibble。\n\n### 验证状态\n- 本地已验证：source smoke、PlatformIO build、buildfs、full 16MB merge。\n- 需要真机验证：文字边缘锯齿是否改善、epd_text 刷新质量、Reader 渲染路径是否正常。",
+      "assets": {
+        "full": {
+          "name": "Vink-PaperS3-v0.3.8-rc-abc-full-16MB.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.3.8-rc/Vink-PaperS3-v0.3.8-rc-abc-full-16MB.bin",
+          "size": 16777216,
+          "flashOffset": 0
+        }
+      }
+    },
+    {
+      "version": "v0.3.7-rc",
+      "name": "Vink-PaperS3 v0.3.7-rc 抗锯齿灰度修复 & 统一 24px RC",
+      "summary": "基于真机反馈保留 24px UI 简体字体与现有卡片布局，修复：英文大小写 descender baseline 对齐、中文同一行盒、Reader 提示页标点 yOffset；增强抗锯齿灰度 gamma 补偿映射，使笔画边缘在电子纸上清晰锐利。",
+      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.3.7-rc",
+      "changelog": "## Vink-PaperS3 v0.3.7-rc 抗锯齿灰度修复 & 统一 24px RC\n\n### 目的\n- 用户确认 24px 字号和卡片布局无误，继续修复字体渲染细节。\n- 英文大小写 descender 位置、中文行盒对齐、Reader 提示页标点需要修复。\n- 抗锯齿灰阶在电子纸上发虚，需要 gamma 补偿使笔画清晰。\n\n### 改动\n- 保留 24px UI 简体字体与原卡片布局。\n- 英文大小写混排按统一 baseline；`g/p/y/j/q` 等 descender 正常下探到 baseline 下方。\n- 中文标签、右侧值与英文混排共享同一 UI line-box。\n- Reader 书架提示页英文标点（`.` `o` `v` `,`）使用 ReadPaper 字库自带 `yOffset`，不再被居中抬高。\n- 两处渲染器的 4bpp 灰度抗锯齿像素通过 gamma 补偿映射表转换：最外层 AA 边缘（nibble 1）保持极淡灰度（0xEFFF），内层到核心笔画（nibble 2→15）平滑加深到纯黑，消除旧代码所有边缘变成同一中间灰度的发虚感。\n- 按钮文字在按钮几何中心精确居中。\n- 不再使用 16px 小字（SPIFFS 灰阶字体），避免刷不出来的问题。\n\n### 官方依据与验证边界\n- 官方依据：PaperS3 为 960×540 / 16 级灰度 EPD。\n- 经验判断 / 需要真机验证：gamma 补偿后笔画边缘在电子纸上的实际清晰度。\n\n### 验证状态\n- 本地已验证：source smoke、PlatformIO build、buildfs、full 16MB merge。\n- 需要真机验证：英文 descender、中文行盒对齐、标点位置、抗锯齿边缘清晰度。",
+      "assets": {
+        "full": {
+          "name": "Vink-PaperS3-v0.3.7-rc-aa-unified-24px-full-16MB.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.3.7-rc/Vink-PaperS3-v0.3.7-rc-aa-unified-24px-full-16MB.bin",
+          "size": 16777216,
+          "flashOffset": 0
+        }
+      }
+    },
+    {
+      "version": "v0.3.6-rc",
+      "name": "Vink-PaperS3 v0.3.6-rc 竖屏接管诊断 RC",
+      "summary": "修正 v0.3.5 真机反馈的横屏问题：按官方触摸示例回到 rotation 0 / 540×960 竖屏；保留官方启动探针，随后进入 ASCII 竖屏诊断页验证 Vink Canvas 接管和 raw 触摸坐标。",
+      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.3.6-rc",
+      "changelog": "## Vink-PaperS3 v0.3.6-rc 竖屏接管诊断 RC\n\n### 目的\n- 用户真机确认 v0.3.5-rc 官方启动探针有显示，且触摸能点中。\n- 同时反馈显示变横屏、中文字没有显示出来。\n- 因此本版不再查 bootloader/合包，而是修正显示基准并隔离字体路径。\n\n### 改动\n- 显示/触摸基准改回官方 PaperS3 触摸示例：`M5.begin()` + `M5.Display.setRotation(0)` + `M5.update()` + `M5.Touch.getDetail()` raw 坐标。\n- Vink 逻辑画布恢复竖屏 `540×960`。\n- 保留 direct `M5.Display` 官方启动探针，但文字改为 `M5.begin + rotation 0`。\n- `BootComplete` 后先进入诊断页，不进入阅读器主页。\n- 诊断页使用英文 ASCII / M5Canvas 内置字体绘制，暂时绕开中文 CJK 字体路径，避免“字没显示”影响底层判断。\n- 诊断页显示 display 尺寸、rotation、USB/CHG/BAT、raw/norm 触摸坐标和 3×3 命中网格。\n\n### 验证状态\n- 本地已验证：编译、buildfs、full 16MB merge、local smoke。\n- 需要真机验证：是否竖屏显示 `VINK DIAGNOSTIC / OFFICIAL PORTRAIT`；触摸后 raw/norm 和黑点是否变化且位置正确。",
+      "assets": {
+        "full": {
+          "name": "Vink-PaperS3-v0.3.6-rc-portrait-diagnostic-full-16MB.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.3.6-rc/Vink-PaperS3-v0.3.6-rc-portrait-diagnostic-full-16MB.bin",
+          "size": 16777216,
+          "flashOffset": 0
+        }
+      }
+    }
+  ]
+}

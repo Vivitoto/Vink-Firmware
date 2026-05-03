@@ -1,0 +1,12 @@
+{
+  "magic": "GRAY",
+  "version": 1,
+  "fontSize": 16,
+  "charCount": 3875,
+  "bitmapDataSize": 486302,
+  "fontFamily": "Noto Sans CJK SC",
+  "fontStyle": "Regular",
+  "sourceFile": "NotoSansCJK-Regular.ttc",
+  "faceIndex": 2,
+  "generatedBy": "generate_gray_font.py"
+}
