@@ -5,6 +5,21 @@
   "description": "面向 M5Stack PaperS3 的 Vink 电子书阅读固件。",
   "releases": [
     {
+      "version": "v0.3.13-rc-performance",
+      "name": "Vink-PaperS3 v0.3.13-rc-performance 阅读性能与显示队列优化版",
+      "summary": "本地 RC：优化显示队列快照管理，降低连续刷新时 PSRAM 快照堆积/队列错配风险；为阅读正文 ReadPaper 字体查找加入有界 glyph L1 缓存，减少分页与渲染时重复 PROGMEM 二分查找；补充本地 smoke 回归检查。",
+      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.3.13-rc-performance",
+      "changelog": "## Vink-PaperS3 v0.3.13-rc-performance 阅读性能与显示队列优化版\n\n### 阅读性能\n- **正文 glyph L1 缓存**：ReaderTextRenderer 为完整 ReadPaper PROGMEM 字体增加有界直接映射缓存，分页和页面渲染中常见字符不再每次都二分查找整张字体索引。\n- **安全降级**：缓存申请失败时自动回退到原有 PROGMEM 直查路径，不影响启动和阅读。\n\n### 显示队列稳定性\n- **请求与画布快照绑定**：DisplayService 改为单队列 `QueuedDisplayRequest`，显示请求和 immutable canvas snapshot 一起排队，避免请求队列与快照队列错配。\n- **限制快照堆积**：默认显示队列从 8 收敛到 3，减少连续操作时多个全屏 PSRAM 快照同时驻留。\n- **队列满时释放快照**：队列满会删除刚创建的快照并返回失败，不泄漏 PSRAM，也不回退推送 mutable global canvas。\n\n### 本地回归保护\n- smoke 检查增加显示单队列/队列上限/glyph 缓存/安全回退等不变量，避免后续重构把这些优化删掉。\n\n### 验证状态\n- 本地已验证：source smoke、PlatformIO build、buildfs、full 16MB merge。\n- 需要真机验证：连续翻页/设置操作下的刷新稳定性、首次分页速度体感、长章节翻页是否更顺、PSRAM 余量日志。",
+      "assets": {
+        "full": {
+          "name": "Vink-PaperS3-v0.3.13-rc-performance-full-16MB.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.3.13-rc-performance/Vink-PaperS3-v0.3.13-rc-performance-full-16MB.bin",
+          "size": 16777216,
+          "flashOffset": 0
+        }
+      }
+    },
+    {
       "version": "v0.3.12-rc-lockscreen",
       "name": "Vink-PaperS3 v0.3.12-rc-lockscreen 锁屏功能版",
       "summary": "新增锁屏功能：SD 卡图片作为锁屏画面，右下角双击加锁，解锁方式可配置为双击或电源键；WebUI 增加锁屏图片路径/启用/唤醒方式配置项；保留 v0.3.11 Legado 同步修正和 v0.3.10 阅读体验改进。",
@@ -74,21 +89,6 @@
         "full": {
           "name": "Vink-PaperS3-v0.3.8-rc-abc-full-16MB.bin",
           "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.3.8-rc/Vink-PaperS3-v0.3.8-rc-abc-full-16MB.bin",
-          "size": 16777216,
-          "flashOffset": 0
-        }
-      }
-    },
-    {
-      "version": "v0.3.7-rc",
-      "name": "Vink-PaperS3 v0.3.7-rc 抗锯齿灰度修复 & 统一 24px RC",
-      "summary": "基于真机反馈保留 24px UI 简体字体与现有卡片布局，修复：英文大小写 descender baseline 对齐、中文同一行盒、Reader 提示页标点 yOffset；增强抗锯齿灰度 gamma 补偿映射，使笔画边缘在电子纸上清晰锐利。",
-      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.3.7-rc",
-      "changelog": "## Vink-PaperS3 v0.3.7-rc 抗锯齿灰度修复 & 统一 24px RC\n\n### 目的\n- 用户确认 24px 字号和卡片布局无误，继续修复字体渲染细节。\n- 英文大小写 descender 位置、中文行盒对齐、Reader 提示页标点需要修复。\n- 抗锯齿灰阶在电子纸上发虚，需要 gamma 补偿使笔画清晰。\n\n### 改动\n- 保留 24px UI 简体字体与原卡片布局。\n- 英文大小写混排按统一 baseline；`g/p/y/j/q` 等 descender 正常下探到 baseline 下方。\n- 中文标签、右侧值与英文混排共享同一 UI line-box。\n- Reader 书架提示页英文标点（`.` `o` `v` `,`）使用 ReadPaper 字库自带 `yOffset`，不再被居中抬高。\n- 两处渲染器的 4bpp 灰度抗锯齿像素通过 gamma 补偿映射表转换：最外层 AA 边缘（nibble 1）保持极淡灰度（0xEFFF），内层到核心笔画（nibble 2→15）平滑加深到纯黑，消除旧代码所有边缘变成同一中间灰度的发虚感。\n- 按钮文字在按钮几何中心精确居中。\n- 不再使用 16px 小字（SPIFFS 灰阶字体），避免刷不出来的问题。\n\n### 官方依据与验证边界\n- 官方依据：PaperS3 为 960×540 / 16 级灰度 EPD。\n- 经验判断 / 需要真机验证：gamma 补偿后笔画边缘在电子纸上的实际清晰度。\n\n### 验证状态\n- 本地已验证：source smoke、PlatformIO build、buildfs、full 16MB merge。\n- 需要真机验证：英文 descender、中文行盒对齐、标点位置、抗锯齿边缘清晰度。",
-      "assets": {
-        "full": {
-          "name": "Vink-PaperS3-v0.3.7-rc-aa-unified-24px-full-16MB.bin",
-          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.3.7-rc/Vink-PaperS3-v0.3.7-rc-aa-unified-24px-full-16MB.bin",
           "size": 16777216,
           "flashOffset": 0
         }
