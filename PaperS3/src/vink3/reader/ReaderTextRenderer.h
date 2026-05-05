@@ -47,13 +47,6 @@ private:
         uint32_t bitmapSize = 0;
     };
 
-    struct GlyphCacheEntry {
-        uint16_t unicode = 0;
-        ReadPaperGlyph glyph{};
-        bool valid = false;
-        bool found = false;
-    };
-
     static uint32_t decodeUtf8(const uint8_t* buf, size_t& pos, size_t len);
     bool beginReadPaperFullFont();
     bool findReadPaperGlyph(uint32_t unicode, ReadPaperGlyph& out) const;
@@ -71,8 +64,6 @@ private:
     uint32_t readPaperCharCount_ = 0;
     uint8_t readPaperFontHeight_ = 0;
     uint8_t optionsFontSize_ = 0;
-    GlyphCacheEntry* glyphCache_ = nullptr;
-    size_t glyphCacheSize_ = 0;
     FontManager font_;
 };
 

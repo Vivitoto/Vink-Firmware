@@ -13,9 +13,16 @@ bool DisplayService::begin(M5Canvas* canvas, uint8_t queueLen) {
     }
     canvas_ = canvas;
     if (!queue_) {
-        queue_ = xQueueCreate(queueLen, sizeof(QueuedDisplayRequest));
+        queue_ = xQueueCreate(queueLen, sizeof(DisplayRequest));
         if (!queue_) {
             Serial.println("[vink3][display] begin failed: display queue create failed");
+            return false;
+        }
+    }
+    if (!canvasQueue_) {
+        canvasQueue_ = xQueueCreate(queueLen, sizeof(M5Canvas*));
+        if (!canvasQueue_) {
+            Serial.println("[vink3][display] begin failed: canvas queue create failed");
             return false;
         }
     }
@@ -50,13 +57,17 @@ bool DisplayService::enqueue(const DisplayRequest& request, uint32_t timeoutMs) 
         Serial.println("[vink3][display] enqueue skipped: canvas snapshot allocation failed");
         return false;
     }
-
-    QueuedDisplayRequest queued;
-    queued.request = request;
-    queued.canvasSnapshot = clone;
-    if (xQueueSend(queue_, &queued, pdMS_TO_TICKS(timeoutMs)) != pdTRUE) {
+    if (!enqueueCanvasCloneBlocking(clone)) {
         delete clone;
-        Serial.println("[vink3][display] enqueue skipped: display queue full");
+        Serial.println("[vink3][display] enqueue skipped: canvas snapshot queue failed");
+        return false;
+    }
+
+    if (xQueueSend(queue_, &request, pdMS_TO_TICKS(timeoutMs)) != pdTRUE) {
+        // Remove the clone we just queued if possible; otherwise the display task
+        // owns it and will delete it when it pops the next request.
+        M5Canvas* discarded = dequeueCanvasClone();
+        if (discarded) delete discarded;
         return false;
     }
     return true;
@@ -84,7 +95,8 @@ bool DisplayService::waitIdle(uint32_t timeoutMs) const {
 
 bool DisplayService::isBusy() const {
     const bool queued = queue_ && uxQueueMessagesWaiting(queue_) > 0;
-    return busy_ || queued;
+    const bool canvasQueued = canvasQueue_ && uxQueueMessagesWaiting(canvasQueue_) > 0;
+    return busy_ || queued || canvasQueued;
 }
 
 uint32_t DisplayService::pushCount() const {
@@ -100,16 +112,16 @@ void DisplayService::taskThunk(void* arg) {
 }
 
 void DisplayService::taskLoop() {
-    QueuedDisplayRequest queued;
+    DisplayRequest request;
     for (;;) {
-        if (xQueueReceive(queue_, &queued, portMAX_DELAY) == pdTRUE) {
-            if (!queued.canvasSnapshot) {
+        if (xQueueReceive(queue_, &request, portMAX_DELAY) == pdTRUE) {
+            M5Canvas* canvasToPush = dequeueCanvasClone();
+            if (!canvasToPush) {
                 Serial.println("[vink3][display] dropped request: missing immutable canvas snapshot");
                 continue;
             }
-            push(queued.request, queued.canvasSnapshot);
-            delete queued.canvasSnapshot;
-            queued.canvasSnapshot = nullptr;
+            push(request, canvasToPush);
+            delete canvasToPush;
         }
     }
 }
@@ -135,6 +147,18 @@ M5Canvas* DisplayService::cloneCanvas() const {
     }
     memcpy(dst, src, len);
     return clone;
+}
+
+bool DisplayService::enqueueCanvasCloneBlocking(M5Canvas* clone) {
+    if (!canvasQueue_ || !clone) return false;
+    return xQueueSend(canvasQueue_, &clone, portMAX_DELAY) == pdTRUE;
+}
+
+M5Canvas* DisplayService::dequeueCanvasClone() {
+    if (!canvasQueue_) return nullptr;
+    M5Canvas* clone = nullptr;
+    if (xQueueReceive(canvasQueue_, &clone, 0) == pdTRUE) return clone;
+    return nullptr;
 }
 
 epd_mode_t DisplayService::chooseRefreshMode(const DisplayRequest& request) {

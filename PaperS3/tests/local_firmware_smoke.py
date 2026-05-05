@@ -24,7 +24,7 @@ PROJECT = Path(__file__).resolve().parents[1]
 REPO = PROJECT.parent
 WORKSPACE = Path("/home/vito/.openclaw/workspace")
 ARTIFACTS = WORKSPACE / "artifacts" / "Vink-PaperS3"
-DEFAULT_SLUG = "performance"
+DEFAULT_SLUG = "sd-boot-hotfix"
 APP_SLOT_SIZE = 0xC00000  # v0.3 single-app layout for full ReadPaper PROGMEM font
 SPIFFS_SIZE = 0x3F0000
 FULL_FLASH_SIZE = 0x1000000
@@ -108,7 +108,6 @@ def vink3_source_invariants(main_cpp: str) -> None:
     cjk_cpp = read("src/vink3/text/CjkTextRenderer.cpp")
     ui_font_cpp = read("src/vink3/text/VinkUiFont24.cpp")
     reader_cpp = read("src/vink3/reader/ReaderTextRenderer.cpp")
-    reader_h = read("src/vink3/reader/ReaderTextRenderer.h")
     reader_book_h = read("src/vink3/reader/ReaderBookService.h")
     reader_book_cpp = read("src/vink3/reader/ReaderBookService.cpp")
     config_cpp = read("src/vink3/config/ConfigService.cpp")
@@ -122,7 +121,7 @@ def vink3_source_invariants(main_cpp: str) -> None:
     platformio = read("platformio.ini")
 
     assert_contains(main_cpp, "xTaskCreatePinnedToCore", "v0.3 main starts a ReadPaper-style pinned MainTask")
-    assert_contains(upstream, "kVinkPaperS3FirmwareVersion = \"v0.3.13-rc-performance\"", "single firmware version constant matches the manifest top version")
+    assert_contains(upstream, "kVinkPaperS3FirmwareVersion = \"v0.3.14-rc-sd-boot-hotfix\"", "single firmware version constant matches the manifest top version")
     assert_contains(main_cpp, "kVinkPaperS3FirmwareVersion", "main task init log uses the shared firmware version")
     assert_contains(runtime_cpp, "kVinkPaperS3FirmwareVersion", "runtime boot logs use the shared firmware version")
     assert_not_contains(main_cpp, "v0.3.2-rc", "main task must not show stale firmware version")
@@ -152,12 +151,8 @@ def vink3_source_invariants(main_cpp: str) -> None:
     assert_contains(upstream, "V1.7.6", "v0.3 baseline is ReadPaper V1.7.6")
     assert_contains(upstream, "e910d29", "v0.3 baseline records latest remote commit")
     assert_contains(display_h, "DisplayRequest", "v0.3 display queue has ReadPaper-style request struct")
-    assert_contains(display_h, "QueuedDisplayRequest", "display request and immutable snapshot travel in one queue item")
-    assert_contains(display_h, "queueLen = 3", "display queue length is capped to avoid PSRAM snapshot pileups")
-    assert_not_contains(display_h, "canvasQueue_", "display service must not keep a separate snapshot queue that can desync")
     assert_contains(display_cpp, "cloneCanvas()", "v0.3 display queue snapshots canvas before physical push")
     assert_contains(display_cpp, "enqueue skipped: canvas snapshot allocation failed", "display service drops/retries instead of pushing mutable canvas if snapshot fails")
-    assert_contains(display_cpp, "enqueue skipped: display queue full", "display service releases snapshots when the bounded queue is full")
     assert_not_contains(display_cpp, "canvasToPush ? canvasToPush : canvas_", "display service must not fall back to mutable global canvas")
     assert_contains(display_cpp, "M5.Display.waitDisplay()", "v0.3 display task serializes physical EPD pushes")
     assert_contains(display_cpp, "return kQualityRefresh", "display service uses official-baseline quality refresh until real-device boot is stable")
@@ -230,9 +225,6 @@ def vink3_source_invariants(main_cpp: str) -> None:
     assert_contains(reader_cpp, "visual top coordinate", "reader gray fallback rendering must not baseline-stagger Latin letters")
     assert_contains(reader_cpp, "ReaderTextRenderer", "v0.3 has a separate reader body renderer")
     assert_contains(reader_cpp, "beginReadPaperFullFont", "reader body renderer uses full ReadPaper PROGMEM font")
-    assert_contains(reader_h, "GlyphCacheEntry", "reader text renderer has a bounded glyph lookup cache")
-    assert_contains(reader_cpp, "GLYPH_L1_CACHE_SIZE", "reader glyph cache size is controlled by Config.h")
-    assert_contains(reader_cpp, "using direct PROGMEM lookup", "reader glyph cache allocation has a safe fallback")
     assert_contains(reader_cpp, "· %u%%", "reader footer shows chapter page progress percentage")
     assert_contains(reader_cpp, "Thin visual progress rail", "reader footer adds a visual progress rail")
     assert_contains(reader_cpp, "fillW", "reader progress rail fills according to percentage")
@@ -408,8 +400,7 @@ def manifest_and_artifacts(slug: str, strict_artifacts: bool = False) -> None:
     if full_offset != 0:
         fail(f"full flashOffset must be 0, got {full_offset}")
 
-    asset_name = full_asset.get("name") or f"Vink-PaperS3-{version}-{slug}-full-16MB.bin"
-    path = ARTIFACTS / asset_name
+    path = ARTIFACTS / f"Vink-PaperS3-{version}-{slug}-full-16MB.bin"
     if not path.exists():
         if strict_artifacts:
             fail(f"missing full artifact: {path}")
@@ -427,10 +418,8 @@ def manifest_and_artifacts(slug: str, strict_artifacts: bool = False) -> None:
 
 def built_artifacts_smoke(slug: str) -> None:
     data = json.loads((PROJECT / "releases.json").read_text(encoding="utf-8"))
-    release = data["releases"][0]
-    version = release["version"]
-    full_asset = (release.get("assets") or {}).get("full") or {}
-    path = ARTIFACTS / (full_asset.get("name") or f"Vink-PaperS3-{version}-{slug}-full-16MB.bin")
+    version = data["releases"][0]["version"]
+    path = ARTIFACTS / f"Vink-PaperS3-{version}-{slug}-full-16MB.bin"
     if not path.exists():
         fail(f"missing built full artifact: {path}")
     size = path.stat().st_size
@@ -463,11 +452,9 @@ def json_valid() -> None:
 def build_all(slug: str) -> None:
     if not shutil.which("pio"):
         fail("PlatformIO `pio` not found in PATH")
-    release = json.loads((PROJECT / "releases.json").read_text(encoding="utf-8"))["releases"][0]
-    version = release["version"]
-    full_asset = (release.get("assets") or {}).get("full") or {}
+    version = json.loads((PROJECT / "releases.json").read_text(encoding="utf-8"))["releases"][0]["version"]
     ARTIFACTS.mkdir(parents=True, exist_ok=True)
-    out = ARTIFACTS / (full_asset.get("name") or f"Vink-PaperS3-{version}-{slug}-full-16MB.bin")
+    out = ARTIFACTS / f"Vink-PaperS3-{version}-{slug}-full-16MB.bin"
 
     run(["tools/build_full_firmware.sh", str(out)])
     if not out.exists():

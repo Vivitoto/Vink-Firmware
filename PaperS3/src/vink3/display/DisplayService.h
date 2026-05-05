@@ -27,7 +27,7 @@ struct DisplayRequest {
 
 class DisplayService {
 public:
-    bool begin(M5Canvas* canvas, uint8_t queueLen = 3);
+    bool begin(M5Canvas* canvas, uint8_t queueLen = 8);
     bool enqueue(const DisplayRequest& request, uint32_t timeoutMs = 20);
     bool enqueueFull(bool quality = false, uint32_t timeoutMs = 20);
     bool waitIdle(uint32_t timeoutMs = 3000) const;
@@ -38,17 +38,15 @@ public:
 private:
     static void taskThunk(void* arg);
     void taskLoop();
-    struct QueuedDisplayRequest {
-        DisplayRequest request;
-        M5Canvas* canvasSnapshot = nullptr;
-    };
-
     void push(const DisplayRequest& request, M5Canvas* canvasToPush);
     M5Canvas* cloneCanvas() const;
+    bool enqueueCanvasCloneBlocking(M5Canvas* clone);
+    M5Canvas* dequeueCanvasClone();
     epd_mode_t chooseRefreshMode(const DisplayRequest& request);
 
     M5Canvas* canvas_ = nullptr;
     QueueHandle_t queue_ = nullptr;
+    QueueHandle_t canvasQueue_ = nullptr;
     TaskHandle_t task_ = nullptr;
     volatile bool busy_ = false;
     volatile uint32_t pushCount_ = 0;

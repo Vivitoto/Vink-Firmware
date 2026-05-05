@@ -143,20 +143,12 @@ bool VinkRuntime::beginCanvas() {
 
 bool VinkRuntime::beginServices() {
     g_configService.begin();
-    // Apply saved font selection (if any SD/SPIFFS fonts are available)
-    {
-        char paths[32][128];
-        char names[32][64];
-        int count = FontManager::scanFonts(paths, names, 32);
-        if (count > 0) {
-            uint8_t fi = g_configService.get().fontIndex;
-            if (fi >= count) fi = 0;
-            if (paths[fi][0]) {
-                g_readerText.loadFont(paths[fi]);
-                Serial.printf("[vink3][runtime] font loaded: %s\n", names[fi]);
-            }
-        }
-    }
+    // Keep boot SD-free. ReaderBookService intentionally initializes SD lazily;
+    // scanning/loading SD fonts here can wedge PaperS3 during startup with some
+    // cards inserted, leaving the boot probe repeatedly refreshed by reset loops.
+    // ReaderTextRenderer::begin() below loads the bundled ReadPaper PROGMEM font;
+    // SD fonts remain available from the layout/settings path after boot.
+    Serial.println("[vink3][runtime] boot font scan skipped; using default reader font");
     g_webUi.begin(&g_configService);
     if (!g_uiRenderer.begin(&canvas_)) return false;
     if (!g_readerText.begin(&canvas_)) return false;

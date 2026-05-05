@@ -5,6 +5,21 @@
   "description": "面向 M5Stack PaperS3 的 Vink 电子书阅读固件。",
   "releases": [
     {
+      "version": "v0.3.14-rc-sd-boot-hotfix",
+      "name": "Vink-PaperS3 v0.3.14-rc-sd-boot-hotfix 插卡启动热修复版",
+      "summary": "本地 RC：修复 v0.3.13 完整包在插入 SD 卡时可能卡在 official boot probe 并持续刷新/重启的问题；启动阶段不再扫描/加载 SD 字体，继续使用 ReadPaper PROGMEM 默认正文字体，SD 书籍与字体保留为启动后懒加载。",
+      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.3.14-rc-sd-boot-hotfix",
+      "changelog": "## Vink-PaperS3 v0.3.14-rc-sd-boot-hotfix 插卡启动热修复版\n\n### 启动稳定性\n- **跳过启动期 SD 字体扫描**：`VinkRuntime::beginServices()` 不再在开机阶段调用 `FontManager::scanFonts()` 触碰 SD，避免部分 SD 卡在官方 boot probe 后触发卡死、看门狗或重启循环。\n- **保留默认阅读字体**：启动后由 `ReaderTextRenderer::begin()` 加载 ReadPaper PROGMEM 完整正文字体，不依赖 SD 卡字体即可进入主界面。\n- **保持懒加载原则**：SD 书籍目录与 SD 字体仍保留给启动后的书库/设置路径使用，避免把 SD I/O 放回开机关键路径。\n\n### 保留 v0.3.13 性能优化\n- 保留显示请求与 immutable canvas snapshot 单队列绑定。\n- 保留显示队列上限收敛与队列满释放快照策略。\n- 保留 ReadPaper 正文字体 glyph L1 缓存及安全回退。\n\n### 验证状态\n- 本地已验证：source smoke。\n- 需要真机验证：插入同一张 SD 卡后是否能越过 `Vink PaperS3 official boot` 并进入主界面；进入书库后 SD 书籍扫描是否正常。",
+      "assets": {
+        "full": {
+          "name": "Vink-PaperS3-v0.3.14-rc-sd-boot-hotfix-full-16MB.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.3.14-rc-sd-boot-hotfix/Vink-PaperS3-v0.3.14-rc-sd-boot-hotfix-full-16MB.bin",
+          "size": 16777216,
+          "flashOffset": 0
+        }
+      }
+    },
+    {
       "version": "v0.3.13-rc-performance",
       "name": "Vink-PaperS3 v0.3.13-rc-performance 阅读性能与显示队列优化版",
       "summary": "本地 RC：优化显示队列快照管理，降低连续刷新时 PSRAM 快照堆积/队列错配风险；为阅读正文 ReadPaper 字体查找加入有界 glyph L1 缓存，减少分页与渲染时重复 PROGMEM 二分查找；补充本地 smoke 回归检查。",

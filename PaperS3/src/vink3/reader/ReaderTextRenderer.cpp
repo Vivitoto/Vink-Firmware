@@ -2,7 +2,6 @@
 #include "../../Config.h"
 #include "../ReadPaper176.h"
 #include "../text/ReadPaperFullFont.h"
-#include <esp_heap_caps.h>
 
 namespace {
 constexpr uint32_t kReadPaperHeaderSize = 134;
@@ -88,47 +87,11 @@ bool ReaderTextRenderer::beginReadPaperFullFont() {
     const uint32_t entriesEnd = kReadPaperHeaderSize + readPaperCharCount_ * kReadPaperEntrySize;
     if (entriesEnd >= g_readpaper_full_font_size) return false;
     readPaperFullReady_ = true;
-
-    // Hot path optimization: pagination and page rendering call glyph lookup for
-    // every visible character. A small direct-mapped cache avoids repeated binary
-    // searches through the full ReadPaper PROGMEM font table for common CJK/ASCII
-    // characters, while keeping memory use bounded and optional.
-    if (!glyphCache_) {
-        glyphCacheSize_ = GLYPH_L1_CACHE_SIZE;
-        const size_t bytes = glyphCacheSize_ * sizeof(GlyphCacheEntry);
-        glyphCache_ = static_cast<GlyphCacheEntry*>(heap_caps_calloc(glyphCacheSize_, sizeof(GlyphCacheEntry), MALLOC_CAP_INTERNAL));
-        if (!glyphCache_) {
-            glyphCache_ = static_cast<GlyphCacheEntry*>(heap_caps_calloc(glyphCacheSize_, sizeof(GlyphCacheEntry), MALLOC_CAP_SPIRAM));
-        }
-        if (!glyphCache_) {
-            glyphCache_ = static_cast<GlyphCacheEntry*>(calloc(glyphCacheSize_, sizeof(GlyphCacheEntry)));
-        }
-        if (glyphCache_) {
-            Serial.printf("[vink3][reader] glyph L1 cache ready: entries=%u bytes=%u\n",
-                          static_cast<unsigned>(glyphCacheSize_), static_cast<unsigned>(bytes));
-        } else {
-            glyphCacheSize_ = 0;
-            Serial.println("[vink3][reader] glyph L1 cache unavailable; using direct PROGMEM lookup");
-        }
-    }
     return true;
 }
 
 bool ReaderTextRenderer::findReadPaperGlyph(uint32_t unicode, ReadPaperGlyph& out) const {
     if (!readPaperFullReady_ || unicode > 0xFFFF) return false;
-
-    GlyphCacheEntry* slot = nullptr;
-    if (glyphCache_ && glyphCacheSize_ > 0) {
-        const size_t idx = (static_cast<uint16_t>(unicode) * 2654435761UL) % glyphCacheSize_;
-        slot = &glyphCache_[idx];
-        if (slot->valid && slot->unicode == static_cast<uint16_t>(unicode)) {
-            if (slot->found) out = slot->glyph;
-            return slot->found;
-        }
-    }
-
-    ReadPaperGlyph foundGlyph;
-    bool found = false;
     int32_t lo = 0;
     int32_t hi = static_cast<int32_t>(readPaperCharCount_) - 1;
     while (lo <= hi) {
@@ -136,29 +99,20 @@ bool ReaderTextRenderer::findReadPaperGlyph(uint32_t unicode, ReadPaperGlyph& ou
         uint32_t off = kReadPaperHeaderSize + static_cast<uint32_t>(mid) * kReadPaperEntrySize;
         uint16_t cp = readpaperFullU16(off);
         if (cp == unicode) {
-            foundGlyph.unicode = cp;
-            foundGlyph.width = readpaperFullU16(off + 2);
-            foundGlyph.bitmapW = readpaperFullByte(off + 4);
-            foundGlyph.bitmapH = readpaperFullByte(off + 5);
-            foundGlyph.xOffset = readpaperFullI8(off + 6);
-            foundGlyph.yOffset = readpaperFullI8(off + 7);
-            foundGlyph.bitmapOffset = readpaperFullU32(off + 8);
-            foundGlyph.bitmapSize = readpaperFullU32(off + 12);
-            found = foundGlyph.bitmapOffset + foundGlyph.bitmapSize <= g_readpaper_full_font_size;
-            break;
+            out.unicode = cp;
+            out.width = readpaperFullU16(off + 2);
+            out.bitmapW = readpaperFullByte(off + 4);
+            out.bitmapH = readpaperFullByte(off + 5);
+            out.xOffset = readpaperFullI8(off + 6);
+            out.yOffset = readpaperFullI8(off + 7);
+            out.bitmapOffset = readpaperFullU32(off + 8);
+            out.bitmapSize = readpaperFullU32(off + 12);
+            return out.bitmapOffset + out.bitmapSize <= g_readpaper_full_font_size;
         }
         if (cp < unicode) lo = mid + 1;
         else hi = mid - 1;
     }
-
-    if (slot) {
-        slot->unicode = static_cast<uint16_t>(unicode);
-        slot->glyph = foundGlyph;
-        slot->found = found;
-        slot->valid = true;
-    }
-    if (found) out = foundGlyph;
-    return found;
+    return false;
 }
 
 uint8_t ReaderTextRenderer::charAdvance(uint32_t unicode) const {
