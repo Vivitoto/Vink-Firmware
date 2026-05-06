@@ -96,7 +96,7 @@ int ChapterDetector::detect(File& file, ChapterDetectResult* results, int maxRes
                 // long (likely garbled text), not merely because it lacks a subtitle.
                 if (!result.hasRealTitle && !volumeLike && result.chapterNumber > 0) {
                     // Only penalize long lines; short number-only headings are normal
-                    if (len > 20) result.score -= 10;
+                    if (lineLen > 20) result.score -= 10;
                 }
                 if (result.score < 50) accept = false;
 
