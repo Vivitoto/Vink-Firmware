@@ -120,7 +120,7 @@ def vink3_source_invariants(main_cpp: str) -> None:
     platformio = read("platformio.ini")
 
     assert_contains(main_cpp, "xTaskCreatePinnedToCore", "v0.3 main starts a ReadPaper-style pinned MainTask")
-    assert_contains(upstream, "kVinkPaperS3FirmwareVersion = \"v0.3.9\"", "single firmware version constant matches the manifest top version")
+    assert_contains(upstream, "kVinkPaperS3FirmwareVersion = \"v0.3.10\"", "single firmware version constant matches the manifest top version")
     assert_contains(main_cpp, "kVinkPaperS3FirmwareVersion", "main task init log uses the shared firmware version")
     assert_contains(runtime_cpp, "kVinkPaperS3FirmwareVersion", "runtime boot logs use the shared firmware version")
     assert_not_contains(main_cpp, "v0.3.2-rc", "main task must not show stale firmware version")
@@ -218,7 +218,7 @@ def vink3_source_invariants(main_cpp: str) -> None:
     assert_contains(reader_book_cpp, "saveCurrentProgress", "power shutdown can save current reader progress before power-off")
     assert_contains(reader_book_cpp, "SD is initialized lazily", "reader book service does not block boot on SD initialization")
     assert_contains(reader_book_cpp, "scanBooks", "reader book service scans /books into a library list")
-    assert_contains(reader_book_cpp, "scanBookDir", "reader book service recursively scans /books subdirectories")
+    assert_contains(reader_book_cpp, "addLibraryEntry", "reader book service adds library entries (files and dirs)")
     assert_contains(reader_book_cpp, "getSidecarPathForBook", "reader book sidecar files stay beside nested source books")
     assert_contains(reader_book_cpp, "sortBooks", "reader library order is stable across SD directory iteration")
     assert_contains(reader_book_cpp, "detectBookFlags", "reader book service shows library progress/cache flags")

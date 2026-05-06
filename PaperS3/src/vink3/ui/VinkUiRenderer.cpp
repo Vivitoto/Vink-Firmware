@@ -1,5 +1,6 @@
 #include "VinkUiRenderer.h"
 #include "../ReadPaper176.h"
+#include "../reader/ReaderBookService.h"
 #include "../text/CjkTextRenderer.h"
 
 namespace vink3 {
@@ -217,13 +218,27 @@ void VinkUiRenderer::renderReaderHome() {
     clear();
     drawStatusBar("Vink");
     drawTabs(SystemState::Reader);
-    drawCard(28, kContentY, 484, 184, "当前书籍", "TXT 书籍入口");
-    drawButton(56, 286, 180, 48, "打开");
-    drawButton(304, 286, 180, 48, "书架");
-    drawCard(28, 374, 224, 126, "目录", "章节 / 跳页");
-    drawCard(288, 374, 224, 126, "书签", "标注 / 截图");
-    drawCard(28, 524, 484, 176, "正文设置", "字体 · 字号 · 刷新 · 简体中文");
-    drawFooterHint("点卡片进入，滑动切换");
+    if (g_readerBook.isOpen()) {
+        // Resume: show current book + progress + chapter
+        char title[80];
+        snprintf(title, sizeof(title), "%s", g_readerBook.title());
+        char progress[80];
+        snprintf(progress, sizeof(progress), "第 %d / %d 页", g_readerBook.currentPage() + 1, g_readerBook.pageCount());
+        drawCard(28, kContentY, 484, 100, "当前书籍", title);
+        drawCard(28, kContentY + 116, 224, 80, "阅读进度", progress);
+        drawCard(288, kContentY + 116, 224, 80, "当前章节", g_readerBook.currentChapterTitle());
+        drawButton(56, kContentY + 212, 180, 48, "继续阅读");
+        drawButton(304, kContentY + 212, 180, 48, "书架");
+    } else {
+        // Cold start: show static entry cards
+        drawCard(28, kContentY, 484, 184, "当前书籍", "TXT 书籍入口");
+        drawButton(56, 286, 180, 48, "打开");
+        drawButton(304, 286, 180, 48, "书架");
+        drawCard(28, 374, 224, 126, "目录", "章节 / 跳页");
+        drawCard(288, 374, 224, 126, "书签", "标注 / 截图");
+        drawCard(28, 524, 484, 176, "正文设置", "字体 · 字号 · 刷新 · 简体中文");
+        drawFooterHint("点卡片进入，滑动切换");
+    }
 }
 
 void VinkUiRenderer::renderLibrary() {

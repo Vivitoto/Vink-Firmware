@@ -1,6 +1,7 @@
 #pragma once
 #include <Arduino.h>
 #include <SD.h>
+#include "../../Config.h"
 #include "../../ChapterDetector.h"
 
 namespace vink3 {
@@ -14,6 +15,16 @@ public:
     int tocCount() const { return tocCount_; }
     const char* title() const { return title_; }
     const char* path() const { return bookPath_; }
+    int currentPage() const { return currentPage_; }
+    int pageCount() const { return pageCount_; }
+    const char* currentChapterTitle() const {
+        static char none[] = "未开始";
+        if (currentTocIndex_ >= 0 && currentTocIndex_ < tocCount_) return toc_[currentTocIndex_].title.c_str();
+        return none;
+    }
+    bool restoreLastBook();   // call from begin() to auto-resume last reading session
+    void saveLastBookPath();    // persist last opened path to SD
+    void loadLastBookPath();
 
     void renderOpenOrHelp();
     void renderCurrent();
@@ -24,6 +35,7 @@ public:
     bool nextLibraryPage();
     bool prevLibraryPage();
     bool handleLibraryTap(int16_t x, int16_t y);
+    bool lastLibraryTapOpenedBook() const { return lastLibraryTapOpenedBook_; }
     void renderTocPage(uint16_t page = 0);
     bool nextPage();
     bool prevPage();
@@ -58,8 +70,10 @@ private:
     bool ensureBookBuffers();
     bool ensureSdReady();
     bool scanBooks();
-    void scanBookDir(const char* dirPath, uint8_t depth);
-    bool addBookPath(const char* path);
+    bool addLibraryEntry(const char* path, const char* visibleName, bool isDirectory);
+    bool enterLibraryDir(const char* path);
+    bool enterParentLibraryDir();
+    bool isRootLibraryDir() const;
     void sortBooks();
     void swapBookEntries(int a, int b);
     bool isTxtPath(const char* name) const;
@@ -102,9 +116,12 @@ private:
     char (*bookPaths_)[160] = nullptr;
     char (*bookTitles_)[72] = nullptr;
     uint8_t* bookFlags_ = nullptr;
+    bool* bookIsDir_ = nullptr;
+    char libraryDir_[160] = BOOKS_DIR;
     int bookCount_ = 0;
     uint16_t bookPage_ = 0;
     bool booksScanned_ = false;
+    bool lastLibraryTapOpenedBook_ = false;
     int tocCount_ = 0;
     uint16_t tocPage_ = 0;
     int currentTocIndex_ = -1;
@@ -113,6 +130,9 @@ private:
     bool hasProgress_ = false;
     bool showingBookEntry_ = false;
     bool showingToc_ = true;
+    char lastBookPath_[160] = {0};   // persisted path for auto-resume after restart
+    bool lastBookProgressLoaded_ = false;
+    char lastBookPathFile_[160];  // SD path of the .lastbook sidecar
 };
 
 extern ReaderBookService g_readerBook;

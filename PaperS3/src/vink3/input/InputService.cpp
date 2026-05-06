@@ -10,9 +10,9 @@ namespace {
 constexpr uint32_t kPollDelayMs = 10;
 constexpr uint32_t kDebounceMs = 120;
 constexpr uint32_t kMoveDiagnosticMs = 100;
-constexpr uint32_t kPowerBootIgnoreMs = 1200;
-constexpr uint32_t kPowerStablePressMs = 60;
-constexpr uint32_t kPowerLongHoldMs = 1200;
+constexpr uint32_t kPowerBootIgnoreMs = 1200;  // don't act during boot
+constexpr uint32_t kPowerStablePressMs = 60;     // debounce
+constexpr uint32_t kPowerOffHoldMs = 0;           // 0 = instant-off, no long-press needed
 constexpr uint32_t kLongPressMs = 700;
 constexpr int16_t kTapSlopPx = 30;
 constexpr int16_t kLongPressMovePx = 34;
@@ -240,14 +240,17 @@ void InputService::pollPowerButton(uint32_t now) {
             powerPressStartedMs_ = now;
             Serial.println("[vink3][power] BtnPWR down");
         }
-        if (!powerLongPosted_ && powerPressStartedMs_ != 0 && now - powerPressStartedMs_ >= kPowerLongHoldMs) {
+        // Long-press path removed: one tap anywhere in the UI requests shutdown.
+        // Keep the "armed" guard only to avoid triggering on the boot press.
+        if (!powerLongPosted_ && powerPressStartedMs_ != 0 &&
+            kPowerOffHoldMs > 0 && now - powerPressStartedMs_ >= kPowerOffHoldMs) {
             powerLongPosted_ = true;
             powerButtonArmed_ = false;
             Message msg;
             msg.type = MessageType::PowerButton;
             msg.timestampMs = now;
             stateMachine_->post(msg, 0);
-            Serial.println("[vink3][power] BtnPWR long hold -> shutdown request");
+            Serial.println("[vink3][power] BtnPWR long-hold -> shutdown");
         }
         return;
     }
@@ -256,13 +259,15 @@ void InputService::pollPowerButton(uint32_t now) {
         const uint32_t held = powerPressStartedMs_ ? now - powerPressStartedMs_ : 0;
         powerWasPressed_ = false;
         powerPressStartedMs_ = 0;
+        // Short tap (>= debounce) = immediate shutdown, no long-press needed.
         if (!powerLongPosted_ && held >= kPowerStablePressMs) {
             powerButtonArmed_ = false;
             Message msg;
             msg.type = MessageType::PowerButton;
             msg.timestampMs = now;
             stateMachine_->post(msg, 0);
-            Serial.printf("[vink3][power] BtnPWR click held=%lu -> shutdown request\n", static_cast<unsigned long>(held));
+            Serial.printf("[vink3][power] BtnPWR tap held=%lu -> shutdown\n",
+                          static_cast<unsigned long>(held));
         }
         powerLongPosted_ = false;
     }

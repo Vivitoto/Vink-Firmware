@@ -21,6 +21,12 @@ bool ReaderBookService::begin() {
     // Keep boot non-blocking: SD is initialized lazily when the user opens the
     // library/book path. Previous PaperS3 releases showed that SD work during
     // startup can make the device look stuck if the card is absent or slow.
+    // Attempt to restore the last reading session silently so the Reader tab
+    // always shows the user's in-progress book on every boot.
+    if (ensureSdReady()) restoreLastBook();
+    // Initialize the last-book sidecar path
+    snprintf(lastBookPathFile_, sizeof(lastBookPathFile_), "%s/.lastbook", PROGRESS_DIR);
+    loadLastBookPath();
     return true;
 }
 
@@ -65,7 +71,7 @@ bool ReaderBookService::ensureTocBuffer() {
 }
 
 bool ReaderBookService::ensureBookBuffers() {
-    if (bookPaths_ && bookTitles_ && bookFlags_) return true;
+    if (bookPaths_ && bookTitles_ && bookFlags_ && bookIsDir_) return true;
     if (!bookPaths_) {
         bookPaths_ = static_cast<char (*)[160]>(heap_caps_calloc(kMaxBooks, sizeof(*bookPaths_), MALLOC_CAP_SPIRAM));
         if (!bookPaths_) bookPaths_ = static_cast<char (*)[160]>(calloc(kMaxBooks, sizeof(*bookPaths_)));
@@ -78,7 +84,11 @@ bool ReaderBookService::ensureBookBuffers() {
         bookFlags_ = static_cast<uint8_t*>(heap_caps_calloc(kMaxBooks, sizeof(uint8_t), MALLOC_CAP_SPIRAM));
         if (!bookFlags_) bookFlags_ = static_cast<uint8_t*>(calloc(kMaxBooks, sizeof(uint8_t)));
     }
-    if (!bookPaths_ || !bookTitles_ || !bookFlags_) {
+    if (!bookIsDir_) {
+        bookIsDir_ = static_cast<bool*>(heap_caps_calloc(kMaxBooks, sizeof(bool), MALLOC_CAP_SPIRAM));
+        if (!bookIsDir_) bookIsDir_ = static_cast<bool*>(calloc(kMaxBooks, sizeof(bool)));
+    }
+    if (!bookPaths_ || !bookTitles_ || !bookFlags_ || !bookIsDir_) {
         Serial.println("[vink3][book] failed to allocate library buffers");
         return false;
     }
@@ -92,83 +102,133 @@ bool ReaderBookService::isTxtPath(const char* name) const {
     return s.endsWith(".txt");
 }
 
+bool ReaderBookService::isRootLibraryDir() const {
+    return strcmp(libraryDir_, BOOKS_DIR) == 0;
+}
+
 bool ReaderBookService::scanBooks() {
     if (!ensureSdReady() || !ensureBookBuffers()) return false;
     bookCount_ = 0;
-    scanBookDir(BOOKS_DIR, 0);
+    lastLibraryTapOpenedBook_ = false;
+    memset(bookPaths_, 0, sizeof(*bookPaths_) * kMaxBooks);
+    memset(bookTitles_, 0, sizeof(*bookTitles_) * kMaxBooks);
+    memset(bookFlags_, 0, sizeof(uint8_t) * kMaxBooks);
+    memset(bookIsDir_, 0, sizeof(bool) * kMaxBooks);
+
+    if (!isRootLibraryDir()) addLibraryEntry("..", ".. 返回上级", true);
+
+    File dir = SD.open(libraryDir_);
+    if (dir && dir.isDirectory()) {
+        File f = dir.openNextFile();
+        while (f && bookCount_ < kMaxBooks) {
+            const char* rawName = f.name();
+            if (rawName && rawName[0]) {
+                String path;
+                if (rawName[0] == '/') path = rawName;
+                else {
+                    path = libraryDir_;
+                    if (!path.endsWith("/")) path += "/";
+                    path += rawName;
+                }
+                const char* slash = strrchr(path.c_str(), '/');
+                const char* leaf = slash ? slash + 1 : path.c_str();
+                const bool hidden = leaf[0] == '.';
+                if (!hidden) {
+                    if (f.isDirectory()) addLibraryEntry(path.c_str(), leaf, true);
+                    else if (isTxtPath(path.c_str())) addLibraryEntry(path.c_str(), leaf, false);
+                }
+            }
+            f.close();
+            f = dir.openNextFile();
+        }
+        dir.close();
+    } else if (dir) {
+        dir.close();
+    }
+
     sortBooks();
     booksScanned_ = true;
     if (bookPage_ * kBooksPerPage >= bookCount_) bookPage_ = 0;
-    Serial.printf("[vink3][book] recursive library scan: %d TXT books\n", bookCount_);
+    Serial.printf("[vink3][book] browser scan: dir=%s entries=%d\n", libraryDir_, bookCount_);
     return true;
 }
 
-void ReaderBookService::scanBookDir(const char* dirPath, uint8_t depth) {
-    if (!dirPath || !dirPath[0] || bookCount_ >= kMaxBooks || depth > kMaxLibraryScanDepth) return;
-    File dir = SD.open(dirPath);
-    if (!dir || !dir.isDirectory()) {
-        if (dir) dir.close();
-        return;
-    }
-
-    File f = dir.openNextFile();
-    while (f && bookCount_ < kMaxBooks) {
-        const char* rawName = f.name();
-        if (rawName && rawName[0]) {
-            String path;
-            if (rawName[0] == '/') {
-                path = rawName;
-            } else {
-                path = dirPath;
-                if (!path.endsWith("/")) path += "/";
-                path += rawName;
-            }
-
-            const char* slash = strrchr(path.c_str(), '/');
-            const char* leaf = slash ? slash + 1 : path.c_str();
-            const bool hidden = leaf[0] == '.';
-            if (!hidden) {
-                if (f.isDirectory()) {
-                    scanBookDir(path.c_str(), depth + 1);
-                } else if (isTxtPath(path.c_str())) {
-                    addBookPath(path.c_str());
-                }
-            }
-        }
-        f.close();
-        f = dir.openNextFile();
-    }
-    dir.close();
-}
-
-bool ReaderBookService::addBookPath(const char* path) {
-    if (!path || !path[0] || bookCount_ >= kMaxBooks || !isTxtPath(path)) return false;
+bool ReaderBookService::addLibraryEntry(const char* path, const char* visibleName, bool isDirectory) {
+    if (!path || !path[0] || !visibleName || !visibleName[0] || bookCount_ >= kMaxBooks) return false;
+    if (!isDirectory && !isTxtPath(path)) return false;
     if (strlen(path) >= sizeof(bookPaths_[bookCount_])) {
-        Serial.printf("[vink3][book] skip TXT path too long: %s\n", path);
+        Serial.printf("[vink3][book] skip library path too long: %s\n", path);
         return false;
     }
 
     strlcpy(bookPaths_[bookCount_], path, sizeof(bookPaths_[bookCount_]));
-    const char* slash = strrchr(bookPaths_[bookCount_], '/');
-    const char* name = slash ? slash + 1 : bookPaths_[bookCount_];
-    strlcpy(bookTitles_[bookCount_], name, sizeof(bookTitles_[bookCount_]));
-    char* dot = strrchr(bookTitles_[bookCount_], '.');
-    if (dot) *dot = '\0';
-    bookFlags_[bookCount_] = detectBookFlags(bookPaths_[bookCount_]);
+    strlcpy(bookTitles_[bookCount_], visibleName, sizeof(bookTitles_[bookCount_]));
+    if (!isDirectory) {
+        char* dot = strrchr(bookTitles_[bookCount_], '.');
+        if (dot) *dot = '\0';
+        bookFlags_[bookCount_] = detectBookFlags(bookPaths_[bookCount_]);
+    } else {
+        bookFlags_[bookCount_] = 0;
+    }
+    bookIsDir_[bookCount_] = isDirectory;
     bookCount_++;
     return true;
 }
 
+bool ReaderBookService::enterLibraryDir(const char* path) {
+    if (!path || !path[0]) return false;
+    if (strcmp(path, "..") == 0) return enterParentLibraryDir();
+    if (strlen(path) >= sizeof(libraryDir_)) return false;
+    File dir = SD.open(path);
+    const bool ok = dir && dir.isDirectory();
+    if (dir) dir.close();
+    if (!ok) return false;
+    strlcpy(libraryDir_, path, sizeof(libraryDir_));
+    bookPage_ = 0;
+    booksScanned_ = false;
+    renderLibraryPage(0);
+    return true;
+}
+
+bool ReaderBookService::enterParentLibraryDir() {
+    if (isRootLibraryDir()) return false;
+    char parent[160];
+    strlcpy(parent, libraryDir_, sizeof(parent));
+    char* slash = strrchr(parent, '/');
+    if (!slash || slash <= parent + strlen(BOOKS_DIR)) {
+        strlcpy(parent, BOOKS_DIR, sizeof(parent));
+    } else {
+        *slash = '\0';
+    }
+    strlcpy(libraryDir_, parent, sizeof(libraryDir_));
+    bookPage_ = 0;
+    booksScanned_ = false;
+    renderLibraryPage(0);
+    return true;
+}
+
 void ReaderBookService::sortBooks() {
-    if (bookCount_ <= 1 || !bookPaths_ || !bookTitles_ || !bookFlags_) return;
-    // SD directory iteration order can vary by card/write history. Keep the
-    // bookshelf stable across boots by sorting on the visible title/path.
+    if (bookCount_ <= 1 || !bookPaths_ || !bookTitles_ || !bookFlags_ || !bookIsDir_) return;
+    // Browser order: parent row first, then folders, then TXT files; each group
+    // is sorted by visible title/path for stable navigation across boots.
     for (int i = 1; i < bookCount_; ++i) {
         int j = i;
         while (j > 0) {
-            int cmp = strcmp(bookTitles_[j - 1], bookTitles_[j]);
-            if (cmp == 0) cmp = strcmp(bookPaths_[j - 1], bookPaths_[j]);
-            if (cmp <= 0) break;
+            const bool prevParent = strcmp(bookPaths_[j - 1], "..") == 0;
+            const bool curParent = strcmp(bookPaths_[j], "..") == 0;
+            bool shouldSwap = false;
+            if (curParent && !prevParent) {
+                shouldSwap = true;
+            } else if (!curParent && !prevParent) {
+                if (bookIsDir_[j] != bookIsDir_[j - 1]) {
+                    shouldSwap = bookIsDir_[j] && !bookIsDir_[j - 1];
+                } else {
+                    int cmp = strcmp(bookTitles_[j - 1], bookTitles_[j]);
+                    if (cmp == 0) cmp = strcmp(bookPaths_[j - 1], bookPaths_[j]);
+                    shouldSwap = cmp > 0;
+                }
+            }
+            if (!shouldSwap) break;
             swapBookEntries(j - 1, j);
             --j;
         }
@@ -182,12 +242,15 @@ void ReaderBookService::swapBookEntries(int a, int b) {
     strlcpy(pathTmp, bookPaths_[a], sizeof(pathTmp));
     strlcpy(titleTmp, bookTitles_[a], sizeof(titleTmp));
     uint8_t flagsTmp = bookFlags_[a];
+    bool dirTmp = bookIsDir_ ? bookIsDir_[a] : false;
     strlcpy(bookPaths_[a], bookPaths_[b], sizeof(bookPaths_[a]));
     strlcpy(bookTitles_[a], bookTitles_[b], sizeof(bookTitles_[a]));
     bookFlags_[a] = bookFlags_[b];
+    if (bookIsDir_) bookIsDir_[a] = bookIsDir_[b];
     strlcpy(bookPaths_[b], pathTmp, sizeof(bookPaths_[b]));
     strlcpy(bookTitles_[b], titleTmp, sizeof(bookTitles_[b]));
     bookFlags_[b] = flagsTmp;
+    if (bookIsDir_) bookIsDir_[b] = dirTmp;
 }
 
 void ReaderBookService::closeCurrent() {
@@ -476,6 +539,45 @@ bool ReaderBookService::openFirstBook() {
     return openBook(bookPaths_[0]);
 }
 
+bool ReaderBookService::restoreLastBook() {
+    loadLastBookPath();
+    if (!lastBookPath_[0] || !ensureSdReady()) return false;
+    if (!SD.exists(lastBookPath_)) {
+        lastBookPath_[0] = '\0';
+        lastBookProgressLoaded_ = false;
+        return false;
+    }
+    if (!openBook(lastBookPath_)) return false;
+    showingBookEntry_ = false;
+    showingToc_ = false;
+    if (hasProgress_) {
+        if (pageCount_ > 0) return renderCurrentReadingPage();
+    }
+    if (tocCount_ > 0) return openTocEntry(0);
+    return true;
+}
+
+void ReaderBookService::loadLastBookPath() {
+    if (!ensureSdReady()) return;
+    File f = SD.open(lastBookPathFile_, FILE_READ);
+    if (!f) return;
+    char buf[sizeof(lastBookPath_)];
+    int n = f.read((uint8_t*)buf, sizeof(buf) - 1);
+    f.close();
+    if (n > 0) {
+        buf[n] = '\0';
+        strlcpy(lastBookPath_, buf, sizeof(lastBookPath_));
+    }
+}
+
+void ReaderBookService::saveLastBookPath() {
+    if (!ensureSdReady() || !lastBookPath_[0]) return;
+    File f = SD.open(lastBookPathFile_, FILE_WRITE);
+    if (!f) return;
+    f.write((const uint8_t*)lastBookPath_, strlen(lastBookPath_));
+    f.close();
+}
+
 bool ReaderBookService::openBook(const char* path) {
     if (!path || !path[0] || !ensureSdReady() || !ensureTocBuffer()) return false;
     closeCurrent();
@@ -518,6 +620,10 @@ bool ReaderBookService::openBook(const char* path) {
     }
     hasProgress_ = loadProgress();
     showingBookEntry_ = true;
+    // Persist last opened path so Reader tab can resume after restart
+    strlcpy(lastBookPath_, path, sizeof(lastBookPath_));
+    lastBookProgressLoaded_ = hasProgress_;
+    saveLastBookPath();  // write to SD so it survives reboots
     return true;
 }
 
@@ -534,12 +640,13 @@ void ReaderBookService::renderLibraryPage(uint16_t page) {
     char body[900];
     body[0] = '\0';
     if (bookCount_ <= 0) {
-        g_readerText.renderTextPage(
-            "书架为空",
-            "请把 .txt 文件放到 SD 卡 /books 目录。\n"
-            "v0.3 会自动识别 UTF-8 / GBK 文本、生成目录缓存，然后进入正文阅读。",
-            1,
-            1);
+        char emptyBody[320];
+        snprintf(emptyBody, sizeof(emptyBody),
+                 "当前目录：%s\n\n"
+                 "这里还没有 TXT 文件或子文件夹。\n"
+                 "请把 .txt 文件放到 SD 卡 /books 目录或其子目录中。",
+                 libraryDir_);
+        g_readerText.renderTextPage("书架为空", emptyBody, 1, 1);
         return;
     }
     const uint16_t totalPages = (bookCount_ + kBooksPerPage - 1) / kBooksPerPage;
@@ -547,19 +654,23 @@ void ReaderBookService::renderLibraryPage(uint16_t page) {
     bookPage_ = page;
     const int start = bookPage_ * kBooksPerPage;
     const int end = min(bookCount_, start + kBooksPerPage);
-    char summary[96];
-    snprintf(summary, sizeof(summary), "共 %d 本 TXT · *当前 · 读/目/页=进度/目录/页表", bookCount_);
+    char summary[128];
+    snprintf(summary, sizeof(summary), "%s · %d 项 · 点文件夹进入，点 TXT 打开", libraryDir_, bookCount_);
     char rows[kBooksPerPage][96];
     const char* rowPtrs[kBooksPerPage];
     int rowCount = 0;
     for (int i = start; i < end && rowCount < kBooksPerPage; ++i) {
-        const bool current = open_ && strcmp(bookPaths_[i], bookPath_) == 0;
-        char titleBuf[56];
+        const bool current = open_ && !bookIsDir_[i] && strcmp(bookPaths_[i], bookPath_) == 0;
+        char titleBuf[72];
         strlcpy(titleBuf, bookTitles_[i], sizeof(titleBuf));
         trimUtf8Tail(titleBuf, strlen(titleBuf));
-        char flags[16];
-        formatBookFlags(bookFlags_[i], flags, sizeof(flags));
-        snprintf(rows[rowCount], sizeof(rows[rowCount]), "%c%03d [%s] %s", current ? '*' : ' ', i + 1, flags, titleBuf);
+        if (bookIsDir_[i]) {
+            snprintf(rows[rowCount], sizeof(rows[rowCount]), "%c %s %s", current ? '*' : ' ', strcmp(bookPaths_[i], "..") == 0 ? "↰" : "▣", titleBuf);
+        } else {
+            char flags[16];
+            formatBookFlags(bookFlags_[i], flags, sizeof(flags));
+            snprintf(rows[rowCount], sizeof(rows[rowCount]), "%c TXT [%s] %s", current ? '*' : ' ', flags, titleBuf);
+        }
         rowPtrs[rowCount] = rows[rowCount];
         rowCount++;
     }
@@ -585,13 +696,19 @@ bool ReaderBookService::prevLibraryPage() {
 
 bool ReaderBookService::handleLibraryTap(int16_t x, int16_t y) {
     (void)x;
+    lastLibraryTapOpenedBook_ = false;
     if (!booksScanned_) scanBooks();
     if (bookCount_ <= 0) return false;
     if (y < kListFirstRowY || y >= kListFirstRowY + kBooksPerPage * kListRowH) return false;
     int row = (y - kListFirstRowY) / kListRowH;
     int index = bookPage_ * kBooksPerPage + row;
     if (index < 0 || index >= bookCount_) return false;
-    return openBook(bookPaths_[index]);
+    if (bookIsDir_ && bookIsDir_[index]) {
+        lastLibraryTapOpenedBook_ = false;
+        return enterLibraryDir(bookPaths_[index]);
+    }
+    lastLibraryTapOpenedBook_ = openBook(bookPaths_[index]);
+    return lastLibraryTapOpenedBook_;
 }
 
 void ReaderBookService::renderCurrent() {
@@ -827,10 +944,13 @@ void ReaderBookService::renderTocPage(uint16_t page) {
     int rowCount = 0;
     for (int i = start; i < end && rowCount < kTocEntriesPerPage; ++i) {
         const char marker = (i == currentTocIndex_) ? '*' : ' ';
-        char titleBuf[92];
-        strlcpy(titleBuf, toc_[i].title.c_str(), sizeof(titleBuf));
-        trimUtf8Tail(titleBuf, strlen(titleBuf));
-        snprintf(rows[rowCount], sizeof(rows[rowCount]), "%c%03d  %s", marker, i + 1, titleBuf);
+        char titleBuf[256];
+        size_t titleByteLen = toc_[i].title.length();
+        if (titleByteLen >= sizeof(titleBuf)) titleByteLen = sizeof(titleBuf) - 1;
+        memcpy(titleBuf, toc_[i].title.c_str(), titleByteLen);
+        titleBuf[titleByteLen] = '\0';
+        trimUtf8Tail(titleBuf, titleByteLen);
+        snprintf(rows[rowCount], sizeof(rows[rowCount]), "%c %s", marker, titleBuf);
         rowPtrs[rowCount] = rows[rowCount];
         rowCount++;
     }
@@ -947,8 +1067,8 @@ bool ReaderBookService::renderCurrentReadingPage() {
     f.close();
     if (n <= 0) return false;
     trimUtf8Tail(body, static_cast<size_t>(n));
-    char header[96];
-    snprintf(header, sizeof(header), "%03d %s", currentTocIndex_ + 1, toc_[currentTocIndex_].title.c_str());
+    char header[192];
+    snprintf(header, sizeof(header), "%s", toc_[currentTocIndex_].title.c_str());
     g_readerText.renderTextPage(header, body, currentPage_ + 1, pageCount_);
     saveProgress();
     return true;
@@ -981,8 +1101,8 @@ bool ReaderBookService::renderChapterPreview(int index) {
     }
     (void)len;
 
-    char header[96];
-    snprintf(header, sizeof(header), "%03d %s", index + 1, toc_[index].title.c_str());
+    char header[192];
+    snprintf(header, sizeof(header), "%s", toc_[index].title.c_str());
     g_readerText.renderTextPage(header, content, 1, 1);
     return true;
 }

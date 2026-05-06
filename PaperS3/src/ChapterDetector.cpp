@@ -54,6 +54,7 @@ int ChapterDetector::detect(File& file, ChapterDetectResult* results, int maxRes
     file.seek(0);
 
     while (file.available() && count < maxResults) {
+        int64_t lineStartPos = file.position();
         int lineLen = readLine(file, _lineBuffer, LINE_BUF_SIZE);
         if (lineLen <= 0) break;
 
@@ -78,14 +79,26 @@ int ChapterDetector::detect(File& file, ChapterDetectResult* results, int maxRes
             // 启发式打分
             result.score = scoreLine(_lineBuffer, lineLen, result.score,
                                      result.chapterNumber, charOffset, fileSize,
-                                     lastChapterOffset);
+                                     lastChapterOffset, consecutiveEmptyLines);
 
             if (result.score >= 50) {  // 只保留高置信度结果
+                // NOTE: title is already the full line (captured in matchChinese/
+                // matchArabic) — no need to peek. The logic below only decides
+                // whether to accept/reject based on score and chapter-number sanity.
+
                 bool accept = true;
                 const bool volumeLike = result.title.indexOf("卷") >= 0 ||
                                         result.title.indexOf("部") >= 0 ||
                                         result.title.indexOf("集") >= 0 ||
                                         result.title.indexOf("篇") >= 0;
+                // Pure-number-only headings ("第七百四十五章") get a small penalty so
+                // they can still be filtered by the chapter-number sanity check
+                // below — but we no longer skip them outright.
+                if (!result.hasRealTitle && !volumeLike && result.chapterNumber > 0) {
+                    result.score -= 10;
+                }
+                if (result.score < 50) accept = false;
+
                 if (count > 0 && result.chapterNumber > 0 && lastChapterNumber > 0 && !volumeLike) {
                     if (result.chapterNumber == lastChapterNumber) {
                         accept = false;  // Some web TXT dumps duplicate a heading as "...免费阅读".
@@ -103,12 +116,12 @@ int ChapterDetector::detect(File& file, ChapterDetectResult* results, int maxRes
                     count++;
 
                     if (_debug) {
-                        Serial.printf("[ChapterDetector] Found #%d: score=%d, offset=%d, title=%s\n",
-                                      count, result.score, result.charOffset, result.title.c_str());
+                        Serial.printf("[ChapterDetector] Found #%d: score=%d, offset=%d, title=%s, hasTitle=%d\n",
+                                      count, result.score, result.charOffset, result.title.c_str(), result.hasRealTitle);
                     }
                 } else if (_debug) {
-                    Serial.printf("[ChapterDetector] Skipped outlier: number=%d, last=%d, title=%s\n",
-                                  result.chapterNumber, lastChapterNumber, result.title.c_str());
+                    Serial.printf("[ChapterDetector] Skipped: score=%d, number=%d, last=%d, title=%s\n",
+                                  result.score, result.chapterNumber, lastChapterNumber, result.title.c_str());
                 }
             }
         }
@@ -191,22 +204,27 @@ bool ChapterDetector::matchChineseChapter(const char* line, int len, ChapterDete
                 if (numLen > 0 && numLen < 20) {
                     int num = chineseToNumber(line + 3, numLen);
                     if (num > 0) {
-                        out.title = String("第") + String(num) + String(keywordNames[k]);
-                        // 尝试提取标题后缀
-                        int suffixStart = i + 3;
-                        if (suffixStart < len) {
-                            // 跳过空格和分隔符
-                            while (suffixStart < len && (line[suffixStart] == ' ' ||
-                                   line[suffixStart] == '\t' || line[suffixStart] == 0xEF)) {
-                                suffixStart++;
+                        out.chapterNumber = num;
+                        out.hasRealTitle = false;  // may be updated below
+                        // Use the ENTIRE line (trimmed) as the chapter title — do NOT
+                        // reconstruct it from parsed parts. This correctly handles both
+                        // "第七百四十五章" (number-only) and "第七百四十五章 你在干什么？"
+                        // by including whatever text follows the keyword on the same line.
+                        int rawEnd = i + 3;  // end of the keyword (e.g. past "章")
+                        if (rawEnd < len) {
+                            // Skip trailing whitespace only; keep everything in between
+                            int p = rawEnd;
+                            while (p < len && (line[p] == ' ' || line[p] == '\t' || line[p] == '\r')) p++;
+                            if (p < len) {
+                                out.title = String(line + p, len - p);
+                                out.hasRealTitle = true;  // we captured text beyond the keyword
+                            } else {
+                                out.title = String("第") + String(num) + String(keywordNames[k]);
                             }
-                            if (suffixStart < len) {
-                                out.title += " ";
-                                out.title += String(line + suffixStart, len - suffixStart);
-                            }
+                        } else {
+                            out.title = String("第") + String(num) + String(keywordNames[k]);
                         }
                         out.score = 100;
-                        out.chapterNumber = num;
                         return true;
                     }
                 }
@@ -263,13 +281,13 @@ bool ChapterDetector::matchArabicChapter(const char* line, int len, ChapterDetec
             (unsigned char)line[kwStart+2] == (unsigned char)kw[2]) {
 
             out.title = String("第") + String(num) + String(keywordNames[k]);
+            out.hasRealTitle = false;
             int suffixStart = kwStart + 3;
             if (suffixStart < len) {
-                while (suffixStart < len && (line[suffixStart] == ' ' ||
-                       line[suffixStart] == '\t')) suffixStart++;
+                while (suffixStart < len && (line[suffixStart] == ' ' || line[suffixStart] == '\t')) suffixStart++;
                 if (suffixStart < len) {
-                    out.title += " ";
-                    out.title += String(line + suffixStart, len - suffixStart);
+                    out.title = String(line + suffixStart, len - suffixStart);
+                    out.hasRealTitle = true;
                 }
             }
             out.score = 80;
@@ -374,6 +392,7 @@ bool ChapterDetector::matchVolume(const char* line, int len, ChapterDetectResult
 
                 if (num > 0) {
                     out.title = String("第") + String(num) + String(keywordNames[k]);
+                    out.hasRealTitle = false;
                     out.score = 60;
                     out.chapterNumber = num;
                     return true;
@@ -412,6 +431,7 @@ bool ChapterDetector::matchSimpleNumber(const char* line, int len, ChapterDetect
     if (numLen > 0 && num > 0 && num < 10000) {
         // 检查前后是否有空行（标题特征）
         out.title = String("第") + String(num) + String("章");
+        out.hasRealTitle = false;
         out.score = 40;
         out.chapterNumber = num;
         return true;
@@ -533,7 +553,8 @@ int ChapterDetector::chineseToNumber(const char* str, int len) {
 }
 
 int ChapterDetector::scoreLine(const char* line, int len, int baseScore, int chapterNumber,
-                                uint32_t offset, uint32_t fileSize, int lastChapterOffset) {
+                                uint32_t offset, uint32_t fileSize, int lastChapterOffset,
+                                int consecutiveEmptyLines) {
     int score = baseScore;
 
     // 1. 行长度检查（标题通常 2-40 字符）
@@ -551,13 +572,21 @@ int ChapterDetector::scoreLine(const char* line, int len, int baseScore, int cha
         score += 10;  // 间距合理
     }
 
-    // 3. 章节号递增检查
+    // 3. 章节号合理性检查（关键修复：防止小章节号满天飞）
     if (chapterNumber > 0) {
-        // 正常情况下章节号递增，但也允许跳号
-        if (chapterNumber <= 2000) {  // 合理范围内
+        if (chapterNumber <= 2000) {
             score += 10;
         } else {
             score -= 20;  // 章节号过大，可能误报
+        }
+        // 小章节号（1-3）在文件前半段极可能是误识别（如"第1次"、"初第3章"）
+        float progress = (float)offset / fileSize;
+        if (chapterNumber <= 3 && progress < 0.2) {
+            score -= 25;
+        }
+        // 章节号 ≤ 10 但整本书已有数百章：小号码多为正文中的引用，非真正章节
+        if (chapterNumber <= 10 && chapterNumber > 3 && offset > 10000) {
+            score -= 15;
         }
     }
 
@@ -567,7 +596,14 @@ int ChapterDetector::scoreLine(const char* line, int len, int baseScore, int cha
         score -= 15;  // 文件末尾出现低章节号，可疑
     }
 
-    // 5. 纯文本检查（标题不应有太多数字/符号）
+    // 5. 紧跟在空行后的章节（章节标题独占一行特征）
+    if (consecutiveEmptyLines >= 1) {
+        score += 8;
+    } else if (len > 15) {
+        score -= 10;  // 标题行过长且前一行非空，可能是正文混入
+    }
+
+    // 6. 纯文本检查（标题不应有太多数字/符号）
     int chineseCount = 0, totalCount = 0;
     for (int i = 0; i < len; ) {
         if ((unsigned char)line[i] >= 0xE0) {

@@ -8,6 +8,7 @@ struct ChapterDetectResult {
     String title;           // 章节标题
     int score;              // 置信度分数 (0-100)
     int chapterNumber;      // 提取到的章节编号
+    bool hasRealTitle;      // 标题是否包含除章节号以外的实际内容
 };
 
 class ChapterDetector {
@@ -58,8 +59,9 @@ private:
     int getLineChapterNumber(const char* line, int len);
     
     // 启发式打分
-    int scoreLine(const char* line, int len, int baseScore, int chapterNumber, 
-                  uint32_t offset, uint32_t fileSize, int lastChapterOffset);
+    int scoreLine(const char* line, int len, int baseScore, int chapterNumber,
+                  uint32_t offset, uint32_t fileSize, int lastChapterOffset,
+                  int consecutiveEmptyLines = 0);
     
     // 行读取
     int readLine(File& file, char* buf, int maxLen);
