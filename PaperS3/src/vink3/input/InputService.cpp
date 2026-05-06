@@ -12,7 +12,7 @@ constexpr uint32_t kDebounceMs = 120;
 constexpr uint32_t kMoveDiagnosticMs = 100;
 constexpr uint32_t kPowerBootIgnoreMs = 1200;  // don't act during boot
 constexpr uint32_t kPowerStablePressMs = 60;     // debounce
-constexpr uint32_t kPowerOffHoldMs = 0;           // 0 = instant-off, no long-press needed
+constexpr uint32_t kPowerLongHoldMs = 1500;  // deliberate 1.5s hold fallback; short tap = instant shutdown
 constexpr uint32_t kLongPressMs = 700;
 constexpr int16_t kTapSlopPx = 30;
 constexpr int16_t kLongPressMovePx = 34;
@@ -243,7 +243,7 @@ void InputService::pollPowerButton(uint32_t now) {
         // Long-press path removed: one tap anywhere in the UI requests shutdown.
         // Keep the "armed" guard only to avoid triggering on the boot press.
         if (!powerLongPosted_ && powerPressStartedMs_ != 0 &&
-            kPowerOffHoldMs > 0 && now - powerPressStartedMs_ >= kPowerOffHoldMs) {
+            kPowerLongHoldMs > 0 && now - powerPressStartedMs_ >= kPowerLongHoldMs) {
             powerLongPosted_ = true;
             powerButtonArmed_ = false;
             Message msg;

@@ -91,11 +91,12 @@ int ChapterDetector::detect(File& file, ChapterDetectResult* results, int maxRes
                                         result.title.indexOf("部") >= 0 ||
                                         result.title.indexOf("集") >= 0 ||
                                         result.title.indexOf("篇") >= 0;
-                // Pure-number-only headings ("第七百四十五章") get a small penalty so
-                // they can still be filtered by the chapter-number sanity check
-                // below — but we no longer skip them outright.
+                // Pure-number-only headings are extremely common in Chinese web novels
+                // ("第一章", "第七百四十五章"). Only penalize if the line is suspiciously
+                // long (likely garbled text), not merely because it lacks a subtitle.
                 if (!result.hasRealTitle && !volumeLike && result.chapterNumber > 0) {
-                    result.score -= 10;
+                    // Only penalize long lines; short number-only headings are normal
+                    if (len > 20) result.score -= 10;
                 }
                 if (result.score < 50) accept = false;
 
@@ -202,27 +203,32 @@ bool ChapterDetector::matchChineseChapter(const char* line, int len, ChapterDete
                 // 提取"第"和 keyword 之间的内容
                 int numLen = i - 3;
                 if (numLen > 0 && numLen < 20) {
+                    // Strip leading zeros from Arabic chapter numbers: "001" -> "1".
+                    // For Chinese numerals we keep the raw digits (not reconstituted).
+                    // The title is always the raw line content after the keyword.
                     int num = chineseToNumber(line + 3, numLen);
                     if (num > 0) {
                         out.chapterNumber = num;
-                        out.hasRealTitle = false;  // may be updated below
-                        // Use the ENTIRE line (trimmed) as the chapter title — do NOT
-                        // reconstruct it from parsed parts. This correctly handles both
-                        // "第七百四十五章" (number-only) and "第七百四十五章 你在干什么？"
-                        // by including whatever text follows the keyword on the same line.
-                        int rawEnd = i + 3;  // end of the keyword (e.g. past "章")
+                        out.hasRealTitle = false;
+                        // Use the raw line content after the keyword as the title.
+                        // This preserves "第一章" (already good) and "七百四十五章 你在干什么？"
+                        // without lossy number conversion.
+                        int rawEnd = i + 3;  // past the keyword (e.g. past "章")
                         if (rawEnd < len) {
-                            // Skip trailing whitespace only; keep everything in between
                             int p = rawEnd;
+                            // Skip single-byte whitespace only (no fullwidth-space check here;
+                            // matchLine already stripped leading whitespace including U+3000)
                             while (p < len && (line[p] == ' ' || line[p] == '\t' || line[p] == '\r')) p++;
                             if (p < len) {
                                 out.title = String(line + p, len - p);
-                                out.hasRealTitle = true;  // we captured text beyond the keyword
+                                out.hasRealTitle = true;
                             } else {
-                                out.title = String("第") + String(num) + String(keywordNames[k]);
+                                out.title = String(line + 3, numLen);  // raw number text e.g. "七百四十五" or "1"
+                                out.title += keywordNames[k];             // -> "七百四十五章" (preserve Chinese numeral form)
                             }
                         } else {
-                            out.title = String("第") + String(num) + String(keywordNames[k]);
+                            out.title = String(line + 3, numLen);
+                            out.title += keywordNames[k];
                         }
                         out.score = 100;
                         return true;
@@ -255,11 +261,14 @@ bool ChapterDetector::matchArabicChapter(const char* line, int len, ChapterDetec
 
     if (numStart < 0 || numEnd < 0) return false;
 
-    // 解析数字
+    // Strip leading zeros when building the numeric chapter number.
     int num = 0;
+    bool hadNonZero = false;
     for (int i = numStart; i <= numEnd; i++) {
-        num = num * 10 + (line[i] - '0');
+        if (line[i] != '0') hadNonZero = true;
+        if (hadNonZero) num = num * 10 + (line[i] - '0');
     }
+    if (num == 0 && hadNonZero) num = 1;
 
     // 检查后面的关键字
     int kwStart = numEnd + 1;
@@ -270,28 +279,30 @@ bool ChapterDetector::matchArabicChapter(const char* line, int len, ChapterDetec
         "\xE5\x9B\x9E",  // 回
         "\xE5\x8D\xB7",  // 卷
         "\xE8\x8A\x82",  // 节
+        "\xE9\x9B\x86",  // 集
     };
-    const char* keywordNames[] = {"章", "回", "卷", "节"};
+    const char* keywordNames[] = {"章", "回", "卷", "节", "集"};
 
-    for (int k = 0; k < 4; k++) {
+    for (int k = 0; k < 5; k++) {
         const char* kw = keywords[k];
         if (kwStart + 2 < len &&
             (unsigned char)line[kwStart] == (unsigned char)kw[0] &&
             (unsigned char)line[kwStart+1] == (unsigned char)kw[1] &&
             (unsigned char)line[kwStart+2] == (unsigned char)kw[2]) {
 
-            out.title = String("第") + String(num) + String(keywordNames[k]);
+            // Preserve the FULL original line as title, including the chapter
+            // number prefix (e.g. "第1章 你在干什么？").
+            out.title = String(line, len);
+            // hasRealTitle: true only if there is actual text after the keyword.
+            int rawEnd = kwStart + 3;  // past the keyword
             out.hasRealTitle = false;
-            int suffixStart = kwStart + 3;
-            if (suffixStart < len) {
-                while (suffixStart < len && (line[suffixStart] == ' ' || line[suffixStart] == '\t')) suffixStart++;
-                if (suffixStart < len) {
-                    out.title = String(line + suffixStart, len - suffixStart);
-                    out.hasRealTitle = true;
-                }
+            if (rawEnd < len) {
+                int p = rawEnd;
+                while (p < len && (line[p] == ' ' || line[p] == '\t')) p++;
+                if (p < len) out.hasRealTitle = true;
             }
             out.score = 80;
-            out.chapterNumber = num;
+            out.chapterNumber = num > 0 ? num : 1;
             return true;
         }
     }
@@ -566,32 +577,34 @@ int ChapterDetector::scoreLine(const char* line, int len, int baseScore, int cha
 
     // 2. 位置合理性（章节不能太密）
     int distance = offset - lastChapterOffset;
-    if (distance < 500) {
+    if (distance < 200) {
         score -= 40;  // 太密，可能是误报
+    } else if (distance < 500) {
+        score -= 20;  // 偏密，但网络小说章节短小常见
     } else if (distance > 2000) {
         score += 10;  // 间距合理
     }
 
     // 3. 章节号合理性检查（关键修复：防止小章节号满天飞）
+    float progress = (float)offset / fileSize;
     if (chapterNumber > 0) {
         if (chapterNumber <= 2000) {
             score += 10;
         } else {
             score -= 20;  // 章节号过大，可能误报
         }
-        // 小章节号（1-3）在文件前半段极可能是误识别（如"第1次"、"初第3章"）
-        float progress = (float)offset / fileSize;
+        // Small chapter numbers (1-3) in the first 20% of the file are often false
+        // positives like "第1次" or "初第3章"
         if (chapterNumber <= 3 && progress < 0.2) {
             score -= 25;
         }
-        // 章节号 ≤ 10 但整本书已有数百章：小号码多为正文中的引用，非真正章节
-        if (chapterNumber <= 10 && chapterNumber > 3 && offset > 10000) {
-            score -= 15;
-        }
+        // Chapter numbers 4-10 at a large offset used to be penalized, but legitimate
+        // novels do have small chapter numbers throughout. Remove this check and rely
+        // on the forward-jump sanity guard instead.
+        // if (chapterNumber <= 10 && chapterNumber > 3 && offset > 10000) score -= 15;
     }
 
     // 4. 文件位置比例（章节应均匀分布）
-    float progress = (float)offset / fileSize;
     if (progress > 0.9 && chapterNumber < 5) {
         score -= 15;  // 文件末尾出现低章节号，可疑
     }

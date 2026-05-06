@@ -5,7 +5,7 @@
 
 namespace vink3 {
 
-static constexpr const char* kVinkPaperS3FirmwareVersion = "v0.3.10";
+static constexpr const char* kVinkPaperS3FirmwareVersion = "v0.3.11";
 
 // Upstream baseline used for the v0.3.0 rewrite.
 // Source: https://github.com/shinemoon/M5ReadPaper main @ e910d29 (data/version: V1.7.6)
@@ -49,7 +49,6 @@ static constexpr gpio_num_t kChargeStatePin = GPIO_NUM_4; // factory firmware: 0
 static constexpr gpio_num_t kUsbDetectPin = GPIO_NUM_5;   // factory firmware: 1 USB-IN
 static constexpr gpio_num_t kBuzzerPin = GPIO_NUM_21;
 static constexpr gpio_num_t kLegacyM5PaperTouchIntPin = GPIO_NUM_36; // not PaperS3 power key; kept only as an audit note
-static constexpr gpio_num_t kPowerOffPulsePin = GPIO_NUM_44; // PMIC power-off pulse used by PaperS3 references
 static constexpr gpio_num_t kEpdPowerPin = GPIO_NUM_45;
 
 static constexpr uint32_t kDisplayMiddleRefreshThreshold = 8;

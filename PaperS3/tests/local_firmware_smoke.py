@@ -120,7 +120,7 @@ def vink3_source_invariants(main_cpp: str) -> None:
     platformio = read("platformio.ini")
 
     assert_contains(main_cpp, "xTaskCreatePinnedToCore", "v0.3 main starts a ReadPaper-style pinned MainTask")
-    assert_contains(upstream, "kVinkPaperS3FirmwareVersion = \"v0.3.10\"", "single firmware version constant matches the manifest top version")
+    assert_contains(upstream, "kVinkPaperS3FirmwareVersion = \"v0.3.11\"", "single firmware version constant matches the manifest top version")
     assert_contains(main_cpp, "kVinkPaperS3FirmwareVersion", "main task init log uses the shared firmware version")
     assert_contains(runtime_cpp, "kVinkPaperS3FirmwareVersion", "runtime boot logs use the shared firmware version")
     assert_not_contains(main_cpp, "v0.3.2-rc", "main task must not show stale firmware version")

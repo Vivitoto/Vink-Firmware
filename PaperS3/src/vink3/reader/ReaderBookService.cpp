@@ -1,5 +1,6 @@
 #include "ReaderBookService.h"
 #include "ReaderTextRenderer.h"
+#include "../text/CjkTextRenderer.h"
 #include "../display/DisplayService.h"
 #include "../ReadPaper176.h"
 #include "../../Config.h"
@@ -646,7 +647,7 @@ void ReaderBookService::renderLibraryPage(uint16_t page) {
                  "这里还没有 TXT 文件或子文件夹。\n"
                  "请把 .txt 文件放到 SD 卡 /books 目录或其子目录中。",
                  libraryDir_);
-        g_readerText.renderTextPage("书架为空", emptyBody, 1, 1);
+        g_cjkText.renderTextPage("书架为空", emptyBody, 1, 1);
         return;
     }
     const uint16_t totalPages = (bookCount_ + kBooksPerPage - 1) / kBooksPerPage;
@@ -656,25 +657,24 @@ void ReaderBookService::renderLibraryPage(uint16_t page) {
     const int end = min(bookCount_, start + kBooksPerPage);
     char summary[128];
     snprintf(summary, sizeof(summary), "%s · %d 项 · 点文件夹进入，点 TXT 打开", libraryDir_, bookCount_);
-    char rows[kBooksPerPage][96];
+    // 256-byte rows to show the full path (up to 160 bytes) instead of just the name.
+    char rows[kBooksPerPage][256];
     const char* rowPtrs[kBooksPerPage];
     int rowCount = 0;
     for (int i = start; i < end && rowCount < kBooksPerPage; ++i) {
         const bool current = open_ && !bookIsDir_[i] && strcmp(bookPaths_[i], bookPath_) == 0;
-        char titleBuf[72];
-        strlcpy(titleBuf, bookTitles_[i], sizeof(titleBuf));
-        trimUtf8Tail(titleBuf, strlen(titleBuf));
         if (bookIsDir_[i]) {
-            snprintf(rows[rowCount], sizeof(rows[rowCount]), "%c %s %s", current ? '*' : ' ', strcmp(bookPaths_[i], "..") == 0 ? "↰" : "▣", titleBuf);
+            const char* label = strcmp(bookPaths_[i], "..") == 0 ? "↰ 上级目录" : "▣ 文件夹";
+            snprintf(rows[rowCount], sizeof(rows[rowCount]), "%c  %s", current ? '*' : ' ', label);
         } else {
-            char flags[16];
-            formatBookFlags(bookFlags_[i], flags, sizeof(flags));
-            snprintf(rows[rowCount], sizeof(rows[rowCount]), "%c TXT [%s] %s", current ? '*' : ' ', flags, titleBuf);
+            // Show just the filename (bookTitles_[i]), not the full path.
+            // Full paths are long and would get truncated by findWrapBreakUgc.
+            snprintf(rows[rowCount], sizeof(rows[rowCount]), "%c  %s", current ? '*' : ' ', bookTitles_[i]);
         }
         rowPtrs[rowCount] = rows[rowCount];
         rowCount++;
     }
-    g_readerText.renderListPage("书架", summary, rowPtrs, rowCount, kListFirstRowY, kListRowH, bookPage_ + 1, totalPages, 1);
+    g_cjkText.renderListPage("书架", summary, rowPtrs, rowCount, kListFirstRowY, kListRowH, bookPage_ + 1, totalPages, 1);
 }
 
 bool ReaderBookService::nextLibraryPage() {
@@ -793,7 +793,7 @@ void ReaderBookService::renderBookEntryPage() {
     snprintf(lineProgress, sizeof(lineProgress), "进度：%s", progress);
     const char* info[] = {lineTitle, lineSize, lineToc, lineCache, lineProgress, "提示：阅读中左右/上下滑动翻页"};
     const char* actions[] = {"继续阅读", "目录", "从头开始"};
-    g_readerText.renderActionPage("书籍入口", info, 6, actions, 3, 0);
+    g_cjkText.renderActionPage("书籍入口", info, 6, actions, 3, 0);
 }
 
 bool ReaderBookService::continueReading() {
@@ -949,12 +949,14 @@ void ReaderBookService::renderTocPage(uint16_t page) {
         if (titleByteLen >= sizeof(titleBuf)) titleByteLen = sizeof(titleBuf) - 1;
         memcpy(titleBuf, toc_[i].title.c_str(), titleByteLen);
         titleBuf[titleByteLen] = '\0';
-        trimUtf8Tail(titleBuf, titleByteLen);
+        // Remove trimUtf8Tail — it truncates on byte length, not pixel width,
+        // which corrupts multi-byte UTF-8 sequences. toc_.title is already a valid
+        // String from the detector, so the content is clean.
         snprintf(rows[rowCount], sizeof(rows[rowCount]), "%c %s", marker, titleBuf);
         rowPtrs[rowCount] = rows[rowCount];
         rowCount++;
     }
-    g_readerText.renderListPage(title_, summary, rowPtrs, rowCount, kTocFirstRowY, kTocRowH, page + 1, totalPages, 0);
+    g_cjkText.renderListPage(title_, summary, rowPtrs, rowCount, kTocFirstRowY, kTocRowH, page + 1, totalPages, 0);
 }
 
 size_t ReaderBookService::trimUtf8Tail(char* text, size_t len) const {

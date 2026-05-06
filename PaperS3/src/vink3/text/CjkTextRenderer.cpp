@@ -491,4 +491,184 @@ void CjkTextRenderer::drawRight(int16_t rightX, int16_t y, const char* text, uin
     drawText(rightX - textWidth(text ? text : ""), y, text, color);
 }
 
+// ─── UI page rendering (24px WenKai PROGMEM UI font) ───────────────────────
+
+void CjkTextRenderer::drawShellTabsUgc(int activeTab, const CjkUiPageOptions&) {
+    if (!canvas_) return;
+    static constexpr int16_t kTabsY = 76;
+    static constexpr int16_t kTabW = 120;
+    static constexpr int16_t kTabH = 60;
+    static constexpr int16_t kTabGap = 20;
+    static constexpr int16_t kTabX0 = 30;
+    static constexpr int16_t kTabCount = 4;
+    static const char* const kTabLabels[kTabCount] = {"书架", "阅读", "发现", "设置"};
+
+    for (int i = 0; i < kTabCount; i++) {
+        const int16_t x = kTabX0 + i * (kTabW + kTabGap);
+        const bool isActive = (i == activeTab);
+        const uint32_t bg = isActive ? 0x1B1B1B : 0xFFFFFF;
+        const uint32_t fgCol = isActive ? 0xFFFFFF : 0x1B1B1B;
+        canvas_->fillRoundRect(x, kTabsY, kTabW, kTabH, 16, bg);
+        canvas_->drawRoundRect(x, kTabsY, kTabW, kTabH, 16, fgCol);
+        if (isActive) {
+            canvas_->fillRoundRect(x + 2, kTabsY + 2, kTabW - 4, kTabH - 4, 14, fgCol);
+            canvas_->fillRoundRect(x + 28, kTabsY + kTabH - 9, kTabW - 56, 4, 2, fgCol);
+        }
+        const char* label = kTabLabels[i];
+        const int16_t tx = x + (kTabW - textWidth(label)) / 2;
+        const int16_t ty = kTabsY + (kTabH - fontSize()) / 2;
+        drawText(tx, ty, label, bg);
+    }
+}
+
+size_t CjkTextRenderer::findWrapBreakUgc(const char* text, size_t start, int16_t maxWidth) const {
+    if (!canvas_ || maxWidth <= 0) return start;
+    size_t len = strlen(text);
+    size_t pos = start;
+    int16_t curX = 0;
+    while (pos < len && text[pos]) {
+        uint32_t cp = decodeUtf8((const uint8_t*)text, pos, len);
+        if (cp == 0) break;
+        int16_t gw = 0;
+        GrayGlyph glyph;
+        if (progmemUiReady_ && findProgmemUiGlyph(cp, glyph)) {
+            gw = glyph.width;
+        } else {
+            gw = (cp < 128) ? 8 : fontSize();
+        }
+        if (curX + gw > maxWidth) break;
+        curX += gw;
+    }
+    if (pos == start && start < strlen(text)) pos = start + 1;
+    return pos;
+}
+
+void CjkTextRenderer::renderTextPage(const char* title, const char* body, uint16_t page,
+                                     uint16_t totalPages, const CjkUiPageOptions& opts) {
+    if (!canvas_) return;
+    if (!ready()) return;
+    canvas_->fillSprite(opts.dark ? TFT_BLACK : TFT_WHITE);
+    const uint16_t fg = opts.dark ? TFT_WHITE : TFT_BLACK;
+    const uint16_t mid = opts.dark ? 0xC618 : 0x8410;
+
+    drawText(opts.marginLeft, 28, title ? title : "未命名", mid);
+    canvas_->drawFastHLine(opts.marginLeft, 64, kPaperS3Width - opts.marginLeft - opts.marginRight, mid);
+
+    const char* text = body ? body : "";
+    size_t pos = 0;
+    size_t len = strlen(text);
+    int16_t y = opts.marginTop;
+    const int16_t maxW = kPaperS3Width - opts.marginLeft - opts.marginRight;
+    const int16_t lineH = fontSize() + opts.lineGap;
+    const int16_t bottom = kPaperS3Height - opts.marginBottom;
+    while (pos < len && y + lineH < bottom) {
+        while (pos < len && (text[pos] == '\n' || text[pos] == '\r')) pos++;
+        size_t end = findWrapBreakUgc(text, pos, maxW);
+        if (end <= pos) break;
+        char line[256];
+        size_t n = end - pos;
+        if (n >= sizeof(line)) n = sizeof(line) - 1;
+        memcpy(line, text + pos, n);
+        line[n] = '\0';
+        drawText(opts.marginLeft, y, line, fg);
+        pos = end;
+        y += lineH;
+    }
+    char footer[48];
+    snprintf(footer, sizeof(footer), "%u / %u", static_cast<unsigned>(page), static_cast<unsigned>(totalPages));
+    drawText(kPaperS3Width - opts.marginRight - textWidth(footer), kPaperS3Height - 34, footer, mid);
+}
+
+void CjkTextRenderer::renderListPage(const char* title, const char* summary,
+                                     const char* const* rows, int rowCount,
+                                     int16_t rowY, int16_t rowH,
+                                     uint16_t page, uint16_t totalPages,
+                                     int activeTab, const CjkUiPageOptions& opts) {
+    if (!canvas_) return;
+    if (!ready()) return;
+    canvas_->fillSprite(opts.dark ? TFT_BLACK : TFT_WHITE);
+    const uint16_t fg = opts.dark ? TFT_WHITE : TFT_BLACK;
+    const uint16_t mid = opts.dark ? 0xC618 : 0x8410;
+
+    drawText(opts.marginLeft, 22, title ? title : "列表", fg);
+    drawText(kPaperS3Width - opts.marginRight - textWidth(kVinkPaperS3FirmwareVersion), 22, kVinkPaperS3FirmwareVersion, mid);
+    canvas_->drawFastHLine(opts.marginLeft, 61, kPaperS3Width - opts.marginLeft - opts.marginRight, fg);
+    drawShellTabsUgc(activeTab, opts);
+    if (summary && summary[0]) drawText(opts.marginLeft, 162, summary, mid);
+
+    const int16_t maxW = kPaperS3Width - opts.marginLeft - opts.marginRight;
+    for (int i = 0; rows && i < rowCount; ++i) {
+        const int16_t y = rowY + i * rowH;
+        if (y + rowH > kPaperS3Height - opts.marginBottom) break;
+        canvas_->drawFastHLine(opts.marginLeft, y + rowH - 4, maxW, mid);
+        const char* row = rows[i] ? rows[i] : "";
+        char line[320];
+        size_t end = findWrapBreakUgc(row, 0, maxW);
+        if (end == 0) end = min(strlen(row), sizeof(line) - 1);
+        size_t n = min(end, sizeof(line) - 1);
+        memcpy(line, row, n);
+        line[n] = '\0';
+        const int16_t ty = y + max<int16_t>(0, (rowH - static_cast<int16_t>(fontSize())) / 2);
+        drawText(opts.marginLeft, ty, line, fg);
+    }
+    char footer[48];
+    snprintf(footer, sizeof(footer), "%u / %u", static_cast<unsigned>(page), static_cast<unsigned>(totalPages));
+    drawText(kPaperS3Width - opts.marginRight - textWidth(footer), kPaperS3Height - 34, footer, mid);
+}
+
+void CjkTextRenderer::renderActionPage(const char* title,
+                                       const char* const* infoLines, int infoCount,
+                                       const char* const* actions, int actionCount,
+                                       int activeTab, const CjkUiPageOptions& opts) {
+    if (!canvas_) return;
+    if (!ready()) return;
+    canvas_->fillSprite(opts.dark ? TFT_BLACK : TFT_WHITE);
+    const uint16_t fg = opts.dark ? TFT_WHITE : TFT_BLACK;
+    const uint16_t bgCol = opts.dark ? TFT_BLACK : TFT_WHITE;
+    const uint16_t mid = opts.dark ? 0xC618 : 0x8410;
+
+    drawText(opts.marginLeft, 22, title ? title : "操作", fg);
+    drawText(kPaperS3Width - opts.marginRight - textWidth(kVinkPaperS3FirmwareVersion), 22, kVinkPaperS3FirmwareVersion, mid);
+    canvas_->drawFastHLine(opts.marginLeft, 61, kPaperS3Width - opts.marginLeft - opts.marginRight, fg);
+    drawShellTabsUgc(activeTab, opts);
+
+    const int16_t maxW = kPaperS3Width - opts.marginLeft - opts.marginRight;
+    const int16_t lineH = fontSize() + opts.lineGap;
+    int16_t y = 160;
+    for (int i = 0; infoLines && i < infoCount && y < 510; ++i) {
+        const char* lineText = infoLines[i] ? infoLines[i] : "";
+        size_t start = 0;
+        int wraps = 0;
+        while (lineText[start] && wraps < 2 && y < 510) {
+            size_t end = findWrapBreakUgc(lineText, start, maxW);
+            if (end <= start) break;
+            char line[256];
+            size_t n = end - start;
+            if (n >= sizeof(line)) n = sizeof(line) - 1;
+            memcpy(line, lineText + start, n);
+            line[n] = '\0';
+            drawText(opts.marginLeft, y, line, mid);
+            y += lineH;
+            start = end;
+            wraps++;
+        }
+    }
+    static constexpr int16_t kButtonX = 70;
+    static constexpr int16_t kButtonW = 400;
+    static constexpr int16_t kButtonH = 64;
+    static constexpr int16_t kButtonY[] = {560, 660, 760};
+    const int drawCount = min(actionCount, static_cast<int>(sizeof(kButtonY) / sizeof(kButtonY[0])));
+    for (int i = 0; actions && i < drawCount; ++i) {
+        const int16_t by = kButtonY[i];
+        const bool primary = i == 0;
+        canvas_->fillRoundRect(kButtonX, by, kButtonW, kButtonH, 18, primary ? fg : bgCol);
+        canvas_->drawRoundRect(kButtonX, by, kButtonW, kButtonH, 18, fg);
+        const char* label = actions[i] ? actions[i] : "";
+        const int16_t tx = kButtonX + (kButtonW - textWidth(label)) / 2;
+        const int16_t ty = by + (kButtonH - lineH) / 2;
+        drawText(tx, ty, label, primary ? bgCol : fg);
+    }
+}
+
+
 } // namespace vink3

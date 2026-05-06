@@ -5,9 +5,17 @@
 
 namespace vink3 {
 
+// UI page rendering options — defined outside CjkTextRenderer to avoid nested-struct issues
+struct CjkUiPageOptions {
+    bool dark = false;
+    int marginLeft = 8;
+    int marginRight = 8;
+    int marginTop = 80;
+    int marginBottom = 44;
+    int lineGap = 4;
+};
+
 // v0.3 UI text renderer. It avoids M5GFX drawString for UTF-8 Chinese.
-// Vink shell UI must prefer bundled Simplified Chinese SC fonts; the ReadPaper
-// UI subset is fallback only so shared Han characters do not look Traditional/Japanese.
 class CjkTextRenderer {
 public:
     bool begin(M5Canvas* canvas);
@@ -17,8 +25,24 @@ public:
     void drawText(int16_t x, int16_t y, const char* text, uint16_t color = TFT_BLACK);
     void drawCentered(int16_t x, int16_t y, int16_t w, int16_t h, const char* text, uint16_t color = TFT_BLACK);
     void drawRight(int16_t rightX, int16_t y, const char* text, uint16_t color = TFT_BLACK);
+    void renderTextPage(const char* title, const char* body, uint16_t page, uint16_t totalPages,
+                        const CjkUiPageOptions& opts = CjkUiPageOptions{});
+    void renderListPage(const char* title, const char* summary,
+                        const char* const* rows, int rowCount,
+                        int16_t rowY, int16_t rowH,
+                        uint16_t page, uint16_t totalPages,
+                        int activeTab = 0,
+                        const CjkUiPageOptions& opts = CjkUiPageOptions{});
+    void renderActionPage(const char* title,
+                          const char* const* infoLines, int infoCount,
+                          const char* const* actions, int actionCount,
+                          int activeTab = 0,
+                          const CjkUiPageOptions& opts = CjkUiPageOptions{});
 
 private:
+    void drawShellTabsUgc(int activeTab, const CjkUiPageOptions& opts);
+    size_t findWrapBreakUgc(const char* text, size_t start, int16_t maxWidth) const;
+
     struct ReadPaperGlyph {
         uint16_t unicode = 0;
         uint16_t width = 0;

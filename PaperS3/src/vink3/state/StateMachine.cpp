@@ -23,22 +23,6 @@ SystemState tabStateForAction(UiAction action) {
     }
 }
 
-void pulsePaperS3PowerOffPin() {
-    pinMode(static_cast<int>(kPowerOffPulsePin), OUTPUT);
-    digitalWrite(static_cast<int>(kPowerOffPulsePin), HIGH);
-    delay(150);
-    digitalWrite(static_cast<int>(kPowerOffPulsePin), LOW);
-    delay(100);
-}
-
-void waitPowerKeyRelease(uint32_t timeoutMs = 3000) {
-    const uint32_t start = millis();
-    while (M5.BtnPWR.isPressed() && millis() - start < timeoutMs) {
-        M5.update();
-        delay(30);
-    }
-}
-
 void shutdownPaperS3(const char* reason) {
     Serial.println("[vink3][power] shutdown requested");
     g_readerBook.saveCurrentProgress();
@@ -47,20 +31,20 @@ void shutdownPaperS3(const char* reason) {
     g_displayService.waitIdle(5000);
     delay(300);
 
-    // Official/factory order first: sleep the EPD, wait for it, then ask
-    // M5Unified to power off. GPIO44 is retained only as a fallback for units
-    // where M5.Power.powerOff() does not fully cut power.
-    waitPowerKeyRelease();
-    M5.Display.sleep();
+    // Reference: official readpaper powermgt.cpp shutdown sequence:
+    //   delay(500) → waitDisplay() → delay(2000) → M5.Power.powerOff()
+    //
+    // M5.Power.powerOff() calls AXP2101.powerOff() via I2C and blocks until the
+    // user releases the power button (non-returning on PaperS3).
+    //
+    // The old GPIO44 manual pulse was wrong — GPIO44 is AXP2101 PWRON (active high),
+    // and a 150ms pulse on some hardware revisions triggers restart, not shutdown.
+    // M5.Power.powerOff() uses the correct PMIC I2C sequence internally.
+    delay(500);  // SD card write flush (official minimum)
     M5.Display.waitDisplay();
-    delay(200);
+    delay(2000);
     M5.Power.powerOff();
-
-    delay(500);
-    pulsePaperS3PowerOffPin();
-    waitPowerKeyRelease();
-    // Do not arm GPIO36 as wake source: on PaperS3 it is not a verified side
-    // power-key input and can make the shutdown fallback appear broken.
+    // Does not return on PaperS3. Fallback never reached.
     esp_deep_sleep_start();
 }
 
