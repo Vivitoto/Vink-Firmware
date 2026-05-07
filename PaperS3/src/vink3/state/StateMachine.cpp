@@ -75,7 +75,7 @@ void renderState(SystemState state) {
     switch (state) {
         case SystemState::Home:
         case SystemState::Reader:
-            g_uiRenderer.renderReaderHome();
+            g_readerBook.renderReaderHome();
             break;
         case SystemState::ReaderMenu:
             g_readerBook.renderCurrent();
@@ -226,8 +226,10 @@ void StateMachine::handle(const Message& message) {
                     const bool fromLibrary = state_ == SystemState::Library;
                     if (fromLibrary) {
                         if (!g_readerBook.handleLibraryTap(message.touch.x, message.touch.y)) break;
-                        state_ = SystemState::ReaderMenu;
-                        g_readerBook.renderCurrent();
+                        if (g_readerBook.lastLibraryTapOpenedBook()) {
+                            state_ = SystemState::ReaderMenu;
+                            g_readerBook.renderCurrent();
+                        }
                     } else {
                         state_ = SystemState::ReaderMenu;
                         g_readerBook.renderOpenOrHelp();
@@ -241,8 +243,10 @@ void StateMachine::handle(const Message& message) {
                     if (state_ == SystemState::ReaderMenu && g_readerBook.handleTap(message.touch.x, message.touch.y)) {
                         g_displayService.enqueueFull(false, 100);
                     } else if (state_ == SystemState::Library && g_readerBook.handleLibraryTap(message.touch.x, message.touch.y)) {
-                        state_ = SystemState::ReaderMenu;
-                        g_readerBook.renderCurrent();
+                        if (g_readerBook.lastLibraryTapOpenedBook()) {
+                            state_ = SystemState::ReaderMenu;
+                            g_readerBook.renderCurrent();
+                        }
                         g_displayService.enqueueFull(false, 100);
                     }
                     break;
