@@ -15,6 +15,7 @@ public:
     const char* title() const { return title_; }
     const char* path() const { return bookPath_; }
 
+    void renderReaderHome();
     void renderOpenOrHelp();
     void renderCurrent();
     void renderBookLoadingPage(const char* stage);
@@ -24,6 +25,7 @@ public:
     bool nextLibraryPage();
     bool prevLibraryPage();
     bool handleLibraryTap(int16_t x, int16_t y);
+    bool lastLibraryTapOpenedBook() const { return lastLibraryTapOpenedBook_; }
     void renderTocPage(uint16_t page = 0);
     bool nextPage();
     bool prevPage();
@@ -34,14 +36,15 @@ public:
     void saveCurrentProgress();
 
 private:
-    static constexpr int kMaxTocEntries = 1200;
+    static constexpr int kMaxTocEntries = 2000;
     static constexpr int kTocEntriesPerPage = 13;
-    static constexpr int kMaxBooks = 80;
+    static constexpr int kMaxBooks = 160;
     static constexpr int kBooksPerPage = 12;
     static constexpr uint8_t kMaxLibraryScanDepth = 6;
     static constexpr uint8_t kBookHasTocCache = 0x01;
     static constexpr uint8_t kBookHasProgress = 0x02;
     static constexpr uint8_t kBookHasPageCache = 0x04;
+    static constexpr uint8_t kBookIsDirectory = 0x80;
     static constexpr int16_t kListFirstRowY = 204;
     static constexpr int16_t kListRowH = 52;
     static constexpr int16_t kTocFirstRowY = kListFirstRowY;
@@ -59,10 +62,13 @@ private:
     bool ensureSdReady();
     bool scanBooks();
     void scanBookDir(const char* dirPath, uint8_t depth);
+    bool addLibraryEntry(const char* path, bool isDirectory, const char* displayName = nullptr);
     bool addBookPath(const char* path);
     void sortBooks();
     void swapBookEntries(int a, int b);
     bool isTxtPath(const char* name) const;
+    void setDisplayNameFromPath(char* out, size_t len, const char* path) const;
+    void parentDirOf(const char* path, char* out, size_t len) const;
     void closeCurrent();
     void setTitleFromPath(const char* path);
     void getSidecarPath(char* out, size_t len, const char* suffix) const;
@@ -76,13 +82,24 @@ private:
     void getTocCachePath(char* out, size_t len) const;
     void getProgressPath(char* out, size_t len) const;
     void getPageCachePath(char* out, size_t len) const;
+    void getLastBookPath(char* out, size_t len) const;
     bool loadTocCache();
     void saveTocCache();
     uint32_t activeTextSize() const;
     bool loadProgress();
     void saveProgress();
+    bool loadLastBookPath(char* out, size_t len) const;
+    void saveLastBookPath();
+    bool readProgressForBook(const char* bookPath, uint16_t& chapter, uint16_t& page) const;
+    bool openLastBook();
     bool loadChapterPageCache(int index, uint32_t start, uint32_t end);
     void saveChapterPageCache(int index, uint32_t start, uint32_t end);
+    uint32_t readerLayoutKey() const;
+    void saveChapterPageCacheData(int index, uint32_t start, uint32_t end, const uint32_t* starts, int count);
+    bool chapterPageCacheValid(int index, uint32_t start, uint32_t end);
+    bool preheatChapterPageCache(int index);
+    void resetPreheatCursor(int afterChapter);
+    void maybePreheatNextChapter();
     bool buildChapterPages(int index);
     bool renderCurrentReadingPage();
     bool renderChapterPreview(int index);
@@ -96,6 +113,7 @@ private:
     bool open_ = false;
     char bookPath_[160] = {0};
     char activeTextPath_[160] = {0};
+    char currentLibraryDir_[160] = "/books";
     char title_[72] = {0};
     ChapterDetectResult* toc_ = nullptr;
     uint32_t* pageStarts_ = nullptr;
@@ -105,11 +123,13 @@ private:
     int bookCount_ = 0;
     uint16_t bookPage_ = 0;
     bool booksScanned_ = false;
+    bool lastLibraryTapOpenedBook_ = false;
     int tocCount_ = 0;
     uint16_t tocPage_ = 0;
     int currentTocIndex_ = -1;
     int pageCount_ = 0;
     int currentPage_ = 0;
+    int nextPreheatTocIndex_ = -1;
     bool hasProgress_ = false;
     bool showingBookEntry_ = false;
     bool showingToc_ = true;
