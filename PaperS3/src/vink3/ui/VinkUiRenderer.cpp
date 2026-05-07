@@ -277,6 +277,36 @@ void VinkUiRenderer::renderUiListPage(SystemState active, const char* title, con
     g_cjkText.drawRight(kPaperS3Width - 34, kPaperS3Height - 38, footer, kGrayText);
 }
 
+void VinkUiRenderer::renderUiActionPage(SystemState active, const char* title,
+                                        const char* const* infoLines, int infoCount,
+                                        const char* const* actions, int actionCount) {
+    if (!canvas_) return;
+    clear();
+    drawStatusBar(title ? title : "操作");
+    drawTabs(active);
+
+    int16_t y = 154;
+    for (int i = 0; infoLines && i < infoCount && y < 520; ++i) {
+        char line[160];
+        g_cjkText.fitTextToWidth(infoLines[i] ? infoLines[i] : "", line, sizeof(line), kPaperS3Width - 68);
+        g_cjkText.drawText(34, y, line, i == 0 ? TFT_BLACK : kGrayText);
+        y += 34;
+    }
+
+    static constexpr int16_t kButtonX = 70;
+    static constexpr int16_t kButtonW = 400;
+    static constexpr int16_t kButtonH = 64;
+    static constexpr int16_t kButtonY[] = {560, 660, 760};
+    const int drawCount = min(actionCount, static_cast<int>(sizeof(kButtonY) / sizeof(kButtonY[0])));
+    for (int i = 0; actions && i < drawCount; ++i) {
+        const int16_t by = kButtonY[i];
+        const bool primary = i == 0;
+        canvas_->fillRoundRect(kButtonX, by, kButtonW, kButtonH, 18, primary ? TFT_BLACK : TFT_WHITE);
+        canvas_->drawRoundRect(kButtonX, by, kButtonW, kButtonH, 18, TFT_BLACK);
+        g_cjkText.drawCentered(kButtonX, by, kButtonW, kButtonH, actions[i] ? actions[i] : "", primary ? TFT_WHITE : TFT_BLACK);
+    }
+}
+
 void VinkUiRenderer::renderTransfer() {
     if (!canvas_) return;
     clear();
