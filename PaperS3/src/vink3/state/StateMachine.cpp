@@ -7,6 +7,7 @@
 #include "../input/InputService.h"
 #include "../ReadPaper176.h"
 #include <esp_sleep.h>
+#include <SD.h>
 
 namespace vink3 {
 
@@ -87,6 +88,28 @@ void renderState(SystemState state) {
 }
 } // namespace
 
+
+// ── Lock screen (double-tap bottom-right to lock, power button to wake) ──────
+
+void StateMachine::enterLockScreen() {
+    if (locked_) return;
+    locked_ = true;
+    state_ = SystemState::Locked;
+    g_uiRenderer.renderLockScreen();
+    g_displayService.enqueueFull(true, 100);
+    g_displayService.waitIdle(5000);
+    Serial.println("[vink3][lock] screen locked");
+}
+
+void StateMachine::wakeFromLockScreen() {
+    if (!locked_) return;
+    locked_ = false;
+    lastLockTapMs_ = 0;
+    waitingSecondLockTap_ = false;
+    Serial.println("[vink3][lock] screen woken");
+}
+
+
 bool StateMachine::begin(uint8_t queueLen) {
     if (!queue_) {
         queue_ = xQueueCreate(queueLen, sizeof(Message));
@@ -140,6 +163,22 @@ void StateMachine::handle(const Message& message) {
 
         case MessageType::Tap:
         {
+            // Lock screen: double-tap in bottom-right 1/3 zone to lock.
+            if (message.touch.x >= (kPaperS3Width * 2) / 3 &&
+                message.touch.y >= (kPaperS3Height * 2) / 3) {
+                uint32_t now = message.timestampMs;
+                if (waitingSecondLockTap_ && (now - lastLockTapMs_ <= 500)) {
+                    waitingSecondLockTap_ = false;
+                    lastLockTapMs_ = 0;
+                    enterLockScreen();
+                } else {
+                    waitingSecondLockTap_ = true;
+                    lastLockTapMs_ = now;
+                }
+                break;
+            }
+            if (state_ == SystemState::Locked) break;
+
             if (state_ == SystemState::Diagnostics) {
                 g_uiRenderer.renderDiagnostics(message, "tap");
                 g_displayService.enqueueFull(false, 100);
@@ -336,9 +375,22 @@ void StateMachine::handle(const Message& message) {
             break;
 
         case MessageType::PowerButton:
-            state_ = SystemState::Shutdown;
-            shutdownPaperS3("正在关机");
+            if (locked_) {
+                wakeFromLockScreen();
+            } else {
+                state_ = SystemState::Shutdown;
+                shutdownPaperS3("正在关机");
+            }
             break;
+
+        case MessageType::LockScreen:
+            enterLockScreen();
+            break;
+
+        case MessageType::WakeFromLockScreen:
+            wakeFromLockScreen();
+            break;
+
 
         case MessageType::SleepTimeout:
             // v0.3 does not auto-sleep yet; keep the message explicit so future

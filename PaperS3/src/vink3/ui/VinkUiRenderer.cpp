@@ -373,6 +373,21 @@ void VinkUiRenderer::renderLegadoSync(const char* status) {
     drawFooterHint("冲突不自动覆盖，不确定就让用户选");
 }
 
+void VinkUiRenderer::renderLockScreen() {
+    if (!canvas_) return;
+    clear();
+    drawStatusBar("锁屏");
+    // Full-screen white with centered lock message.
+    canvas_->setTextColor(TFT_BLACK, TFT_WHITE);
+    canvas_->setTextDatum(middle_center);
+    canvas_->setTextSize(2);
+    canvas_->drawString("屏幕已锁定", kPaperS3Width / 2, kPaperS3Height / 2 - 30);
+    canvas_->setTextSize(1);
+    canvas_->drawString("单击电源键或双击右下角解锁", kPaperS3Width / 2, kPaperS3Height / 2 + 10);
+    canvas_->setTextDatum(top_left);
+}
+
+
 UiAction VinkUiRenderer::hitTestTabs(int16_t x, int16_t y) const {
     if (y < kTabsY || y >= kTabsY + kTabsH) return UiAction::None;
     for (int i = 0; i < 4; ++i) {

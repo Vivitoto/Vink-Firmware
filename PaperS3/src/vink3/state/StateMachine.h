@@ -10,6 +10,10 @@ public:
     bool post(const Message& message, uint32_t timeoutMs = 20);
     SystemState state() const;
 
+    void enterLockScreen();
+    void wakeFromLockScreen();
+    bool isLocked() const { return locked_; }
+
 private:
     static void taskThunk(void* arg);
     void taskLoop();
@@ -18,6 +22,9 @@ private:
     QueueHandle_t queue_ = nullptr;
     TaskHandle_t task_ = nullptr;
     SystemState state_ = SystemState::Boot;
+    bool locked_ = false;
+    uint32_t lastLockTapMs_ = 0;
+    bool waitingSecondLockTap_ = false;
 };
 
 extern StateMachine g_stateMachine;
