@@ -1,6 +1,6 @@
 # Vink v0.3.2-rc runtime scaffold
 
-This directory is the new PaperS3 firmware line. The goal is to abandon the v0.2.x monolithic `App::run()` architecture and rebuild around Vink's proven low-level model:
+This directory is the new PaperS3 firmware line. The goal is to abandon the v0.2.x monolithic `App::run()` architecture and rebuild around ReadPaper's proven low-level model:
 
 - `runtime/` starts the new services.
 - `display/` owns the physical e-paper push queue.

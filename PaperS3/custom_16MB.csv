@@ -1,5 +1,5 @@
 # Name,   Type, SubType, Offset,  Size,     Flags
-# Vink-PaperS3 v0.3 single-app layout for full Vink PROGMEM CJK font.
+# Vink-PaperS3 v0.3 single-app layout for full ReadPaper PROGMEM CJK font.
 # Keep SPIFFS at the existing ~4MB size for bundled web/font resources.
 nvs,      data, nvs,     0x9000,  0x5000,
 otadata,  data, ota,     0xe000,  0x2000,

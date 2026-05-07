@@ -2,7 +2,7 @@
 
 Vink 系列面向 M5Stack PaperS3 的电子书阅读固件。
 
-当前主线是 `v0.3` Vink service-style 架构：Arduino `setup()` 只启动一个 pinned supervisor task，运行期拆成 display / input / state / reader / sync 服务，避免旧版单体 `App::run()` 继续膨胀。
+当前主线是 `v0.3` ReadPaper-style 架构：Arduino `setup()` 只启动一个 pinned supervisor task，运行期拆成 display / input / state / reader / sync 服务，避免旧版单体 `App::run()` 继续膨胀。
 
 ## 当前状态
 
@@ -34,7 +34,7 @@ PaperS3/
 │       ├── runtime/            # 服务初始化与主循环
 │       ├── state/              # 消息与状态机
 │       ├── sync/               # Legado 同步服务骨架
-│       ├── text/               # CJK / Vink 字体资源
+│       ├── text/               # CJK / ReadPaper 字体资源
 │       └── ui/                 # Shell / 诊断 / 设置 UI
 ├── tools/                      # 字体、GBK 表、full 镜像构建工具
 ├── tests/                      # 本地 smoke gate

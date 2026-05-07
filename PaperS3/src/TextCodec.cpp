@@ -156,7 +156,7 @@ uint16_t TextCodec::gbkToUnicode(uint8_t first, uint8_t second) {
     uint16_t unicode = vink3::gbkToUnicode((static_cast<uint16_t>(first) << 8) | second);
     if (unicode != 0) return unicode;
 
-    // Legacy compact GB2312 table fallback. The full Vink-owned table above
+    // Legacy compact GB2312 table fallback. The full ReadPaper-derived table above
     // covers novel text such as 庆余年 (澹/朕/眸/嫔/嗯 etc.); keep this as a safety net.
     if (first < GBK_ZONE_START || first >= GBK_ZONE_START + GBK_ZONE_COUNT) {
         return 0;
@@ -198,11 +198,10 @@ String TextCodec::convertToUTF8(const char* inputPath) {
     char tempPath[128];
     snprintf(tempPath, sizeof(tempPath), "%s/%s_utf8.tmp", PROGRESS_DIR, name);
     
-    // Always rebuild the UTF-8 cache from the current source file. Reusing an
-    // old temp file can show stale text after the original GBK book changes.
+    // 如果已存在，直接返回
     if (SD.exists(tempPath)) {
-        Serial.printf("[Codec] Removing stale temp file: %s\n", tempPath);
-        SD.remove(tempPath);
+        Serial.printf("[Codec] Temp file exists: %s\n", tempPath);
+        return String(tempPath);
     }
     
     File inFile = SD.open(inputPath, FILE_READ);

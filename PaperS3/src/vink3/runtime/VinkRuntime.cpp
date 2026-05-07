@@ -1,15 +1,11 @@
 #include "VinkRuntime.h"
-#include "../config/ConfigService.h"
 #include "../display/DisplayService.h"
-#include "../sync/LegadoService.h"
-#include "../sync/WifiService.h"
 #include "../input/InputService.h"
 #include "../reader/ReaderBookService.h"
 #include "../reader/ReaderTextRenderer.h"
 #include "../state/StateMachine.h"
+#include "../sync/LegadoService.h"
 #include "../ui/VinkUiRenderer.h"
-#include "../../FontManager.h"
-#include "../webui/WebUiService.h"
 #include <SPIFFS.h>
 #include <SD.h>
 #include "esp_sleep.h"
@@ -22,24 +18,6 @@ volatile TouchCoordMode gPaperS3TouchCoordMode = TouchCoordMode::OfficialRaw540x
 VinkRuntime g_runtime;
 
 namespace {
-String buildLegadoBaseUrlForRuntime(const VinkConfig& cfg) {
-    String base = cfg.legadoHost;
-    base.trim();
-    if (base.isEmpty()) return base;
-    if (!base.startsWith("http://") && !base.startsWith("https://")) {
-        base = "http://" + base;
-    }
-    const int scheme = base.indexOf("://");
-    const int hostStart = scheme >= 0 ? scheme + 3 : 0;
-    int slash = base.indexOf('/', hostStart);
-    if (slash < 0) slash = base.length();
-    const String hostPort = base.substring(hostStart, slash);
-    if (hostPort.indexOf(':') < 0 && cfg.legadoPort > 0) {
-        base = base.substring(0, slash) + ":" + String(cfg.legadoPort) + base.substring(slash);
-    }
-    return base;
-}
-
 void configureOfficialPaperS3Gpios() {
     pinMode(static_cast<int>(kUsbDetectPin), INPUT);
     pinMode(static_cast<int>(kChargeStatePin), INPUT);
@@ -75,7 +53,7 @@ void drawOfficialBootProbe() {
 } // namespace
 
 bool VinkRuntime::begin() {
-    Serial.printf("[vink3][runtime] starting %s from Vink reference core baseline\n", kVinkPaperS3FirmwareVersion);
+    Serial.printf("[vink3][runtime] starting %s from ReadPaper V1.7.6 baseline\n", kVinkPaperS3FirmwareVersion);
     if (!beginHardware()) return false;
     if (!beginCanvas()) return false;
     if (!beginServices()) return false;
@@ -88,7 +66,7 @@ bool VinkRuntime::beginHardware() {
 
     Serial.begin(115200);
     delay(200);
-    Serial.printf("\n[Vink %s] Vink baseline %s @ %s\n", kVinkPaperS3FirmwareVersion, kVinkPaperS3CoreReferenceVersion, kVinkPaperS3CoreReferenceCommit);
+    Serial.printf("\n[Vink %s] ReadPaper baseline %s @ %s\n", kVinkPaperS3FirmwareVersion, kReadPaperUpstreamVersion, kReadPaperUpstreamCommit);
     Serial.printf("[vink3][boot] wake cause=%d psram size=%u free=%u flash=%u\n",
                   static_cast<int>(esp_sleep_get_wakeup_cause()),
                   ESP.getPsramSize(), ESP.getFreePsram(), ESP.getFlashChipSize());
@@ -102,13 +80,10 @@ bool VinkRuntime::beginHardware() {
     auto cfg = M5.config();
     // Official M5PaperS3-UserDemo uses the default M5.begin() path. Keep this
     // path strict and visible; no fallback-board override, no clear_display
-    // override, no Vink service-style startup masking.
+    // override, no ReadPaper-style startup masking.
     (void)cfg;
     M5.begin();
     delay(50);
-    // Disable M5Unified default hold detection so InputService owns power-button logic exclusively.
-    M5.BtnPWR.setDebounceThresh(0);
-    M5.BtnPWR.setHoldThresh(0);
     configureOfficialPaperS3Gpios();
 
     M5.Display.setEpdMode(kQualityRefresh);
@@ -142,32 +117,13 @@ bool VinkRuntime::beginCanvas() {
 }
 
 bool VinkRuntime::beginServices() {
-    g_configService.begin();
-    // Keep boot SD-free. ReaderBookService intentionally initializes SD lazily;
-    // scanning/loading SD fonts here can wedge PaperS3 during startup with some
-    // cards inserted, leaving the boot probe repeatedly refreshed by reset loops.
-    // ReaderTextRenderer::begin() below loads the bundled Vink PROGMEM font;
-    // SD fonts remain available from the layout/settings path after boot.
-    Serial.println("[vink3][runtime] boot font scan skipped; using default reader font");
-    g_webUi.begin(&g_configService);
     if (!g_uiRenderer.begin(&canvas_)) return false;
     if (!g_readerText.begin(&canvas_)) return false;
     if (!g_readerBook.begin()) return false;
     if (!g_displayService.begin(&canvas_)) return false;
     if (!g_stateMachine.begin()) return false;
     if (!g_inputService.begin(&g_stateMachine)) return false;
-    if (!g_wifiService.begin()) return false;
-    if (!g_legadoService.begin()) return false;
-    {
-        const auto& cfg = g_configService.get();
-        if (cfg.legadoEnabled && !cfg.legadoHost.isEmpty()) {
-            LegadoConfig lc;
-            lc.baseUrl = buildLegadoBaseUrlForRuntime(cfg);
-            lc.token = cfg.legadoToken;
-            lc.enabled = cfg.legadoEnabled;
-            g_legadoService.configure(lc);
-        }
-    }
+    if (!g_legadoService.begin(&g_stateMachine)) return false;
     return true;
 }
 
@@ -182,7 +138,7 @@ void VinkRuntime::drawBoot() {
 }
 
 void VinkRuntime::loop() {
-    // Vink's main task becomes a lightweight supervisor after services are
+    // ReadPaper's main task becomes a lightweight supervisor after services are
     // started. Keep this loop intentionally quiet; state/input/display tasks own work.
     const uint32_t now = millis();
     if (now - lastHeartbeatLogMs_ > 60000) {
@@ -192,19 +148,6 @@ void VinkRuntime::loop() {
                       static_cast<unsigned long>(g_displayService.pushCount()),
                       ESP.getFreeHeap(), ESP.getFreePsram());
     }
-
-    // Auto-sleep: check idle timeout every loop tick.
-    const auto& cfg = g_configService.get();
-    if (cfg.autoSleepEnabled && cfg.autoSleepMinutes > 0) {
-        const uint32_t idleMs = now - g_stateMachine.lastActivityMs();
-        if (idleMs >= static_cast<uint32_t>(cfg.autoSleepMinutes) * 60000) {
-            Message msg;
-            msg.type = MessageType::SleepTimeout;
-            msg.timestampMs = now;
-            g_stateMachine.post(msg, 0);
-        }
-    }
-
     delay(1000);
 }
 

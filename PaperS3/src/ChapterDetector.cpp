@@ -218,20 +218,9 @@ bool ChapterDetector::matchChineseChapter(const char* line, int len, ChapterDete
                 if (numLen > 0 && numLen < 20) {
                     int num = chineseToNumber(line + 3, numLen);
                     if (num > 0) {
-                        out.title = String("第") + String(num) + String(keywordNames[k]);
-                        // 尝试提取标题后缀
-                        int suffixStart = i + 3;
-                        if (suffixStart < len) {
-                            // 跳过空格和分隔符
-                            while (suffixStart < len && (line[suffixStart] == ' ' ||
-                                   line[suffixStart] == '\t' || line[suffixStart] == 0xEF)) {
-                                suffixStart++;
-                            }
-                            if (suffixStart < len) {
-                                out.title += " ";
-                                out.title += String(line + suffixStart, len - suffixStart);
-                            }
-                        }
+                        // Preserve the book's original chapter title for display.
+                        // The parsed numeric value is only for ordering/dedup heuristics.
+                        out.title = String(line, len);
                         out.score = 100;
                         out.chapterNumber = num;
                         return true;
@@ -289,16 +278,8 @@ bool ChapterDetector::matchArabicChapter(const char* line, int len, ChapterDetec
             (unsigned char)line[kwStart+1] == (unsigned char)kw[1] &&
             (unsigned char)line[kwStart+2] == (unsigned char)kw[2]) {
 
-            out.title = String("第") + String(num) + String(keywordNames[k]);
-            int suffixStart = kwStart + 3;
-            if (suffixStart < len) {
-                while (suffixStart < len && (line[suffixStart] == ' ' ||
-                       line[suffixStart] == '\t')) suffixStart++;
-                if (suffixStart < len) {
-                    out.title += " ";
-                    out.title += String(line + suffixStart, len - suffixStart);
-                }
-            }
+            // Preserve original title text; keep `num` only for ordering/dedup.
+            out.title = String(line, len);
             out.score = 80;
             out.chapterNumber = num;
             return true;
