@@ -31,13 +31,21 @@ void shutdownPaperS3(const char* reason) {
     g_displayService.waitIdle(5000);
     delay(300);
 
-    // ReadPaper's shutdown path saves state, gives SD/display time to settle,
-    // then calls M5.Power.powerOff(). M5Unified implements the PaperS3-specific
+    // ReadPaper-style shutdown: save state, give SD/display time to settle,
+    // then call M5.Power.powerOff(). M5Unified implements the PaperS3-specific
     // GPIO44 power-hold pulse internally, so do not duplicate the pulse here.
     delay(500);
     M5.Display.waitDisplay();
-    delay(2000);
-    Serial.println("[vink3][power] calling M5.Power.powerOff() via ReadPaper-style shutdown");
+
+    // E-ink keeps its last image after power is cut. Draw a final, explicit
+    // "powered off" page before calling M5.Power.powerOff() so real-device
+    // testing can distinguish a completed shutdown path from a stuck busy page.
+    g_uiRenderer.renderPowerOffReady();
+    g_displayService.enqueueFull(true, 100);
+    g_displayService.waitIdle(8000);
+    M5.Display.waitDisplay();
+    delay(1500);
+    Serial.println("[vink3][power] final power-off page drawn; calling M5.Power.powerOff()");
     Serial.flush();
     M5.Power.powerOff();
 
@@ -149,8 +157,15 @@ void StateMachine::handle(const Message& message) {
         case MessageType::Tap:
         {
             if (state_ == SystemState::Diagnostics) {
-                g_uiRenderer.renderDiagnostics(message, "tap");
+                const UiAction diagAction = g_uiRenderer.hitTest(state_, message.touch.x, message.touch.y);
+                if (diagAction == UiAction::TabSettings) {
+                    state_ = SystemState::Settings;
+                    renderState(state_);
+                } else {
+                    g_uiRenderer.renderDiagnostics(message, "tap");
+                }
                 g_displayService.enqueueFull(false, 100);
+                suppressAfterTransition();
                 break;
             }
             const UiAction action = g_uiRenderer.hitTest(state_, message.touch.x, message.touch.y);

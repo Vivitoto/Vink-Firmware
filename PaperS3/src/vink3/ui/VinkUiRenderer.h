@@ -42,6 +42,7 @@ public:
     void renderDiagnostics(const Message& lastTouch, const char* eventName);
     void renderShutdownConfirm();
     void renderShutdown(const char* reason);
+    void renderPowerOffReady();
     void renderLegadoSync(const char* status);
 
     UiAction hitTest(SystemState state, int16_t x, int16_t y) const;
@@ -54,7 +55,6 @@ private:
     void drawButton(int16_t x, int16_t y, int16_t w, int16_t h, const char* label);
     void drawSettingsGroup(int16_t y, const char* title, const char* row1, const char* row1Value, const char* row2, const char* row2Value);
     void drawSettingsRow(int16_t y, const char* label, const char* value);
-    void drawFooterHint(const char* hint);
     UiAction hitTestTabs(int16_t x, int16_t y) const;
 
     M5Canvas* canvas_ = nullptr;

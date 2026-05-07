@@ -5,6 +5,21 @@
   "description": "面向 M5Stack PaperS3 的 Vink 电子书阅读固件。",
   "releases": [
     {
+      "version": "v0.3.19",
+      "name": "Vink-PaperS3 v0.3.19",
+      "summary": "优化启动页、关机完成页与书籍缓存维护：去掉诊断启动页和底部备注，新增书籍入口缓存清理/目录重建与诊断页返回。",
+      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.3.19",
+      "changelog": "## Vink-PaperS3 v0.3.19\n\n### 启动与界面\n- 移除旧的官方 boot probe / canvas probe 检测页，开机只显示一个正式启动页。\n- 新启动页使用 Vink UI 字体显示 `Vink 加载中`，并绘制简洁沙漏图标。\n- 去掉各个 Tab 页面底部的备注提示，界面更干净。\n\n### 关机体验\n- 软件关机在调用 `M5.Power.powerOff()` 前增加最终保留页：`Vink 已关机`。\n- 最终页会提示阅读进度已保存、屏幕会保留此页面、单击侧边键开机，方便真机判断关机流程已经走完。\n- 关机图片后续可替换为 SD 卡内图片，本版先保持纯 UI 绘制，避免在关机链路引入图片解码风险。\n\n### 书籍缓存维护\n- 书籍入口页新增 `清除分页缓存`：删除当前书籍 `.vink-pages`，不影响目录和阅读进度。\n- 书籍入口页新增 `重新生成目录`：删除当前书籍 `.vink-toc` 与 `.vink-pages`，重新打开书籍并重建目录。\n- 这可以解决升级后 SD 卡上残留旧目录索引/分页缓存导致的识别异常。\n\n### 诊断页\n- 诊断页右上角新增 `返回` 按钮，点击回到设置页，不再需要重启退出。\n\n### 验证状态\n- 本地 smoke、diff check、PlatformIO build、SPIFFS build、full 16MB merge 均通过。\n- 需要真机验证：启动页显示、最终关机保留页、书籍缓存维护按钮、诊断页返回。\n",
+      "assets": {
+        "full": {
+          "name": "Vink-PaperS3-v0.3.19-full-16MB.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.3.19/Vink-PaperS3-v0.3.19-full-16MB.bin",
+          "size": 16777216,
+          "flashOffset": 0
+        }
+      }
+    },
+    {
       "version": "v0.3.18",
       "name": "Vink-PaperS3 v0.3.18",
       "summary": "修复 /books 文件浏览器路径归一化，保留硬件双击侧键关机，并新增设置页二次确认的软件 powerOff 关机入口。",

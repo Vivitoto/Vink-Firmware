@@ -1023,11 +1023,11 @@ void ReaderBookService::renderBookEntryPage() {
              (cacheFlags & kBookHasTocCache) ? "已缓存" : "未缓存",
              (cacheFlags & kBookHasPageCache) ? "已预热" : "未预热");
     snprintf(lineProgress, sizeof(lineProgress), "进度：%s", progress);
-    const char* info[] = {lineTitle, lineSize, lineToc, lineCache, lineProgress, "提示：点击继续阅读后才进入正文阅读字体"};
-    const char* actions[] = {"继续阅读", "目录", "从头开始"};
+    const char* info[] = {lineTitle, lineSize, lineToc, lineCache, lineProgress, "缓存维护可解决升级后的旧索引问题"};
+    const char* actions[] = {"继续阅读", "目录", "从头开始", "清除分页缓存", "重新生成目录"};
     // This is still UI/navigation chrome after choosing a book. Keep it on the
     // UI font path; only actual page body rendering may use the reading font.
-    g_uiRenderer.renderUiActionPage(SystemState::Reader, "书籍入口", info, 6, actions, 3);
+    g_uiRenderer.renderUiActionPage(SystemState::Reader, "书籍入口", info, 6, actions, 5);
 }
 
 bool ReaderBookService::continueReading() {
@@ -1052,6 +1052,40 @@ bool ReaderBookService::restartReading() {
     showingToc_ = true;
     renderTocPage(0);
     return true;
+}
+
+bool ReaderBookService::clearPageCache() {
+    if (!open_ || !ensureSdReady()) return false;
+    char path[kPathBufSize];
+    getPageCachePath(path, sizeof(path));
+    if (path[0] && SD.exists(path)) {
+        SD.remove(path);
+        Serial.printf("[vink3][book] page cache removed: %s\n", path);
+    }
+    pageCount_ = 0;
+    currentPage_ = 0;
+    nextPreheatTocIndex_ = -1;
+    showingBookEntry_ = true;
+    renderBookEntryPage();
+    return true;
+}
+
+bool ReaderBookService::rebuildTocCache() {
+    if (!open_ || !ensureSdReady()) return false;
+    char reopenPath[sizeof(bookPath_)];
+    strlcpy(reopenPath, bookPath_, sizeof(reopenPath));
+    char path[kPathBufSize];
+    getTocCachePath(path, sizeof(path));
+    if (path[0] && SD.exists(path)) {
+        SD.remove(path);
+        Serial.printf("[vink3][book] TOC cache removed: %s\n", path);
+    }
+    getPageCachePath(path, sizeof(path));
+    if (path[0] && SD.exists(path)) {
+        SD.remove(path);
+        Serial.printf("[vink3][book] page cache removed with TOC rebuild: %s\n", path);
+    }
+    return openBook(reopenPath);
 }
 
 bool ReaderBookService::nextPage() {
@@ -1112,6 +1146,8 @@ bool ReaderBookService::handleTap(int16_t x, int16_t y) {
             return true;
         }
         if (x >= kEntryButtonX && x < kEntryButtonX + kEntryButtonW && y >= kEntryRestartY && y < kEntryRestartY + kEntryButtonH) return restartReading();
+        if (x >= kEntryButtonX && x < kEntryButtonX + kEntryButtonW && y >= kEntryClearPagesY && y < kEntryClearPagesY + kEntryButtonH) return clearPageCache();
+        if (x >= kEntryButtonX && x < kEntryButtonX + kEntryButtonW && y >= kEntryRebuildTocY && y < kEntryRebuildTocY + kEntryButtonH) return rebuildTocCache();
         return false;
     }
     if (!showingToc_) {

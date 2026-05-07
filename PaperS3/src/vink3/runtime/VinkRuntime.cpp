@@ -38,18 +38,6 @@ void applyOfficialPaperS3DisplaySetup() {
     gPaperS3ActiveDisplayRotation = kPaperS3DisplayRotation;
 }
 
-void drawOfficialBootProbe() {
-    // A+B+D: use epd_text LUT for boot probe — crisper text rendering
-    M5.Display.setEpdMode(epd_mode_t::epd_text);
-    M5.Display.setTextDatum(middle_center);
-    M5.Display.setTextColor(TFT_BLACK, TFT_WHITE);
-    M5.Display.fillScreen(TFT_WHITE);
-    delay(200);
-    M5.Display.drawString("Vink PaperS3 official boot", M5.Display.width() / 2, M5.Display.height() / 2 - 28);
-    M5.Display.drawString("M5.begin + rotation 0", M5.Display.width() / 2, M5.Display.height() / 2 + 18);
-    M5.Display.waitDisplay();
-    delay(800);
-}
 } // namespace
 
 bool VinkRuntime::begin() {
@@ -92,7 +80,6 @@ bool VinkRuntime::beginHardware() {
     Serial.printf("[vink3][display] official touch rotation=%u expected=%dx%d actual=%dx%d\n",
                   gPaperS3ActiveDisplayRotation, kPaperS3Width, kPaperS3Height,
                   M5.Display.width(), M5.Display.height());
-    drawOfficialBootProbe();
 
     if (!SPIFFS.begin(false)) {
         Serial.println("[vink3][boot] SPIFFS mount failed; continuing without formatting");
@@ -130,6 +117,8 @@ bool VinkRuntime::beginServices() {
 void VinkRuntime::drawBoot() {
     g_uiRenderer.renderBoot();
     g_displayService.enqueueFull(true, 100);
+    g_displayService.waitIdle(3000);
+    delay(600);
 
     Message bootDone;
     bootDone.type = MessageType::BootComplete;

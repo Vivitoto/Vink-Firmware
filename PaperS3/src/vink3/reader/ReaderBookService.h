@@ -51,10 +51,12 @@ private:
     static constexpr int16_t kTocRowH = 48;
     static constexpr int16_t kEntryButtonX = 70;
     static constexpr int16_t kEntryButtonW = 400;
-    static constexpr int16_t kEntryButtonH = 64;
-    static constexpr int16_t kEntryContinueY = 560;
-    static constexpr int16_t kEntryTocY = 660;
-    static constexpr int16_t kEntryRestartY = 760;
+    static constexpr int16_t kEntryButtonH = 52;
+    static constexpr int16_t kEntryContinueY = 498;
+    static constexpr int16_t kEntryTocY = 570;
+    static constexpr int16_t kEntryRestartY = 642;
+    static constexpr int16_t kEntryClearPagesY = 714;
+    static constexpr int16_t kEntryRebuildTocY = 786;
     static constexpr int kMaxChapterPages = 512;
 
     bool ensureTocBuffer();
@@ -107,6 +109,8 @@ private:
     bool renderChapterPreview(int index);
     bool continueReading();
     bool restartReading();
+    bool clearPageCache();
+    bool rebuildTocCache();
     uint32_t chapterContentStart(int index);
     uint32_t chapterEndOffset(int index);
     size_t trimUtf8Tail(char* text, size_t len) const;

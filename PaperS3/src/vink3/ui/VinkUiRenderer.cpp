@@ -183,28 +183,32 @@ void VinkUiRenderer::drawSettingsGroup(int16_t y, const char* title, const char*
     drawSettingsRow(y + 118, row2, row2Value);
 }
 
-void VinkUiRenderer::drawFooterHint(const char* hint) {
-    g_cjkText.drawCentered(0, kPaperS3Height - 42, kPaperS3Width, 28, hint ? hint : "点击标签或卡片", kGrayText);
-}
 
 void VinkUiRenderer::renderBoot() {
     if (!canvas_) return;
     clear();
-    // Use built-in ASCII drawing here, not the bundled CJK font path. The goal
-    // is to prove that the Vink canvas + display-service takeover is visible
-    // immediately after the official direct M5.Display boot probe.
-    canvas_->setTextColor(TFT_BLACK, TFT_WHITE);
-    canvas_->setTextDatum(middle_center);
-    canvas_->setTextSize(3);
-    canvas_->drawString("VINK CANVAS PROBE", kPaperS3Width / 2, 210);
-    canvas_->setTextSize(2);
-    canvas_->drawString("after official M5.Display probe", kPaperS3Width / 2, 260);
-    canvas_->drawString("960x540 rotation=1", kPaperS3Width / 2, 300);
-    canvas_->drawRect(16, 16, kPaperS3Width - 32, kPaperS3Height - 32, TFT_BLACK);
-    canvas_->drawFastHLine(16, kPaperS3Height / 2, kPaperS3Width - 32, TFT_BLACK);
-    canvas_->drawFastVLine(kPaperS3Width / 2, 16, kPaperS3Height - 32, TFT_BLACK);
-    canvas_->setTextDatum(top_left);
-    canvas_->setTextSize(1);
+    drawStatusBar("启动");
+
+    const int16_t cx = kPaperS3Width / 2;
+    const int16_t top = 280;
+    const int16_t bottom = 460;
+    const int16_t left = cx - 58;
+    const int16_t right = cx + 58;
+
+    // Simple hourglass loading mark. Keep it vector-only so the boot page has
+    // no SD/SPIFFS dependency and can later be replaced by a user image safely.
+    canvas_->drawRoundRect(cx - 82, top - 54, 164, 258, 28, TFT_BLACK);
+    canvas_->drawLine(left, top, right, top, TFT_BLACK);
+    canvas_->drawLine(left, bottom, right, bottom, TFT_BLACK);
+    canvas_->drawLine(left, top, right, bottom, TFT_BLACK);
+    canvas_->drawLine(right, top, left, bottom, TFT_BLACK);
+    canvas_->fillTriangle(left + 18, top + 18, right - 18, top + 18, cx, top + 82, kGrayMid);
+    canvas_->fillTriangle(left + 18, bottom - 18, right - 18, bottom - 18, cx, bottom - 82, kGrayMid);
+    canvas_->drawFastHLine(cx - 22, top + 100, 44, TFT_BLACK);
+
+    g_cjkText.drawCentered(0, 548, kPaperS3Width, 52, "Vink 加载中", TFT_BLACK);
+    g_cjkText.drawCentered(0, 610, kPaperS3Width, 30, "正在准备书架与阅读器", kGrayText);
+    g_cjkText.drawCentered(0, kPaperS3Height - 92, kPaperS3Width, 28, kVinkPaperS3FirmwareVersion, kGrayText);
 }
 
 void VinkUiRenderer::renderHome(SystemState state) {
@@ -241,7 +245,6 @@ void VinkUiRenderer::renderReaderHome(const char* bookTitle, const char* bookPat
     drawCard(28, 374, 224, 126, "目录", "章节 / 跳页");
     drawCard(288, 374, 224, 126, "书签", "标注 / 截图");
     drawCard(28, 524, 484, 176, "正文设置", "字体 · 字号 · 刷新 · 简体中文");
-    drawFooterHint(hasLastBook ? "点继续回到上次阅读，滑动切换" : "点书架选书，滑动切换");
 }
 
 void VinkUiRenderer::renderLibrary() {
@@ -259,7 +262,6 @@ void VinkUiRenderer::renderLibrary() {
         }
     }
     drawCard(28, 648, 484, 132, "书架来源", "SD / 最近阅读 / Legado 远程书架");
-    drawFooterHint("选书、目录导航、最近记录和远程书架");
 }
 
 void VinkUiRenderer::renderUiListPage(SystemState active, const char* title, const char* summary,
@@ -322,8 +324,8 @@ void VinkUiRenderer::renderUiActionPage(SystemState active, const char* title,
 
     static constexpr int16_t kButtonX = 70;
     static constexpr int16_t kButtonW = 400;
-    static constexpr int16_t kButtonH = 64;
-    static constexpr int16_t kButtonY[] = {560, 660, 760};
+    static constexpr int16_t kButtonH = 52;
+    static constexpr int16_t kButtonY[] = {498, 570, 642, 714, 786};
     const int drawCount = min(actionCount, static_cast<int>(sizeof(kButtonY) / sizeof(kButtonY[0])));
     for (int i = 0; actions && i < drawCount; ++i) {
         const int16_t by = kButtonY[i];
@@ -345,7 +347,6 @@ void VinkUiRenderer::renderTransfer() {
     drawCard(28, 368, 224, 132, "WiFi 传书", "热点 / Web UI");
     drawCard(288, 368, 224, 132, "USB 存储", "确认后接管 SD");
     drawCard(28, 532, 484, 170, "WebDAV / 导出", "ReadPaper 传输工具");
-    drawFooterHint("Legado 不是 WebDAV；默认 1122，可配置");
 }
 
 void VinkUiRenderer::renderSettings() {
@@ -369,6 +370,8 @@ void VinkUiRenderer::renderDiagnostics(const Message& lastTouch, const char* eve
     canvas_->setTextSize(2);
     canvas_->drawString("VINK DIAGNOSTIC", 24, 22);
     canvas_->drawString("OFFICIAL PORTRAIT", 24, 52);
+    canvas_->drawRoundRect(408, 20, 96, 44, 14, TFT_BLACK);
+    g_cjkText.drawCentered(408, 20, 96, 44, "返回", TFT_BLACK);
     canvas_->setTextSize(1);
     canvas_->drawString("rotation 0 / 540x960 / raw touch", 28, 88);
     canvas_->drawFastHLine(24, 114, kPaperS3Width - 48, TFT_BLACK);
@@ -440,7 +443,6 @@ void VinkUiRenderer::renderShutdownConfirm() {
     canvas_->fillRoundRect(296, 530, 180, 56, 18, TFT_BLACK);
     canvas_->drawRoundRect(296, 530, 180, 56, 18, TFT_BLACK);
     g_cjkText.drawCentered(296, 530, 180, 56, "确认关机", TFT_WHITE);
-    drawFooterHint("第一次点电源只确认，第二次才真正关机");
 }
 
 void VinkUiRenderer::renderShutdown(const char* reason) {
@@ -455,6 +457,19 @@ void VinkUiRenderer::renderShutdown(const char* reason) {
     g_cjkText.drawCentered(0, 690, kPaperS3Width, 28, "固件内关机请从设置页点电源", kGrayText);
 }
 
+void VinkUiRenderer::renderPowerOffReady() {
+    if (!canvas_) return;
+    clear();
+    drawStatusBar("已关机");
+    canvas_->fillRoundRect(44, 246, 452, 390, 28, TFT_WHITE);
+    canvas_->drawRoundRect(44, 246, 452, 390, 28, TFT_BLACK);
+    g_cjkText.drawCentered(64, 306, 412, 52, "Vink 已关机", TFT_BLACK);
+    g_cjkText.drawCentered(76, 398, 388, 32, "阅读进度已保存", kGrayText);
+    g_cjkText.drawCentered(76, 448, 388, 32, "屏幕会保留此页面", kGrayText);
+    g_cjkText.drawCentered(76, 498, 388, 32, "单击侧边键开机", kGrayText);
+    g_cjkText.drawCentered(0, 710, kPaperS3Width, 28, "后续可替换为 SD 卡关机图片", kGrayText);
+}
+
 void VinkUiRenderer::renderLegadoSync(const char* status) {
     if (!canvas_) return;
     clear();
@@ -463,7 +478,6 @@ void VinkUiRenderer::renderLegadoSync(const char* status) {
     drawCard(28, kContentY, 484, 160, "Legado", status ? status : "等待同步");
     drawButton(56, 346, 180, 48, "返回");
     drawButton(304, 346, 180, 48, "重试");
-    drawFooterHint("冲突不自动覆盖，不确定就让用户选");
 }
 
 UiAction VinkUiRenderer::hitTestTabs(int16_t x, int16_t y) const {
@@ -507,6 +521,7 @@ UiAction VinkUiRenderer::hitTest(SystemState state, int16_t x, int16_t y) const 
             if (inRect(x, y, 296, 530, 180, 56)) return UiAction::ConfirmShutdown;
             break;
         case SystemState::Diagnostics:
+            if (inRect(x, y, 408, 20, 96, 44)) return UiAction::TabSettings;
             if (y >= 316) return UiAction::OpenDiagnostics;
             break;
         case SystemState::LegadoSync:
