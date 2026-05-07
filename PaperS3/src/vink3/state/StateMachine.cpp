@@ -46,20 +46,22 @@ void shutdownPaperS3(const char* reason) {
     g_displayService.waitIdle(5000);
     delay(300);
 
-    // Official/factory order: sleep the EPD, wait for it, then ask M5Unified
-    // to power off. Do not add a manual GPIO44 pulse unless real-device logs
-    // prove M5Unified's PaperS3 sequence is insufficient; manual pulsing was
-    // observed to behave like a restart path on some tests.
+    // Real-device result overrides the library expectation: on this PaperS3,
+    // M5.Power.powerOff() behaves like a restart path. Treat side-key shutdown
+    // as display sleep + ESP32-S3 deep sleep instead, and do not arm any wake
+    // source here. The next wake should come only from the board power/reset
+    // circuitry, not from a still-bouncing BtnPWR event.
     waitPowerKeyRelease();
     M5.Display.sleep();
     M5.Display.waitDisplay();
     delay(200);
-    M5.Power.powerOff();
-
-    delay(2000);
-    waitPowerKeyRelease(8000);
-    // Do not arm GPIO36 as wake source: on PaperS3 it is not a verified side
-    // power-key input and can make the shutdown fallback appear broken.
+    esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
+    esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_OFF);
+    esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_SLOW_MEM, ESP_PD_OPTION_OFF);
+    esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_FAST_MEM, ESP_PD_OPTION_OFF);
+    Serial.println("[vink3][power] entering ESP32-S3 deep sleep (M5.Power.powerOff bypassed)");
+    Serial.flush();
+    delay(100);
     esp_deep_sleep_start();
     Serial.println("[vink3][power] WARNING: deep_sleep_start returned!");
     for (;;) delay(1000);
