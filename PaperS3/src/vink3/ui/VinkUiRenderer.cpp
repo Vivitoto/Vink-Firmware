@@ -425,6 +425,24 @@ void VinkUiRenderer::renderDiagnostics(const Message& lastTouch, const char* eve
     canvas_->setTextSize(1);
 }
 
+void VinkUiRenderer::renderShutdownConfirm() {
+    if (!canvas_) return;
+    clear();
+    drawStatusBar("关机确认");
+    drawTabs(SystemState::Settings);
+    canvas_->fillRoundRect(36, 218, 468, 420, 24, TFT_WHITE);
+    canvas_->drawRoundRect(36, 218, 468, 420, 24, TFT_BLACK);
+    g_cjkText.drawCentered(60, 270, 420, 44, "确认关闭电源？", TFT_BLACK);
+    g_cjkText.drawCentered(70, 344, 400, 30, "会先保存当前阅读进度", kGrayText);
+    g_cjkText.drawCentered(70, 386, 400, 30, "然后调用 M5.Power.powerOff()", kGrayText);
+    g_cjkText.drawCentered(70, 428, 400, 30, "侧边键双击仍保留硬件关机", kGrayText);
+    drawButton(64, 530, 180, 56, "取消");
+    canvas_->fillRoundRect(296, 530, 180, 56, 18, TFT_BLACK);
+    canvas_->drawRoundRect(296, 530, 180, 56, 18, TFT_BLACK);
+    g_cjkText.drawCentered(296, 530, 180, 56, "确认关机", TFT_WHITE);
+    drawFooterHint("第一次点电源只确认，第二次才真正关机");
+}
+
 void VinkUiRenderer::renderShutdown(const char* reason) {
     if (!canvas_) return;
     clear();
@@ -433,8 +451,8 @@ void VinkUiRenderer::renderShutdown(const char* reason) {
     canvas_->drawRoundRect(54, 300, 432, 300, 24, TFT_BLACK);
     g_cjkText.drawCentered(54, 350, 432, 48, reason ? reason : "正在关机", TFT_BLACK);
     g_cjkText.drawCentered(72, 430, 396, 32, "正在保存进度并关闭电源", kGrayText);
-    g_cjkText.drawCentered(72, 482, 396, 32, "请松开侧边电源键", kGrayText);
-    g_cjkText.drawCentered(0, 690, kPaperS3Width, 28, "单按侧边键关机；若侧键无效，可从设置页点电源", kGrayText);
+    g_cjkText.drawCentered(72, 482, 396, 32, "官方侧键：双击硬件关机", kGrayText);
+    g_cjkText.drawCentered(0, 690, kPaperS3Width, 28, "固件内关机请从设置页点电源", kGrayText);
 }
 
 void VinkUiRenderer::renderLegadoSync(const char* status) {
@@ -483,6 +501,10 @@ UiAction VinkUiRenderer::hitTest(SystemState state, int16_t x, int16_t y) const 
             if (inRect(x, y, 56, 470, 424, 60)) return UiAction::OpenDiagnostics;
             if (inRect(x, y, 56, 806, 424, 60)) return UiAction::RequestShutdown;
             if (y >= kContentY) return UiAction::OpenSettings;
+            break;
+        case SystemState::ShutdownConfirm:
+            if (inRect(x, y, 64, 530, 180, 56)) return UiAction::CancelShutdown;
+            if (inRect(x, y, 296, 530, 180, 56)) return UiAction::ConfirmShutdown;
             break;
         case SystemState::Diagnostics:
             if (y >= 316) return UiAction::OpenDiagnostics;
