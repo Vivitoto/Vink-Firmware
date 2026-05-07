@@ -5,6 +5,21 @@
   "description": "面向 M5Stack PaperS3 的 Vink 电子书阅读固件。",
   "releases": [
     {
+      "version": "v0.3.17",
+      "name": "Vink-PaperS3 v0.3.17",
+      "summary": "阅读首页最近书籍、文件浏览器书架、目录/分页缓存架构和跨章节分页预热优化。",
+      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.3.17",
+      "changelog": "## Vink-PaperS3 v0.3.17\n\n### 阅读与书架\n- 阅读首页显示最近阅读书籍、路径和进度；切换 Tab 不再刷新成静态空首页。\n- 每本书的进度继续保存在书籍同目录 sidecar：`.vink-progress`。\n- 最近阅读书籍单独记录在 `/books/.vink-last-book`。\n- 书架改为真正的文件浏览器：点击目录进入子目录，支持返回上级目录。\n- 书架行极简显示：目录 `□  名称`，书籍 `▤  书名`，隐藏 `.txt` 后缀；缓存状态移到书籍入口页。\n\n### 目录与分页缓存\n- 目录索引 `.vink-toc` 只记录章节标题和起始字节 offset；offset 指向标题行第一个字节，例如“第一章”的“第”。\n- 字体大小、行距、页边距变化不需要重建目录索引，只会让分页缓存按 layout key 失效/重建。\n- 分页缓存恢复为单个聚合文件 `.vink-pages`，不再为每章生成一个缓存文件。\n- `.vink-pages` 记录包含章节号、章节起止 offset、文件大小、layout key 和页起始 offset。\n- 跨章节阅读时按章节顺序预分页，减少翻到新章节时的等待。\n\n### 目录识别/显示\n- 修复 `卷/册/部/篇` 误把正文短语识别成目录的问题。\n- 目录当前章节改为下划线标记，不再画额外框。\n- TOC 容量提升到 2000，书架容量提升到 160。\n\n### 电源\n- 按真机反馈绕过会导致重启的 `M5.Power.powerOff()`，使用 EPD sleep + 禁用 wake source + ESP32-S3 deep sleep。\n\n### 构建验证\n- 本地 smoke、diff check、PlatformIO build、SPIFFS build、full 16MB merge 均通过。\n",
+      "assets": {
+        "full": {
+          "name": "Vink-PaperS3-v0.3.17-full-16MB.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.3.17/Vink-PaperS3-v0.3.17-full-16MB.bin",
+          "size": 16777216,
+          "flashOffset": 0
+        }
+      }
+    },
+    {
       "version": "v0.3.16",
       "name": "Vink-PaperS3 v0.3.16",
       "summary": "以真机确认可正常开机的 v0.3.8 基线重做：保留稳定启动链路，只移植子目录书架、章节检测、关机防重启等低风险修复。",
