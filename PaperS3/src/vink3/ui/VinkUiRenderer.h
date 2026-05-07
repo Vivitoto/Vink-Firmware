@@ -26,7 +26,8 @@ public:
     bool begin(M5Canvas* canvas);
     void renderBoot();
     void renderHome(SystemState state);
-    void renderReaderHome();
+    void renderReaderHome(const char* bookTitle = nullptr, const char* bookPath = nullptr,
+                          const char* progressText = nullptr, bool hasLastBook = false);
     void renderLibrary();
     void renderUiListPage(SystemState active, const char* title, const char* summary,
                           const char* const* rows, int rowCount, int16_t rowY, int16_t rowH,
