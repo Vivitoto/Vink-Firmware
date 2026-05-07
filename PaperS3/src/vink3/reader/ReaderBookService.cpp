@@ -5,7 +5,7 @@
 #include "../ui/VinkUiRenderer.h"
 #include "../text/CjkTextRenderer.h"
 #include "../sync/LegadoService.h"
-#include "../ReadPaper176.h"
+#include "../VinkPaperS3Core.h"
 #include "../../Config.h"
 #include "../../TextCodec.h"
 #include <SPI.h>

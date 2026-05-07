@@ -1,5 +1,5 @@
 #include <Arduino.h>
-#include "vink3/ReadPaper176.h"
+#include "vink3/VinkPaperS3Core.h"
 #include "vink3/runtime/VinkRuntime.h"
 
 namespace {
@@ -18,7 +18,7 @@ void MainTask(void*) {
 } // namespace
 
 void setup() {
-    // ReadPaper 1.7.6 style: Arduino setup only starts a pinned supervisor task;
+    // Vink reference core style: Arduino setup only starts a pinned supervisor task;
     // the runtime then creates display/input/state service tasks.
     BaseType_t ok = xTaskCreatePinnedToCore(
         MainTask,

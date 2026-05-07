@@ -8,7 +8,7 @@
 #include "../ui/VinkUiRenderer.h"
 #include "../input/InputService.h"
 #include "../../FontManager.h"
-#include "../ReadPaper176.h"
+#include "../VinkPaperS3Core.h"
 #include <esp_sleep.h>
 #include <SD.h>
 
@@ -632,7 +632,7 @@ void StateMachine::handle(const Message& message) {
 
                 case UiAction::StartLegadoSync:
                 {
-                    // Keep the ReadPaper-like event path: UI hit-test creates an action,
+                    // Keep the Vink-style event path: UI hit-test creates an action,
                     // state posts a service-level sync message, service reports result.
                     state_ = SystemState::LegadoSync;
                     g_uiRenderer.renderLegadoSync("正在同步 Legado 书架...", -1, nullptr);

@@ -2,7 +2,7 @@
 #include <Arduino.h>
 
 // ===== 屏幕参数 (M5Stack Paper S3) =====
-// Match ReadPaper's proven PaperS3 portrait framebuffer geometry.
+// Match Vink's proven PaperS3 portrait framebuffer geometry.
 #define SCREEN_WIDTH    540
 #define SCREEN_HEIGHT   960
 #define EINK_GRAY_LEVELS 16

@@ -1,5 +1,5 @@
 #include "VinkUiRenderer.h"
-#include "../ReadPaper176.h"
+#include "../VinkPaperS3Core.h"
 #include "../config/ConfigService.h"
 #include "../sync/LegadoService.h"
 #include "../sync/WifiService.h"
@@ -788,7 +788,7 @@ void VinkUiRenderer::renderSettingsSystem() {
     g_cjkText.drawText(56, kGrpY_Reading + 16, "版本", kGrayText);
     drawCyclingRow(kGrpY_Reading + 58, "固件", kVinkPaperS3FirmwareVersion);
     canvas_->drawFastHLine(56, kGrpY_Reading + kRowDividerY, 424, kGrayMid);
-    drawCyclingRow(kGrpY_Reading + 118, "阅读内核", kReadPaperUpstreamVersion);
+    drawCyclingRow(kGrpY_Reading + 118, "阅读内核", kVinkPaperS3CoreReferenceVersion);
 
     // Storage card
     canvas_->fillRoundRect(kCardX, kGrpY_Display, kCardW, kGroupH, kCardRound, TFT_WHITE);

@@ -1,6 +1,6 @@
 #include "InputService.h"
 #include "../display/DisplayService.h"
-#include "../ReadPaper176.h"
+#include "../VinkPaperS3Core.h"
 
 namespace vink3 {
 

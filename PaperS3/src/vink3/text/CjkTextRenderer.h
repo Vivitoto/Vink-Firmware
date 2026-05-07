@@ -6,7 +6,7 @@
 namespace vink3 {
 
 // v0.3 UI text renderer. It avoids M5GFX drawString for UTF-8 Chinese.
-// Vink shell UI must prefer bundled Simplified Chinese SC fonts; the ReadPaper
+// Vink shell UI must prefer bundled Simplified Chinese SC fonts; the Vink
 // UI subset is fallback only so shared Han characters do not look Traditional/Japanese.
 class CjkTextRenderer {
 public:
@@ -19,7 +19,7 @@ public:
     void drawRight(int16_t rightX, int16_t y, const char* text, uint16_t color = TFT_BLACK);
 
 private:
-    struct ReadPaperGlyph {
+    struct VinkGlyph {
         uint16_t unicode = 0;
         uint16_t width = 0;
         uint8_t bitmapW = 0;
@@ -52,11 +52,11 @@ private:
     bool beginProgmemUiFont();
     void deriveProgmemUiMetrics();
     bool findProgmemUiGlyph(uint32_t unicode, GrayGlyph& out) const;
-    bool beginReadPaperSubset();
-    bool findReadPaperGlyph(uint32_t unicode, ReadPaperGlyph& out) const;
+    bool beginVinkUiFallbackFont();
+    bool findVinkGlyph(uint32_t unicode, VinkGlyph& out) const;
     void drawGlyph(uint32_t unicode, int16_t x, int16_t y, uint16_t color);
     void drawProgmemUiGlyph(const GrayGlyph& glyph, int16_t x, int16_t y, uint16_t color);
-    void drawReadPaperGlyph(const ReadPaperGlyph& glyph, int16_t x, int16_t y, uint16_t color);
+    void drawVinkGlyph(const VinkGlyph& glyph, int16_t x, int16_t y, uint16_t color);
     uint16_t pixelColorForNibble(uint8_t nibble, uint16_t color) const;
 
     M5Canvas* canvas_ = nullptr;
@@ -66,8 +66,8 @@ private:
     uint16_t progmemUiBaseline_ = 0;
     uint32_t progmemUiBitmapStart_ = 0;
     bool readPaperSubsetReady_ = false;
-    uint32_t readPaperCharCount_ = 0;
-    uint8_t readPaperFontHeight_ = 0;
+    uint32_t vinkFontCharCount_ = 0;
+    uint8_t vinkFontHeight_ = 0;
     FontManager font_;
 };
 

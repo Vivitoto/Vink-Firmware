@@ -1,11 +1,11 @@
 #include "ReaderTextRenderer.h"
 #include "../../Config.h"
-#include "../ReadPaper176.h"
-#include "../text/ReadPaperFullFont.h"
+#include "../VinkPaperS3Core.h"
+#include "../text/VinkBookFont.h"
 
 namespace {
-constexpr uint32_t kReadPaperHeaderSize = 134;
-constexpr uint32_t kReadPaperEntrySize = 20;
+constexpr uint32_t kVinkFontHeaderSize = 134;
+constexpr uint32_t kVinkFontEntrySize = 20;
 }
 
 namespace vink3 {
@@ -19,12 +19,12 @@ bool ReaderTextRenderer::begin(M5Canvas* canvas) {
 
 bool ReaderTextRenderer::loadDefaultFont() {
     // Reader body font is intentionally separate from the UI subset font.
-    // v0.3 uses ReadPaper's complete PROGMEM Book font, enabled by the larger
+    // v0.3 uses Vink's complete PROGMEM Book font, enabled by the larger
     // single-app partition. Bundled fonts remain only as emergency fallback.
-    if (beginReadPaperFullFont()) {
-        Serial.printf("[vink3][reader] ReadPaper full PROGMEM font loaded: glyphs=%lu size=%lu\n",
-                      static_cast<unsigned long>(readPaperCharCount_),
-                      static_cast<unsigned long>(g_readpaper_full_font_size));
+    if (beginVinkBookFont()) {
+        Serial.printf("[vink3][reader] Vink full PROGMEM font loaded: glyphs=%lu size=%lu\n",
+                      static_cast<unsigned long>(vinkFontCharCount_),
+                      static_cast<unsigned long>(g_vink_book_font_size));
         return true;
     }
     if (font_.loadBundledFont(FONT_FILE_24)) {
@@ -54,7 +54,7 @@ bool ReaderTextRenderer::ready() const {
 
 uint16_t ReaderTextRenderer::fontSize() const {
     if (optionsFontSize_ > 0) return optionsFontSize_;
-    if (readPaperFullReady_) return readPaperFontHeight_;
+    if (readPaperFullReady_) return vinkFontHeight_;
     return font_.isLoaded() ? font_.getFontSize() : 24;
 }
 
@@ -78,36 +78,36 @@ uint32_t ReaderTextRenderer::decodeUtf8(const uint8_t* buf, size_t& pos, size_t 
     return c;
 }
 
-bool ReaderTextRenderer::beginReadPaperFullFont() {
-    if (!g_readpaper_full_font_available || g_readpaper_full_font_size < kReadPaperHeaderSize) return false;
-    readPaperCharCount_ = readpaperFullU32(0);
-    readPaperFontHeight_ = readpaperFullByte(4);
-    const uint8_t version = readpaperFullByte(5);
-    if (readPaperCharCount_ == 0 || readPaperFontHeight_ == 0 || version != 3) return false;
-    const uint32_t entriesEnd = kReadPaperHeaderSize + readPaperCharCount_ * kReadPaperEntrySize;
-    if (entriesEnd >= g_readpaper_full_font_size) return false;
+bool ReaderTextRenderer::beginVinkBookFont() {
+    if (!g_vink_book_font_available || g_vink_book_font_size < kVinkFontHeaderSize) return false;
+    vinkFontCharCount_ = vinkBookFontU32(0);
+    vinkFontHeight_ = vinkBookFontByte(4);
+    const uint8_t version = vinkBookFontByte(5);
+    if (vinkFontCharCount_ == 0 || vinkFontHeight_ == 0 || version != 3) return false;
+    const uint32_t entriesEnd = kVinkFontHeaderSize + vinkFontCharCount_ * kVinkFontEntrySize;
+    if (entriesEnd >= g_vink_book_font_size) return false;
     readPaperFullReady_ = true;
     return true;
 }
 
-bool ReaderTextRenderer::findReadPaperGlyph(uint32_t unicode, ReadPaperGlyph& out) const {
+bool ReaderTextRenderer::findVinkGlyph(uint32_t unicode, VinkGlyph& out) const {
     if (!readPaperFullReady_ || unicode > 0xFFFF) return false;
     int32_t lo = 0;
-    int32_t hi = static_cast<int32_t>(readPaperCharCount_) - 1;
+    int32_t hi = static_cast<int32_t>(vinkFontCharCount_) - 1;
     while (lo <= hi) {
         int32_t mid = lo + (hi - lo) / 2;
-        uint32_t off = kReadPaperHeaderSize + static_cast<uint32_t>(mid) * kReadPaperEntrySize;
-        uint16_t cp = readpaperFullU16(off);
+        uint32_t off = kVinkFontHeaderSize + static_cast<uint32_t>(mid) * kVinkFontEntrySize;
+        uint16_t cp = vinkBookFontU16(off);
         if (cp == unicode) {
             out.unicode = cp;
-            out.width = readpaperFullU16(off + 2);
-            out.bitmapW = readpaperFullByte(off + 4);
-            out.bitmapH = readpaperFullByte(off + 5);
-            out.xOffset = readpaperFullI8(off + 6);
-            out.yOffset = readpaperFullI8(off + 7);
-            out.bitmapOffset = readpaperFullU32(off + 8);
-            out.bitmapSize = readpaperFullU32(off + 12);
-            return out.bitmapOffset + out.bitmapSize <= g_readpaper_full_font_size;
+            out.width = vinkBookFontU16(off + 2);
+            out.bitmapW = vinkBookFontByte(off + 4);
+            out.bitmapH = vinkBookFontByte(off + 5);
+            out.xOffset = vinkBookFontI8(off + 6);
+            out.yOffset = vinkBookFontI8(off + 7);
+            out.bitmapOffset = vinkBookFontU32(off + 8);
+            out.bitmapSize = vinkBookFontU32(off + 12);
+            return out.bitmapOffset + out.bitmapSize <= g_vink_book_font_size;
         }
         if (cp < unicode) lo = mid + 1;
         else hi = mid - 1;
@@ -117,8 +117,8 @@ bool ReaderTextRenderer::findReadPaperGlyph(uint32_t unicode, ReadPaperGlyph& ou
 
 uint8_t ReaderTextRenderer::charAdvance(uint32_t unicode) const {
     if (readPaperFullReady_) {
-        ReadPaperGlyph glyph;
-        if (findReadPaperGlyph(unicode, glyph) && glyph.width > 0) return glyph.width;
+        VinkGlyph glyph;
+        if (findVinkGlyph(unicode, glyph) && glyph.width > 0) return glyph.width;
         return unicode < 128 ? 8 : fontSize();
     }
     if (!font_.isLoaded()) return unicode < 128 ? 8 : 24;
@@ -143,7 +143,7 @@ int16_t ReaderTextRenderer::textWidth(const char* text) const {
 uint16_t ReaderTextRenderer::pixelColorForNibble(uint8_t nibble, uint16_t color) const {
     if (color == TFT_WHITE) return TFT_WHITE;
     if (color != TFT_BLACK) return color;
-    // A+B+D: linear kRemap; all ReadPaper AA pixels go through unified path
+    // A+B+D: linear kRemap; all Vink AA pixels go through unified path
     static const uint8_t kRemap[16] __attribute__((aligned(1))) = {
         0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15
     };
@@ -155,13 +155,13 @@ uint16_t ReaderTextRenderer::pixelColorForNibble(uint8_t nibble, uint16_t color)
     return k4BitToRgb565[kRemap[nibble & 0x0F]];
 }
 
-void ReaderTextRenderer::drawReadPaperGlyph(const ReadPaperGlyph& glyph, int16_t x, int16_t y, uint16_t color) {
+void ReaderTextRenderer::drawVinkGlyph(const VinkGlyph& glyph, int16_t x, int16_t y, uint16_t color) {
     if (!canvas_) return;
     const int16_t drawX = x + glyph.xOffset;
-    // ReadPaper V3 glyph entries already store a visual yOffset inside the
+    // Vink font v3 glyph entries already store a visual yOffset inside the
     // 32px line box. Do not center each bitmap by height: that puts '.', 'o',
     // 'v' and punctuation in the middle of /books/.txt prompts. Use yOffset so
-    // lowercase, punctuation, and descenders keep the original ReadPaper metrics.
+    // lowercase, punctuation, and descenders keep the original Vink metrics.
     const int16_t drawY = y + glyph.yOffset;
     uint32_t pixelIdx = 0;
     uint8_t bitPos = 0;
@@ -170,7 +170,7 @@ void ReaderTextRenderer::drawReadPaperGlyph(const ReadPaperGlyph& glyph, int16_t
 
     auto nextBit = [&]() -> int {
         if (bytePos >= glyph.bitmapSize) return -1;
-        uint8_t current = readpaperFullByte(glyph.bitmapOffset + bytePos);
+        uint8_t current = vinkBookFontByte(glyph.bitmapOffset + bytePos);
         int bit = (current >> (7 - bitPos)) & 0x01;
         bitPos++;
         if (bitPos >= 8) {
@@ -206,9 +206,9 @@ void ReaderTextRenderer::drawReadPaperGlyph(const ReadPaperGlyph& glyph, int16_t
 void ReaderTextRenderer::drawGlyph(uint32_t unicode, int16_t x, int16_t y, uint16_t color) {
     if (!canvas_) return;
     if (readPaperFullReady_) {
-        ReadPaperGlyph glyph;
-        if (findReadPaperGlyph(unicode, glyph)) {
-            drawReadPaperGlyph(glyph, x, y, color);
+        VinkGlyph glyph;
+        if (findVinkGlyph(unicode, glyph)) {
+            drawVinkGlyph(glyph, x, y, color);
             return;
         }
     }
@@ -522,7 +522,7 @@ void ReaderTextRenderer::renderActionPage(const char* title, const char* const* 
 
 void ReaderTextRenderer::renderPlaceholderPage() {
     static const char* sample =
-        "这是 Vink v0.3 的正文渲染层。界面文字使用 ReadPaper UI 子集字体，正文阅读使用完整 ReadPaper Book PROGMEM 字体。\n"
+        "这是 Vink v0.3 的正文渲染层。界面文字使用 Vink UI 子集字体，正文阅读使用完整 Vink Book PROGMEM 字体。\n"
         "下一步会把本地 TXT、分页、书签和 Legado 进度映射接到这里；中文覆盖不再依赖按书抽子集。";
     renderTextPage("示例正文", sample, 1, 1);
 }

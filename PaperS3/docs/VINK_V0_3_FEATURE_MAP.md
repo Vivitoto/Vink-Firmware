@@ -1,28 +1,28 @@
-# Vink v0.3 Feature Map: ReadPaper V1.7.6 + Legado
+# Vink v0.3 Feature Map: Vink reference core + Legado
 
 Baseline references:
 
-- ReadPaper: `shinemoon/M5ReadPaper` remote `main`, commit `e910d29`, `data/version = V1.7.6`.
+- Vink: `shinemoon/external PaperS3 reference firmware` remote `main`, commit `e910d29`, `data/version = V1.7.6`.
 - Legado: `gedoor/legado` remote `master`, local reference `/home/vito/.openclaw/workspace/Vink/reference-firmware/legado`.
 
 ## Principle
 
 Target hardware is M5Stack PaperS3: ESP32-S3, 540×960 portrait e-paper, GT911 touch, SD `/books`. Feature choices should stay PaperS3-first: calm manual reading, low-refresh UI, large touch targets, and no phone/tablet-style interaction assumptions.
 
-ReadPaper's features should be reused, but not its product UI structure. Vink keeps four primary tabs:
+Vink's features should be reused, but not its product UI structure. Vink keeps four primary tabs:
 
 1. Reader
 2. Library
 3. Transfer / Sync
 4. Settings
 
-ReadPaper's click model is useful:
+Vink's click model is useful:
 
 ```text
 touch event -> state machine -> current state handler -> semantic action -> render/commit
 ```
 
-Vink should preserve that model, but centralize Vink-specific hitboxes in `VinkUiRenderer::hitTest()` rather than copying ReadPaper's grid coordinates.
+Vink should preserve that model, but centralize Vink-specific hitboxes in `VinkUiRenderer::hitTest()` rather than copying Vink's grid coordinates.
 
 ## Tab Mapping
 
@@ -35,7 +35,7 @@ Rule of thumb:
 - Current-book/current-reading adjustments belong here.
 - Global defaults belong in Settings.
 
-ReadPaper features that fit here:
+Vink features that fit here:
 
 - Current page rendering.
 - Previous/next page.
@@ -67,20 +67,20 @@ Vink UI shape:
 
 - Main card: current book / progress / resume button.
 - Secondary cards: TOC, bookmarks, stats, reader tools.
-- Reader menu should be a Vink overlay or subpage, not ReadPaper's original menu panel.
+- Reader menu should be a Vink overlay or subpage, not Vink's original menu panel.
 - Reading quick settings should be reachable from the reading page without leaving the book.
 
 Implementation notes:
 
 - State handlers: `handleReader()`, `handleReaderMenu()`, `handleToc()`, `handleBookmarks()`, `handleGotoPage()`.
-- Use ReadPaper's `handleReadingState()` behavior as logic reference.
+- Use Vink's `handleReadingState()` behavior as logic reference.
 - Do not use direct `M5.Display` writes from reader UI; render into global canvas and commit through `DisplayService`.
 
 ### 2. Library tab
 
 Purpose: books, directories, recent/history, local and remote book list.
 
-ReadPaper features that fit here:
+Vink features that fit here:
 
 - Main menu book list.
 - SD directory navigation.
@@ -109,14 +109,14 @@ Vink UI shape:
 Implementation notes:
 
 - State handlers: `handleLibrary()`, `handleBookList()`, `handleRemoteShelf()`.
-- ReadPaper's `state_main_menu.cpp` can guide selection, page navigation, directory navigation, and open-book flow.
-- Vink should avoid ReadPaper's dense 10-row side command grid; use cards and contextual actions.
+- Vink's `state_main_menu.cpp` can guide selection, page navigation, directory navigation, and open-book flow.
+- Vink should avoid Vink's dense 10-row side command grid; use cards and contextual actions.
 
 ### 3. Transfer / Sync tab
 
 Purpose: external connectivity and data movement.
 
-ReadPaper features that fit here:
+Vink features that fit here:
 
 - WiFi hotspot / web UI.
 - WebDAV config and WebDAV pull/download.
@@ -174,14 +174,14 @@ Vink UI shape:
 Implementation notes:
 
 - State handlers: `handleTransfer()`, `handleLegadoSync()`, `handleWifiUpload()`, `handleUsbMsc()`, `handleWebDav()`.
-- USB MSC should be a modal/confirm state, not a casual toggle. It needs SD access quiescence like ReadPaper.
+- USB MSC should be a modal/confirm state, not a casual toggle. It needs SD access quiescence like Vink.
 - Legado is not WebDAV. Treat it as Android app HTTP service on LAN. The current Legado source defaults HTTP WebService to port `1122`; websocket/debug/search is HTTP port + 1, normally `1123`. Older docs/examples may show `1234`/`1235`, so Vink should let the user configure the port.
 
 ### 4. Settings tab
 
 Purpose: persistent configuration.
 
-ReadPaper features that fit here:
+Vink features that fit here:
 
 - Global display mode / default refresh strategy.
 - Global dark mode default.
@@ -210,14 +210,14 @@ Vink UI shape:
 Implementation notes:
 
 - State handlers: `handleSettings()`, plus subpages for display/reading/network/system.
-- Config should be Vink-owned, but can copy ReadPaper's `GlobalConfig` fields where practical.
+- Config should be Vink-owned, but can copy Vink's `GlobalConfig` fields where practical.
 - Do not force all reading options into Settings. If the option is commonly changed while reading, expose it in Reader/ReaderMenu too and let Settings define only the default.
 
 ## Things That Do Not Fit Cleanly
 
 ### USB MSC
 
-Problem: USB MSC can conflict with normal SD filesystem access. ReadPaper has explicit global guards and state transitions before presenting SD as USB storage.
+Problem: USB MSC can conflict with normal SD filesystem access. Vink has explicit global guards and state transitions before presenting SD as USB storage.
 
 Decision: Put under Transfer, but require a confirm/modal state and stop reader/indexer first.
 
@@ -248,9 +248,9 @@ Options:
 
 Recommendation: start with option 1 for v0.3.0; add remote-content reading later. If remote reading is added, use `bookUrl` as ID and remember that `/getBookContent` can trigger phone-side source/network fetches.
 
-### ReadPaper UI effects / shutter effects
+### Vink UI effects / shutter effects
 
-ReadPaper has visual push effects and slicing. They are optional and not part of Vink UI identity.
+Vink has visual push effects and slicing. They are optional and not part of Vink UI identity.
 
 Decision: keep the display queue capability, but default Vink UI to simple full/card refreshes first.
 

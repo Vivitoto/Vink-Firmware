@@ -1,7 +1,7 @@
 #pragma once
 #include <Arduino.h>
 #include <M5Unified.h>
-#include "../ReadPaper176.h"
+#include "../VinkPaperS3Core.h"
 
 namespace vink3 {
 
@@ -12,12 +12,12 @@ enum class DisplayEffect : uint8_t {
     Rect = 3,
 };
 
-// ReadPaper 1.7.6 style display message: flags + effect + rectangle.
+// Vink reference core style display message: flags + effect + rectangle.
 struct DisplayRequest {
-    bool transparent = false; // ReadPaper flags[0]
-    bool invert = false;      // ReadPaper flags[1]
-    bool quality = false;     // ReadPaper flags[2]
-    bool reserved = false;    // ReadPaper flags[3]
+    bool transparent = false; // Vink display flags[0]
+    bool invert = false;      // Vink display flags[1]
+    bool quality = false;     // Vink display flags[2]
+    bool reserved = false;    // Vink display flags[3]
     DisplayEffect effect = DisplayEffect::None;
     int16_t x = 0;
     int16_t y = 0;

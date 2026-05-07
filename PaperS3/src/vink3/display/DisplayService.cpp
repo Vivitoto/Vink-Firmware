@@ -48,7 +48,7 @@ bool DisplayService::begin(M5Canvas* canvas, uint8_t queueLen) {
 bool DisplayService::enqueue(const DisplayRequest& request, uint32_t timeoutMs) {
     if (!queue_) return false;
 
-    // Match ReadPaper 1.7.6: render side snapshots the canvas before the display
+    // Match Vink reference core: render side snapshots the canvas before the display
     // task performs the physical push. This prevents UI drawing from racing the EPD.
     M5Canvas* clone = cloneCanvas();
     if (!clone) {

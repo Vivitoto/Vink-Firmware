@@ -1,16 +1,16 @@
 #include "CjkTextRenderer.h"
-#include "ReadPaperUiFont.h"
+#include "VinkUiFallbackFont.h"
 #include "VinkUiFont24.h"
 #include "../../Config.h"
-#include "../ReadPaper176.h"
+#include "../VinkPaperS3Core.h"
 #include <pgmspace.h>
 #include <cstring>
 
 namespace vink3 {
 
 namespace {
-constexpr uint32_t kReadPaperHeaderSize = 134;
-constexpr uint32_t kReadPaperEntrySize = 20;
+constexpr uint32_t kVinkFontHeaderSize = 134;
+constexpr uint32_t kVinkFontEntrySize = 20;
 constexpr uint32_t kGrayHeaderSize = 16;
 constexpr uint32_t kGrayEntrySize = 16;
 }
@@ -25,14 +25,14 @@ bool CjkTextRenderer::begin(M5Canvas* canvas) {
     progmemUiBaseline_ = 0;
     progmemUiBitmapStart_ = 0;
     readPaperSubsetReady_ = false;
-    readPaperCharCount_ = 0;
-    readPaperFontHeight_ = 0;
+    vinkFontCharCount_ = 0;
+    vinkFontHeight_ = 0;
     if (!canvas_) return false;
 
     // Official PaperS3 docs confirm a 16-level grayscale EPD, but the custom
     // font source is Vink-owned. Real-device feedback showed SPIFFS-dependent
     // UI fonts can silently fall back to the tiny built-in subset and then mix
-    // with 32px ReadPaper glyphs. Make the compiled 24px Simplified Chinese UI
+    // with 32px Vink glyphs. Make the compiled 24px Simplified Chinese UI
     // font the primary path so the shell does not depend on the filesystem.
     const bool progmemUi = beginProgmemUiFont();
     if (progmemUi) {
@@ -55,11 +55,11 @@ bool CjkTextRenderer::begin(M5Canvas* canvas) {
                       font_.getCurrentFontPath());
     }
 
-    const bool subset = beginReadPaperSubset();
+    const bool subset = beginVinkUiFallbackFont();
     if (subset) {
-        Serial.printf("[vink3][cjk] ReadPaper V3 UI subset last-resort fallback armed: glyphs=%lu size=%lu\n",
-                      static_cast<unsigned long>(readPaperCharCount_),
-                      static_cast<unsigned long>(g_readpaper_ui_font_size));
+        Serial.printf("[vink3][cjk] Vink font v3 UI subset last-resort fallback armed: glyphs=%lu size=%lu\n",
+                      static_cast<unsigned long>(vinkFontCharCount_),
+                      static_cast<unsigned long>(g_vink_ui_fallback_font_size));
     }
 
     if (progmemUi || font_.isLoaded() || subset) return true;
@@ -79,17 +79,17 @@ bool CjkTextRenderer::ready() const {
 
 uint16_t CjkTextRenderer::fontSize() const {
     // Layout must follow the primary renderer actually used for most glyphs.
-    // The compiled 24px UI font is now primary; SPIFFS and ReadPaper are only
+    // The compiled 24px UI font is now primary; SPIFFS and Vink are only
     // fallbacks, so their height must not pull tab/button/settings centering.
     if (progmemUiReady_) return progmemUiFontSize_;
     if (font_.isLoaded()) return font_.getFontSize();
-    if (readPaperSubsetReady_) return readPaperFontHeight_;
+    if (readPaperSubsetReady_) return vinkFontHeight_;
     return 16;
 }
 
 uint8_t CjkTextRenderer::rpByte(uint32_t offset) {
-    if (offset >= g_readpaper_ui_font_size) return 0;
-    return pgm_read_byte(&g_readpaper_ui_font_data[offset]);
+    if (offset >= g_vink_ui_fallback_font_size) return 0;
+    return pgm_read_byte(&g_vink_ui_fallback_font_data[offset]);
 }
 
 uint16_t CjkTextRenderer::rpU16(uint32_t offset) {
@@ -202,25 +202,25 @@ bool CjkTextRenderer::findProgmemUiGlyph(uint32_t unicode, GrayGlyph& out) const
     return false;
 }
 
-bool CjkTextRenderer::beginReadPaperSubset() {
-    if (!g_readpaper_ui_font_available || g_readpaper_ui_font_size < kReadPaperHeaderSize) return false;
-    readPaperCharCount_ = rpU32(0);
-    readPaperFontHeight_ = rpByte(4);
+bool CjkTextRenderer::beginVinkUiFallbackFont() {
+    if (!g_vink_ui_fallback_font_available || g_vink_ui_fallback_font_size < kVinkFontHeaderSize) return false;
+    vinkFontCharCount_ = rpU32(0);
+    vinkFontHeight_ = rpByte(4);
     const uint8_t version = rpByte(5);
-    if (readPaperCharCount_ == 0 || readPaperFontHeight_ == 0 || version != 3) return false;
-    const uint32_t entriesEnd = kReadPaperHeaderSize + readPaperCharCount_ * kReadPaperEntrySize;
-    if (entriesEnd >= g_readpaper_ui_font_size) return false;
+    if (vinkFontCharCount_ == 0 || vinkFontHeight_ == 0 || version != 3) return false;
+    const uint32_t entriesEnd = kVinkFontHeaderSize + vinkFontCharCount_ * kVinkFontEntrySize;
+    if (entriesEnd >= g_vink_ui_fallback_font_size) return false;
     readPaperSubsetReady_ = true;
     return true;
 }
 
-bool CjkTextRenderer::findReadPaperGlyph(uint32_t unicode, ReadPaperGlyph& out) const {
+bool CjkTextRenderer::findVinkGlyph(uint32_t unicode, VinkGlyph& out) const {
     if (!readPaperSubsetReady_ || unicode > 0xFFFF) return false;
     int32_t lo = 0;
-    int32_t hi = static_cast<int32_t>(readPaperCharCount_) - 1;
+    int32_t hi = static_cast<int32_t>(vinkFontCharCount_) - 1;
     while (lo <= hi) {
         int32_t mid = lo + (hi - lo) / 2;
-        uint32_t off = kReadPaperHeaderSize + static_cast<uint32_t>(mid) * kReadPaperEntrySize;
+        uint32_t off = kVinkFontHeaderSize + static_cast<uint32_t>(mid) * kVinkFontEntrySize;
         uint16_t cp = rpU16(off);
         if (cp == unicode) {
             out.unicode = cp;
@@ -231,7 +231,7 @@ bool CjkTextRenderer::findReadPaperGlyph(uint32_t unicode, ReadPaperGlyph& out) 
             out.yOffset = rpI8(off + 7);
             out.bitmapOffset = rpU32(off + 8);
             out.bitmapSize = rpU32(off + 12);
-            return out.bitmapOffset + out.bitmapSize <= g_readpaper_ui_font_size;
+            return out.bitmapOffset + out.bitmapSize <= g_vink_ui_fallback_font_size;
         }
         if (cp < unicode) lo = mid + 1;
         else hi = mid - 1;
@@ -275,8 +275,8 @@ int16_t CjkTextRenderer::textWidth(const char* text) {
             uint8_t adv = font_.getCharAdvance(ch);
             w += adv > 0 ? adv : (ch < 128 ? 8 : fontSize());
         } else if (readPaperSubsetReady_) {
-            ReadPaperGlyph glyph;
-            if (findReadPaperGlyph(ch, glyph)) {
+            VinkGlyph glyph;
+            if (findVinkGlyph(ch, glyph)) {
                 w += glyph.width > 0 ? glyph.width : (ch < 128 ? 8 : fontSize());
             } else {
                 w += ch < 128 ? 8 : fontSize();
@@ -327,11 +327,11 @@ void CjkTextRenderer::drawProgmemUiGlyph(const GrayGlyph& glyph, int16_t x, int1
     }
 }
 
-void CjkTextRenderer::drawReadPaperGlyph(const ReadPaperGlyph& glyph, int16_t x, int16_t y, uint16_t color) {
+void CjkTextRenderer::drawVinkGlyph(const VinkGlyph& glyph, int16_t x, int16_t y, uint16_t color) {
     if (!canvas_) return;
     const int16_t drawX = x + glyph.xOffset;
     // Experience-based, needs real PaperS3 confirmation: Vink UI renderers pass
-    // y as a line-box top, while ReadPaper glyph yOffset is baseline-oriented.
+    // y as a line-box top, while Vink glyph yOffset is baseline-oriented.
     // Using y + fontHeight - yOffset caused mixed Latin/CJK fallback glyphs to
     // stair-step. Keep fallback glyphs visually top-aligned in the same line box.
     const int16_t drawY = y + max<int16_t>(0, (static_cast<int16_t>(fontSize()) - static_cast<int16_t>(glyph.bitmapH)) / 2);
@@ -386,7 +386,7 @@ void CjkTextRenderer::drawGlyph(uint32_t unicode, int16_t x, int16_t y, uint16_t
 
     // Prefer the bundled SC font when it actually contains the glyph. If the
     // SPIFFS font was not flashed, fell back to the tiny built-in font, or simply
-    // misses a character, keep going to the compiled ReadPaper subset instead
+    // misses a character, keep going to the compiled Vink subset instead
     // of silently advancing the cursor and leaving blank Chinese labels.
     if (font_.isLoaded()) {
         if (font_.getFontType() == FontType::GRAY_4BPP) {
@@ -434,9 +434,9 @@ void CjkTextRenderer::drawGlyph(uint32_t unicode, int16_t x, int16_t y, uint16_t
     }
 
     if (readPaperSubsetReady_) {
-        ReadPaperGlyph glyph;
-        if (findReadPaperGlyph(unicode, glyph)) {
-            drawReadPaperGlyph(glyph, x, y, color);
+        VinkGlyph glyph;
+        if (findVinkGlyph(unicode, glyph)) {
+            drawVinkGlyph(glyph, x, y, color);
         }
     }
 }
@@ -471,8 +471,8 @@ void CjkTextRenderer::drawText(int16_t x, int16_t y, const char* text, uint16_t 
             uint8_t adv = font_.getCharAdvance(ch);
             cx += adv > 0 ? adv : (ch < 128 ? 8 : fontSize());
         } else if (readPaperSubsetReady_) {
-            ReadPaperGlyph glyph;
-            cx += findReadPaperGlyph(ch, glyph) && glyph.width > 0 ? glyph.width : (ch < 128 ? 8 : fontSize());
+            VinkGlyph glyph;
+            cx += findVinkGlyph(ch, glyph) && glyph.width > 0 ? glyph.width : (ch < 128 ? 8 : fontSize());
         } else {
             cx += ch < 128 ? 8 : fontSize();
         }

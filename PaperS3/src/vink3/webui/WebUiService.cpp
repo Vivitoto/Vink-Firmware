@@ -1,6 +1,6 @@
 #include "WebUiService.h"
 #include "../config/ConfigService.h"
-#include "../ReadPaper176.h"
+#include "../VinkPaperS3Core.h"
 #include <SPIFFS.h>
 #include <SD.h>
 #include <esp_timer.h>

@@ -75,7 +75,7 @@ void drawOfficialBootProbe() {
 } // namespace
 
 bool VinkRuntime::begin() {
-    Serial.printf("[vink3][runtime] starting %s from ReadPaper V1.7.6 baseline\n", kVinkPaperS3FirmwareVersion);
+    Serial.printf("[vink3][runtime] starting %s from Vink reference core baseline\n", kVinkPaperS3FirmwareVersion);
     if (!beginHardware()) return false;
     if (!beginCanvas()) return false;
     if (!beginServices()) return false;
@@ -88,7 +88,7 @@ bool VinkRuntime::beginHardware() {
 
     Serial.begin(115200);
     delay(200);
-    Serial.printf("\n[Vink %s] ReadPaper baseline %s @ %s\n", kVinkPaperS3FirmwareVersion, kReadPaperUpstreamVersion, kReadPaperUpstreamCommit);
+    Serial.printf("\n[Vink %s] Vink baseline %s @ %s\n", kVinkPaperS3FirmwareVersion, kVinkPaperS3CoreReferenceVersion, kVinkPaperS3CoreReferenceCommit);
     Serial.printf("[vink3][boot] wake cause=%d psram size=%u free=%u flash=%u\n",
                   static_cast<int>(esp_sleep_get_wakeup_cause()),
                   ESP.getPsramSize(), ESP.getFreePsram(), ESP.getFlashChipSize());
@@ -102,7 +102,7 @@ bool VinkRuntime::beginHardware() {
     auto cfg = M5.config();
     // Official M5PaperS3-UserDemo uses the default M5.begin() path. Keep this
     // path strict and visible; no fallback-board override, no clear_display
-    // override, no ReadPaper-style startup masking.
+    // override, no Vink service-style startup masking.
     (void)cfg;
     M5.begin();
     delay(50);
@@ -146,7 +146,7 @@ bool VinkRuntime::beginServices() {
     // Keep boot SD-free. ReaderBookService intentionally initializes SD lazily;
     // scanning/loading SD fonts here can wedge PaperS3 during startup with some
     // cards inserted, leaving the boot probe repeatedly refreshed by reset loops.
-    // ReaderTextRenderer::begin() below loads the bundled ReadPaper PROGMEM font;
+    // ReaderTextRenderer::begin() below loads the bundled Vink PROGMEM font;
     // SD fonts remain available from the layout/settings path after boot.
     Serial.println("[vink3][runtime] boot font scan skipped; using default reader font");
     g_webUi.begin(&g_configService);
@@ -182,7 +182,7 @@ void VinkRuntime::drawBoot() {
 }
 
 void VinkRuntime::loop() {
-    // ReadPaper's main task becomes a lightweight supervisor after services are
+    // Vink's main task becomes a lightweight supervisor after services are
     // started. Keep this loop intentionally quiet; state/input/display tasks own work.
     const uint32_t now = millis();
     if (now - lastHeartbeatLogMs_ > 60000) {

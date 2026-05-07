@@ -36,7 +36,7 @@ public:
     size_t measurePageBytes(const char* text, size_t len, const ReaderRenderOptions& options = ReaderRenderOptions{}) const;
 
 private:
-    struct ReadPaperGlyph {
+    struct VinkGlyph {
         uint16_t unicode = 0;
         uint16_t width = 0;
         uint8_t bitmapW = 0;
@@ -48,12 +48,12 @@ private:
     };
 
     static uint32_t decodeUtf8(const uint8_t* buf, size_t& pos, size_t len);
-    bool beginReadPaperFullFont();
-    bool findReadPaperGlyph(uint32_t unicode, ReadPaperGlyph& out) const;
+    bool beginVinkBookFont();
+    bool findVinkGlyph(uint32_t unicode, VinkGlyph& out) const;
     uint8_t charAdvance(uint32_t unicode) const;
     int16_t textWidth(const char* text) const;
     void drawGlyph(uint32_t unicode, int16_t x, int16_t y, uint16_t color);
-    void drawReadPaperGlyph(const ReadPaperGlyph& glyph, int16_t x, int16_t y, uint16_t color);
+    void drawVinkGlyph(const VinkGlyph& glyph, int16_t x, int16_t y, uint16_t color);
     uint16_t pixelColorForNibble(uint8_t nibble, uint16_t color) const;
     void drawText(int16_t x, int16_t y, const char* text, uint16_t color = TFT_BLACK);
     void drawShellTabs(int activeTab, const ReaderRenderOptions& options);
@@ -61,8 +61,8 @@ private:
 
     M5Canvas* canvas_ = nullptr;
     bool readPaperFullReady_ = false;
-    uint32_t readPaperCharCount_ = 0;
-    uint8_t readPaperFontHeight_ = 0;
+    uint32_t vinkFontCharCount_ = 0;
+    uint8_t vinkFontHeight_ = 0;
     uint8_t optionsFontSize_ = 0;
     FontManager font_;
 };
