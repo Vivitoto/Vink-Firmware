@@ -17,6 +17,8 @@ enum class UiAction : uint8_t {
     OpenSettings,
     OpenDiagnostics,
     RequestShutdown,
+    ConfirmShutdown,
+    CancelShutdown,
     StartLegadoSync,
     BackHome,
 };
@@ -38,6 +40,7 @@ public:
     void renderTransfer();
     void renderSettings();
     void renderDiagnostics(const Message& lastTouch, const char* eventName);
+    void renderShutdownConfirm();
     void renderShutdown(const char* reason);
     void renderLegadoSync(const char* status);
 
