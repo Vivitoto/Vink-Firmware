@@ -5,6 +5,21 @@
   "description": "面向 M5Stack PaperS3 的 Vink 电子书阅读固件。",
   "releases": [
     {
+      "version": "v0.3.18",
+      "name": "Vink-PaperS3 v0.3.18",
+      "summary": "修复 /books 文件浏览器路径归一化，保留硬件双击侧键关机，并新增设置页二次确认的软件 powerOff 关机入口。",
+      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.3.18",
+      "changelog": "## Vink-PaperS3 v0.3.18\n\n### 书架 / 文件浏览器\n- 书架入口固定为 `/books`，不再显示 SD 根目录其它内容。\n- 支持 `/books` 下直接放书籍文件，也支持多级子目录逐层进入后打开书籍。\n- 修复不同 SD 库 `openNextFile().name()` 返回差异导致的路径问题：相对名、完整路径、以及 `/斗罗大陆` 这类 slash-prefixed 子名都会归一化到当前目录下。\n- 示例 `/books/斗罗大陆/斗罗大陆.txt` 会进入目录后打开为正确完整路径。\n- `.txt` 为当前可打开正文格式；`.epub` 可在书架识别显示，但点击时提示暂不支持正文解析，避免当作 TXT 误读。\n\n### 电源 / 关机\n- 保留 PaperS3 官方硬件交互：侧边键双击仍可走硬件关机链路，便于真机对比验证。\n- 设置页“系统 / 电源”新增软件关机入口：第一次点击进入二次确认页，确认后才真正关机。\n- 软件关机对齐 ReadPaper：保存阅读进度，等待 SD/屏幕刷新完成，然后调用 `M5.Power.powerOff()`。\n- 不再伪装 `M5.BtnPWR` 可读取 PaperS3 侧键单击；当前 M5Unified 对 PaperS3 未暴露可靠的侧键输入状态。\n\n### 验证状态\n- 本地 smoke、diff check、PlatformIO build、SPIFFS build、full 16MB merge 均通过。\n- 需要真机验证：`/books` 多级浏览、TXT 打开路径、EPUB 暂不支持提示、侧键双击硬件关机、设置页软件 powerOff 关机。\n",
+      "assets": {
+        "full": {
+          "name": "Vink-PaperS3-v0.3.18-full-16MB.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.3.18/Vink-PaperS3-v0.3.18-full-16MB.bin",
+          "size": 16777216,
+          "flashOffset": 0
+        }
+      }
+    },
+    {
       "version": "v0.3.17",
       "name": "Vink-PaperS3 v0.3.17",
       "summary": "阅读首页最近书籍、文件浏览器书架、目录/分页缓存架构和跨章节分页预热优化。",
