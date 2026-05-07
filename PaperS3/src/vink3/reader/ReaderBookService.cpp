@@ -559,18 +559,17 @@ void ReaderBookService::renderLibraryPage(uint16_t page) {
     const int start = bookPage_ * kBooksPerPage;
     const int end = min(bookCount_, start + kBooksPerPage);
     char summary[96];
-    snprintf(summary, sizeof(summary), "共 %d 本 TXT · *当前 · 读/目/页=进度/目录/页表", bookCount_);
-    char rows[kBooksPerPage][96];
+    snprintf(summary, sizeof(summary), "文件浏览器 /books · 共 %d 本 TXT · 读/目/页", bookCount_);
+    char rows[kBooksPerPage][180];
     const char* rowPtrs[kBooksPerPage];
     int rowCount = 0;
+    int activeRow = -1;
     for (int i = start; i < end && rowCount < kBooksPerPage; ++i) {
         const bool current = open_ && strcmp(bookPaths_[i], bookPath_) == 0;
-        char titleBuf[56];
-        strlcpy(titleBuf, bookTitles_[i], sizeof(titleBuf));
-        trimUtf8Tail(titleBuf, strlen(titleBuf));
+        if (current) activeRow = rowCount;
         char flags[16];
         formatBookFlags(bookFlags_[i], flags, sizeof(flags));
-        snprintf(rows[rowCount], sizeof(rows[rowCount]), "%c%03d [%s] %s", current ? '*' : ' ', i + 1, flags, titleBuf);
+        snprintf(rows[rowCount], sizeof(rows[rowCount]), "[%s] %s", flags, bookPaths_[i]);
         rowPtrs[rowCount] = rows[rowCount];
         rowCount++;
     }
@@ -578,7 +577,7 @@ void ReaderBookService::renderLibraryPage(uint16_t page) {
     // font path so it visually matches the other tabs. Only actual book body
     // rendering should use ReaderTextRenderer's full reading font.
     g_uiRenderer.renderUiListPage(SystemState::Library, "书架", summary, rowPtrs, rowCount,
-                                  kListFirstRowY, kListRowH, bookPage_ + 1, totalPages);
+                                  kListFirstRowY, kListRowH, bookPage_ + 1, totalPages, activeRow);
 }
 
 bool ReaderBookService::nextLibraryPage() {
@@ -632,33 +631,38 @@ void ReaderBookService::renderCurrent() {
 }
 
 void ReaderBookService::renderBookLoadingPage(const char* stage) {
-    char body[700];
     char sizeText[24];
+    char lineTitle[180];
+    char lineSize[48];
+    char lineStage[96];
     formatBytes(bookFileSize(bookPath_), sizeText, sizeof(sizeText));
-    snprintf(body, sizeof(body),
-             "书籍：%s\n"
-             "大小：%s\n\n"
-             "%s...\n\n"
-             "首次打开大书可能需要一会儿。\n"
-             "完成后会自动进入书籍入口；以后会复用 .vink-toc 缓存。",
-             title_[0] ? title_ : "TXT",
-             sizeText,
-             stage && stage[0] ? stage : "正在打开");
-    g_readerText.renderTextPage("正在打开", body, 1, 1);
+    snprintf(lineTitle, sizeof(lineTitle), "书籍：%s", title_[0] ? title_ : "TXT");
+    snprintf(lineSize, sizeof(lineSize), "大小：%s", sizeText);
+    snprintf(lineStage, sizeof(lineStage), "%s...", stage && stage[0] ? stage : "正在打开");
+    const char* info[] = {
+        lineTitle,
+        lineSize,
+        lineStage,
+        "首次打开大书可能需要一会儿。",
+        "完成后会自动进入书籍入口。",
+    };
+    g_uiRenderer.renderUiActionPage(SystemState::Library, "正在打开", info, 5, nullptr, 0);
 }
 
 void ReaderBookService::renderChapterLoadingPage(int index) {
-    char body[700];
     const char* chapterTitle = (index >= 0 && index < tocCount_) ? toc_[index].title.c_str() : "章节";
-    snprintf(body, sizeof(body),
-             "书籍：%s\n"
-             "章节：%s\n\n"
-             "正在分页...\n\n"
-             "首次进入长章节时会测量每页可显示的文字量。\n"
-             "完成后会缓存到 .vink-pages，之后进入会更快。",
-             title_[0] ? title_ : "TXT",
-             chapterTitle);
-    g_readerText.renderTextPage("正在分页", body, 1, 1);
+    char lineTitle[180];
+    char lineChapter[180];
+    snprintf(lineTitle, sizeof(lineTitle), "书籍：%s", title_[0] ? title_ : "TXT");
+    snprintf(lineChapter, sizeof(lineChapter), "章节：%s", chapterTitle);
+    const char* info[] = {
+        lineTitle,
+        lineChapter,
+        "正在分页...",
+        "首次进入长章节时会测量每页文字量。",
+        "完成后会缓存到 .vink-pages。",
+    };
+    g_uiRenderer.renderUiActionPage(SystemState::Reader, "正在分页", info, 5, nullptr, 0);
 }
 
 void ReaderBookService::renderBookEntryPage() {
@@ -689,9 +693,11 @@ void ReaderBookService::renderBookEntryPage() {
     snprintf(lineToc, sizeof(lineToc), "目录：%d 条", tocCount_);
     snprintf(lineCache, sizeof(lineCache), "缓存：[%s] 读/目/页=进度/目录/页表", flags);
     snprintf(lineProgress, sizeof(lineProgress), "进度：%s", progress);
-    const char* info[] = {lineTitle, lineSize, lineToc, lineCache, lineProgress, "提示：阅读中左右/上下滑动翻页"};
+    const char* info[] = {lineTitle, lineSize, lineToc, lineCache, lineProgress, "提示：点击继续阅读后才进入正文阅读字体"};
     const char* actions[] = {"继续阅读", "目录", "从头开始"};
-    g_readerText.renderActionPage("书籍入口", info, 6, actions, 3, 0);
+    // This is still UI/navigation chrome after choosing a book. Keep it on the
+    // UI font path; only actual page body rendering may use the reading font.
+    g_uiRenderer.renderUiActionPage(SystemState::Reader, "书籍入口", info, 6, actions, 3);
 }
 
 bool ReaderBookService::continueReading() {
