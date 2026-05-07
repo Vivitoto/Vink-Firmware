@@ -15,7 +15,10 @@
           "name": "Vink-PaperS3-v0.3.13-full-16MB.bin",
           "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.3.13/Vink-PaperS3-v0.3.13-full-16MB.bin",
           "size": 16777216,
-          "flashOffset": 0
+          "flashOffset": 0,
+          "mirrorUrls": [
+            "https://pub-cd203a59e92845d2b1ee0bd779068477.r2.dev/firmware/PaperS3/releases/Vink-PaperS3-v0.3.13-full-16MB.bin"
+          ]
         },
         "ota": {
           "name": "Vink-PaperS3-v0.3.13-ota.bin",
