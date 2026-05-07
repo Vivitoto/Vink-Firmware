@@ -14,6 +14,9 @@ struct ReaderRenderOptions {
     int16_t lineGap = 12;
     bool vertical = false;
     bool dark = false;
+    bool indentFirstLine = false;
+    bool compactBlankLines = false;
+    bool dynamicLineHeight = false;
 };
 
 class ReaderTextRenderer {
@@ -23,6 +26,13 @@ public:
     bool loadFont(const char* path);
     bool ready() const;
     uint16_t fontSize() const;
+    void toggleAntiAlias();
+    bool antiAliasEnabled() const { return antiAliasEnabled_; }
+    const char* antiAliasLabel() const { return antiAliasEnabled_ ? "开启" : "关闭"; }
+    void cycleLayoutPreset();
+    uint8_t layoutPreset() const { return layoutPreset_; }
+    const char* layoutPresetLabel() const;
+    ReaderRenderOptions currentOptions() const;
 
     void renderPlaceholderPage();
     void renderTextPage(const char* title, const char* body, uint16_t page, uint16_t totalPages, const ReaderRenderOptions& options = ReaderRenderOptions{});
@@ -53,12 +63,15 @@ private:
     void drawText(int16_t x, int16_t y, const char* text, uint16_t color = TFT_BLACK);
     void drawShellTabs(int activeTab, const ReaderRenderOptions& options);
     size_t findWrapBreak(const char* text, size_t start, int16_t maxWidth) const;
+    bool isParagraphStart(const char* text, size_t pos) const;
 
     M5Canvas* canvas_ = nullptr;
     bool readPaperFullReady_ = false;
     uint32_t readPaperCharCount_ = 0;
     uint8_t readPaperFontHeight_ = 0;
     FontManager font_;
+    bool antiAliasEnabled_ = true;
+    uint8_t layoutPreset_ = 1;
 };
 
 extern ReaderTextRenderer g_readerText;

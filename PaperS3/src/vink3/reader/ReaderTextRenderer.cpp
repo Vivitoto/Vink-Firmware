@@ -57,6 +57,53 @@ uint16_t ReaderTextRenderer::fontSize() const {
     return font_.isLoaded() ? font_.getFontSize() : 24;
 }
 
+void ReaderTextRenderer::toggleAntiAlias() {
+    antiAliasEnabled_ = !antiAliasEnabled_;
+    Serial.printf("[vink3][reader] anti-alias -> %s\n", antiAliasLabel());
+}
+
+void ReaderTextRenderer::cycleLayoutPreset() {
+    layoutPreset_ = (layoutPreset_ + 1) % 3;
+    Serial.printf("[vink3][reader] layout preset -> %s\n", layoutPresetLabel());
+}
+
+const char* ReaderTextRenderer::layoutPresetLabel() const {
+    switch (layoutPreset_) {
+        case 0: return "原始";
+        case 1: return "优化";
+        case 2: return "紧凑";
+    }
+    return "优化";
+}
+
+ReaderRenderOptions ReaderTextRenderer::currentOptions() const {
+    ReaderRenderOptions opt;
+    switch (layoutPreset_) {
+        case 0:
+            opt.indentFirstLine = false;
+            opt.compactBlankLines = false;
+            opt.dynamicLineHeight = false;
+            opt.lineGap = 12;
+            break;
+        case 2:
+            opt.indentFirstLine = true;
+            opt.compactBlankLines = true;
+            opt.dynamicLineHeight = true;
+            opt.lineGap = 8;
+            opt.marginTop = 78;
+            opt.marginBottom = 40;
+            break;
+        case 1:
+        default:
+            opt.indentFirstLine = true;
+            opt.compactBlankLines = true;
+            opt.dynamicLineHeight = true;
+            opt.lineGap = 12;
+            break;
+    }
+    return opt;
+}
+
 uint32_t ReaderTextRenderer::decodeUtf8(const uint8_t* buf, size_t& pos, size_t len) {
     if (pos >= len) return 0;
     uint8_t c = buf[pos];
@@ -142,9 +189,12 @@ int16_t ReaderTextRenderer::textWidth(const char* text) const {
 uint16_t ReaderTextRenderer::pixelColorForNibble(uint8_t nibble, uint16_t color) const {
     if (color == TFT_WHITE) return TFT_WHITE;
     if (color != TFT_BLACK) return color;
-    // A+B+D: linear kRemap; all ReadPaper AA pixels go through unified path
+    // EDC Book/梦西游-style AntiAlias switch: enabled keeps softened gray edge
+    // pixels for fast e-paper refresh; disabled uses a hard black/white cutoff.
+    if (!antiAliasEnabled_) return (nibble >= 8) ? TFT_BLACK : TFT_WHITE;
+    // Slightly darken mid tones so softened strokes remain visible in fast LUTs.
     static const uint8_t kRemap[16] __attribute__((aligned(1))) = {
-        0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15
+        0, 0, 1, 2, 3, 4, 5, 7, 8, 10, 11, 12, 13, 14, 15, 15
     };
     static const uint16_t k4BitToRgb565[16] __attribute__((aligned(2))) = {
         0xFFFF, 0xEFFF, 0xCFFF, 0xADAD, 0x8A8A, 0x7B7B,
@@ -267,6 +317,18 @@ void ReaderTextRenderer::drawText(int16_t x, int16_t y, const char* text, uint16
     }
 }
 
+bool ReaderTextRenderer::isParagraphStart(const char* text, size_t pos) const {
+    if (!text || pos == 0) return true;
+    size_t i = pos;
+    while (i > 0) {
+        char c = text[i - 1];
+        if (c == '\n' || c == '\r') return true;
+        if (c != ' ' && c != '\t') return false;
+        --i;
+    }
+    return true;
+}
+
 size_t ReaderTextRenderer::findWrapBreak(const char* text, size_t start, int16_t maxWidth) const {
     const uint8_t* bytes = reinterpret_cast<const uint8_t*>(text);
     const size_t len = strlen(text);
@@ -290,17 +352,20 @@ size_t ReaderTextRenderer::measurePageBytes(const char* text, size_t len, const 
     size_t pos = 0;
     int16_t y = options.marginTop;
     const int16_t maxWidth = kPaperS3Width - options.marginLeft - options.marginRight;
-    const int16_t lineHeight = fontSize() + options.lineGap;
+    const int16_t baseLineHeight = fontSize() + options.lineGap;
+    const int16_t lineHeight = options.dynamicLineHeight ? max<int16_t>(fontSize() + 4, baseLineHeight - 2) : baseLineHeight;
     const int16_t bottom = kPaperS3Height - options.marginBottom;
     const uint8_t* bytes = reinterpret_cast<const uint8_t*>(text);
 
     while (pos < len && y + lineHeight < bottom) {
-        while (pos < len && (text[pos] == '\n' || text[pos] == '\r')) pos++;
+        bool skippedBlank = false;
+        while (pos < len && (text[pos] == '\n' || text[pos] == '\r')) { pos++; skippedBlank = true; }
+        if (skippedBlank && !options.compactBlankLines) y += lineHeight / 2;
         if (pos >= len) break;
 
         const size_t lineStart = pos;
         size_t lastGood = pos;
-        int16_t width = 0;
+        int16_t width = (options.indentFirstLine && isParagraphStart(text, lineStart)) ? static_cast<int16_t>(fontSize() * 2) : 0;
         while (pos < len) {
             const size_t before = pos;
             uint32_t ch = decodeUtf8(bytes, pos, len);
@@ -368,18 +433,24 @@ void ReaderTextRenderer::renderTextPage(const char* title, const char* body, uin
     const size_t len = strlen(text);
     int16_t y = options.marginTop;
     const int16_t maxWidth = kPaperS3Width - options.marginLeft - options.marginRight;
-    const int16_t lineHeight = fontSize() + options.lineGap;
+    const int16_t baseLineHeight = fontSize() + options.lineGap;
+    const int16_t lineHeight = options.dynamicLineHeight ? max<int16_t>(fontSize() + 4, baseLineHeight - 2) : baseLineHeight;
     const int16_t bottom = kPaperS3Height - options.marginBottom;
     while (pos < len && y + lineHeight < bottom) {
-        while (pos < len && (text[pos] == '\n' || text[pos] == '\r')) pos++;
-        size_t end = findWrapBreak(text, pos, maxWidth);
+        bool skippedBlank = false;
+        while (pos < len && (text[pos] == '\n' || text[pos] == '\r')) { pos++; skippedBlank = true; }
+        if (skippedBlank && !options.compactBlankLines) y += lineHeight / 2;
+        if (pos >= len || y + lineHeight >= bottom) break;
+        const bool paragraphStart = options.indentFirstLine && isParagraphStart(text, pos);
+        const int16_t indent = paragraphStart ? static_cast<int16_t>(fontSize() * 2) : 0;
+        size_t end = findWrapBreak(text, pos, maxWidth - indent);
         if (end <= pos) break;
         char line[256];
         size_t n = end - pos;
         if (n >= sizeof(line)) n = sizeof(line) - 1;
         memcpy(line, text + pos, n);
         line[n] = '\0';
-        drawText(options.marginLeft, y, line, fg);
+        drawText(options.marginLeft + indent, y, line, fg);
         pos = end;
         y += lineHeight;
     }

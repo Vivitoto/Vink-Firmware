@@ -21,6 +21,7 @@ public:
     void renderBookLoadingPage(const char* stage);
     void renderChapterLoadingPage(int index);
     void renderBookEntryPage();
+    void renderReaderMenuPage();
     void renderLibraryPage(uint16_t page = 0);
     bool nextLibraryPage();
     bool prevLibraryPage();
@@ -34,6 +35,7 @@ public:
     bool handleTap(int16_t x, int16_t y);
     bool openTocEntry(int index);
     void saveCurrentProgress();
+    void invalidatePaginationForLayoutChange();
 
 private:
     static constexpr int kMaxTocEntries = 2000;
@@ -116,6 +118,11 @@ private:
     bool renderChapterPreview(int index);
     bool continueReading();
     bool restartReading();
+    bool openReaderMenu();
+    bool closeReaderMenu();
+    bool cycleRefreshStrategy();
+    bool toggleAntiAlias();
+    bool cycleLayoutPreset();
     bool clearPageCache();
     bool rebuildTocCache();
     uint32_t chapterContentStart(int index);
@@ -147,6 +154,7 @@ private:
     int nextPreheatTocIndex_ = -1;
     bool hasProgress_ = false;
     bool showingBookEntry_ = false;
+    bool showingReaderMenu_ = false;
     bool showingToc_ = true;
 };
 

@@ -300,6 +300,7 @@ void ReaderBookService::closeCurrent() {
     nextPreheatTocIndex_ = -1;
     hasProgress_ = false;
     showingBookEntry_ = false;
+    showingReaderMenu_ = false;
     showingToc_ = true;
     bookPath_[0] = '\0';
     activeTextPath_[0] = '\0';
@@ -753,7 +754,7 @@ uint32_t ReaderBookService::readerLayoutKey() const {
     // size, line gap, or margins become user-configurable, only this key changes
     // and `.vink-pages` records for the old layout are ignored; `.vink-toc`
     // remains valid.
-    ReaderRenderOptions opt;
+    ReaderRenderOptions opt = g_readerText.currentOptions();
     uint32_t h = 2166136261UL;
     auto mix = [&](uint32_t v) { h ^= v; h *= 16777619UL; };
     mix(opt.fontSize);
@@ -902,7 +903,7 @@ bool ReaderBookService::preheatChapterPageCache(int index) {
         int n = f.read(reinterpret_cast<uint8_t*>(buf), toRead);
         if (n <= 0) break;
         size_t len = trimUtf8Tail(buf, static_cast<size_t>(n));
-        size_t consumed = g_readerText.measurePageBytes(buf, len);
+        size_t consumed = g_readerText.measurePageBytes(buf, len, g_readerText.currentOptions());
         if (consumed == 0) consumed = len;
         if (consumed == 0) break;
         offset += consumed;
@@ -1134,6 +1135,10 @@ void ReaderBookService::renderCurrent() {
         renderBookEntryPage();
         return;
     }
+    if (showingReaderMenu_) {
+        renderReaderMenuPage();
+        return;
+    }
     if (showingToc_) {
         renderTocPage(tocPage_);
         return;
@@ -1220,8 +1225,30 @@ void ReaderBookService::renderBookEntryPage() {
     g_uiRenderer.renderUiActionPage(SystemState::Reader, "书籍入口", info, 6, actions, 5);
 }
 
+void ReaderBookService::renderReaderMenuPage() {
+    if (!open_) {
+        renderOpenOrHelp();
+        return;
+    }
+    char lineTitle[180];
+    char lineChapter[180];
+    char lineRefresh[80];
+    char lineAa[80];
+    char lineLayout[80];
+    const char* chapterTitle = (currentTocIndex_ >= 0 && currentTocIndex_ < tocCount_) ? toc_[currentTocIndex_].title.c_str() : "未进入章节";
+    snprintf(lineTitle, sizeof(lineTitle), "书籍：%s", title_);
+    snprintf(lineChapter, sizeof(lineChapter), "章节：%s", chapterTitle);
+    snprintf(lineRefresh, sizeof(lineRefresh), "刷新策略：%s", g_displayService.readerRefreshStrategyLabel());
+    snprintf(lineAa, sizeof(lineAa), "抗锯齿：%s", g_readerText.antiAliasLabel());
+    snprintf(lineLayout, sizeof(lineLayout), "排版优化：%s", g_readerText.layoutPresetLabel());
+    const char* info[] = {lineTitle, lineChapter, lineRefresh, lineAa, lineLayout, "左右三分区翻页，中间呼出本菜单"};
+    const char* actions[] = {"继续阅读", "刷新策略", "抗锯齿", "排版优化", "目录"};
+    g_uiRenderer.renderUiActionPage(SystemState::Reader, "阅读菜单", info, 6, actions, 5);
+}
+
 bool ReaderBookService::continueReading() {
     showingBookEntry_ = false;
+    showingReaderMenu_ = false;
     showingToc_ = false;
     if (hasProgress_ && currentTocIndex_ >= 0 && pageCount_ > 0) {
         return renderCurrentReadingPage();
@@ -1234,6 +1261,7 @@ bool ReaderBookService::continueReading() {
 
 bool ReaderBookService::restartReading() {
     showingBookEntry_ = false;
+    showingReaderMenu_ = false;
     showingToc_ = false;
     hasProgress_ = false;
     currentPage_ = 0;
@@ -1242,6 +1270,52 @@ bool ReaderBookService::restartReading() {
     showingToc_ = true;
     renderTocPage(0);
     return true;
+}
+
+bool ReaderBookService::openReaderMenu() {
+    if (!open_) return false;
+    showingBookEntry_ = false;
+    showingReaderMenu_ = true;
+    showingToc_ = false;
+    renderReaderMenuPage();
+    return true;
+}
+
+bool ReaderBookService::closeReaderMenu() {
+    if (!open_) return false;
+    showingReaderMenu_ = false;
+    return renderCurrentReadingPage();
+}
+
+bool ReaderBookService::cycleRefreshStrategy() {
+    g_displayService.cycleReaderRefreshStrategy();
+    showingReaderMenu_ = true;
+    renderReaderMenuPage();
+    return true;
+}
+
+bool ReaderBookService::toggleAntiAlias() {
+    g_readerText.toggleAntiAlias();
+    showingReaderMenu_ = true;
+    renderReaderMenuPage();
+    return true;
+}
+
+bool ReaderBookService::cycleLayoutPreset() {
+    g_readerText.cycleLayoutPreset();
+    invalidatePaginationForLayoutChange();
+    showingReaderMenu_ = true;
+    renderReaderMenuPage();
+    return true;
+}
+
+void ReaderBookService::invalidatePaginationForLayoutChange() {
+    // Layout options affect only `.vink-pages`; the stable `.vink-toc` chapter
+    // byte index stays valid. Clear in-memory page tables so the next chapter
+    // entry rebuilds with the new readerLayoutKey instead of reusing old rows.
+    pageCount_ = 0;
+    currentPage_ = 0;
+    nextPreheatTocIndex_ = -1;
 }
 
 bool ReaderBookService::clearPageCache() {
@@ -1266,6 +1340,7 @@ bool ReaderBookService::rebuildTocCache() {
 
 bool ReaderBookService::nextPage() {
     if (showingBookEntry_) return continueReading();
+    if (showingReaderMenu_) return closeReaderMenu();
     if (showingToc_) return nextTocPage();
     if (!open_ || pageCount_ <= 0) return false;
     if (currentPage_ + 1 < pageCount_) {
@@ -1280,6 +1355,7 @@ bool ReaderBookService::nextPage() {
 
 bool ReaderBookService::prevPage() {
     if (showingBookEntry_) return false;
+    if (showingReaderMenu_) return closeReaderMenu();
     if (showingToc_) return prevTocPage();
     if (!open_ || pageCount_ <= 0) return false;
     if (currentPage_ > 0) {
@@ -1313,6 +1389,20 @@ bool ReaderBookService::prevTocPage() {
 
 bool ReaderBookService::handleTap(int16_t x, int16_t y) {
     if (!open_) return false;
+    if (showingReaderMenu_) {
+        if (x >= kEntryButtonX && x < kEntryButtonX + kEntryButtonW && y >= kEntryContinueY && y < kEntryContinueY + kEntryButtonH) return closeReaderMenu();
+        if (x >= kEntryButtonX && x < kEntryButtonX + kEntryButtonW && y >= kEntryTocY && y < kEntryTocY + kEntryButtonH) return cycleRefreshStrategy();
+        if (x >= kEntryButtonX && x < kEntryButtonX + kEntryButtonW && y >= kEntryRestartY && y < kEntryRestartY + kEntryButtonH) return toggleAntiAlias();
+        if (x >= kEntryButtonX && x < kEntryButtonX + kEntryButtonW && y >= kEntryClearPagesY && y < kEntryClearPagesY + kEntryButtonH) return cycleLayoutPreset();
+        if (x >= kEntryButtonX && x < kEntryButtonX + kEntryButtonW && y >= kEntryRebuildTocY && y < kEntryRebuildTocY + kEntryButtonH) {
+            showingReaderMenu_ = false;
+            showingBookEntry_ = false;
+            showingToc_ = true;
+            renderTocPage(tocPage_);
+            return true;
+        }
+        return false;
+    }
     if (showingBookEntry_) {
         if (x >= kEntryButtonX && x < kEntryButtonX + kEntryButtonW && y >= kEntryContinueY && y < kEntryContinueY + kEntryButtonH) return continueReading();
         if (x >= kEntryButtonX && x < kEntryButtonX + kEntryButtonW && y >= kEntryTocY && y < kEntryTocY + kEntryButtonH) {
@@ -1343,10 +1433,7 @@ bool ReaderBookService::handleTap(int16_t x, int16_t y) {
         }
         if (x < kPaperS3Width / 3) return prevPage();
         if (x > (kPaperS3Width * 2) / 3) return nextPage();
-        showingBookEntry_ = true;
-        showingToc_ = false;
-        renderBookEntryPage();
-        return true;
+        return openReaderMenu();
     }
     if (tocCount_ <= 0) return false;
     if (y < kTocFirstRowY || y >= kTocFirstRowY + kTocEntriesPerPage * kTocRowH) return false;
@@ -1475,7 +1562,7 @@ bool ReaderBookService::buildChapterPages(int index) {
         int n = f.read(reinterpret_cast<uint8_t*>(buf), toRead);
         if (n <= 0) break;
         size_t len = trimUtf8Tail(buf, static_cast<size_t>(n));
-        size_t consumed = g_readerText.measurePageBytes(buf, len);
+        size_t consumed = g_readerText.measurePageBytes(buf, len, g_readerText.currentOptions());
         if (consumed == 0) consumed = len;
         if (consumed == 0) break;
         offset += consumed;
@@ -1506,7 +1593,7 @@ bool ReaderBookService::renderCurrentReadingPage() {
     trimUtf8Tail(body, static_cast<size_t>(n));
     char header[160];
     strlcpy(header, toc_[currentTocIndex_].title.c_str(), sizeof(header));
-    g_readerText.renderTextPage(header, body, currentPage_ + 1, pageCount_);
+    g_readerText.renderTextPage(header, body, currentPage_ + 1, pageCount_, g_readerText.currentOptions());
     saveProgress();
     // Do not pre-paginate synchronously from the UI/state task. On large books
     // or malformed chapter spans, eager preheat can monopolize the ESP32-S3 long
@@ -1536,7 +1623,7 @@ bool ReaderBookService::renderChapterPreview(int index) {
 
     char header[160];
     strlcpy(header, toc_[index].title.c_str(), sizeof(header));
-    g_readerText.renderTextPage(header, content, 1, 1);
+    g_readerText.renderTextPage(header, content, 1, 1, g_readerText.currentOptions());
     return true;
 }
 

@@ -19,6 +19,9 @@ enum class UiAction : uint8_t {
     RequestShutdown,
     ConfirmShutdown,
     CancelShutdown,
+    CycleReaderRefreshStrategy,
+    ToggleReaderAntiAlias,
+    CycleReaderLayoutPreset,
     StartLegadoSync,
     BackHome,
 };

@@ -161,14 +161,58 @@ M5Canvas* DisplayService::dequeueCanvasClone() {
     return nullptr;
 }
 
+void DisplayService::cycleReaderRefreshStrategy() {
+    switch (readerRefreshStrategy_) {
+        case ReaderRefreshStrategy::Speed:
+            readerRefreshStrategy_ = ReaderRefreshStrategy::Balanced;
+            break;
+        case ReaderRefreshStrategy::Balanced:
+            readerRefreshStrategy_ = ReaderRefreshStrategy::Clear;
+            break;
+        case ReaderRefreshStrategy::Clear:
+        default:
+            readerRefreshStrategy_ = ReaderRefreshStrategy::Speed;
+            break;
+    }
+    resetPushCount();
+    Serial.printf("[vink3][display] reader refresh strategy -> %s\n", readerRefreshStrategyLabel());
+}
+
+const char* DisplayService::readerRefreshStrategyLabel() const {
+    switch (readerRefreshStrategy_) {
+        case ReaderRefreshStrategy::Speed: return "极速";
+        case ReaderRefreshStrategy::Balanced: return "均衡";
+        case ReaderRefreshStrategy::Clear: return "清晰";
+    }
+    return "均衡";
+}
+
 epd_mode_t DisplayService::chooseRefreshMode(const DisplayRequest& request) {
-    const bool needMiddleStep = fastRefresh_ &&
+    uint32_t fullEvery = 10;
+    epd_mode_t normalMode = kNormalRefresh;
+    bool middleStep = false;
+    switch (readerRefreshStrategy_) {
+        case ReaderRefreshStrategy::Speed:
+            fullEvery = 20;
+            normalMode = kLowRefresh;
+            break;
+        case ReaderRefreshStrategy::Clear:
+            fullEvery = 5;
+            normalMode = kNormalRefresh;
+            break;
+        case ReaderRefreshStrategy::Balanced:
+        default:
+            fullEvery = 10;
+            normalMode = kMiddleRefresh;
+            middleStep = true;
+            break;
+    }
+
+    const bool needMiddleStep = middleStep &&
         kDisplayMiddleRefreshThreshold > 0 &&
         pushCount_ >= kDisplayMiddleRefreshThreshold &&
         pushCount_ % kDisplayMiddleRefreshThreshold == 0;
-    const bool useQualityMode = request.quality ||
-        (fastRefresh_ && pushCount_ >= kDisplayQualityFastThreshold) ||
-        (!fastRefresh_ && pushCount_ >= kDisplayFullRefreshNormalThreshold);
+    const bool useQualityMode = request.quality || (fullEvery > 0 && pushCount_ >= fullEvery);
 
     if (useQualityMode) {
         pushCount_ = 0;
@@ -183,9 +227,9 @@ epd_mode_t DisplayService::chooseRefreshMode(const DisplayRequest& request) {
         M5.Display.waitDisplay();
     }
 
-    // A+B+D: use epd_text LUT for normal UI pushes — crisper text rendering.
-    // quality requests still use epd_quality.
-    return kNormalRefresh;
+    // Formal refresh strategy inspired by EDC Book: speed/balanced/clear trade
+    // off ghosting cleanup frequency and LUT aggressiveness.
+    return normalMode;
 }
 
 void DisplayService::push(const DisplayRequest& request, M5Canvas* canvasToPush) {

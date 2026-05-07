@@ -12,6 +12,12 @@ enum class DisplayEffect : uint8_t {
     Rect = 3,
 };
 
+enum class ReaderRefreshStrategy : uint8_t {
+    Speed = 0,
+    Balanced = 1,
+    Clear = 2,
+};
+
 // ReadPaper 1.7.6 style display message: flags + effect + rectangle.
 struct DisplayRequest {
     bool transparent = false; // ReadPaper flags[0]
@@ -34,6 +40,9 @@ public:
     bool isBusy() const;
     uint32_t pushCount() const;
     void resetPushCount();
+    void cycleReaderRefreshStrategy();
+    ReaderRefreshStrategy readerRefreshStrategy() const { return readerRefreshStrategy_; }
+    const char* readerRefreshStrategyLabel() const;
 
 private:
     static void taskThunk(void* arg);
@@ -53,6 +62,7 @@ private:
     // PaperS3 official/examples and reference firmware favor fast EPD updates for
     // interactive UI, with periodic quality refreshes to clean ghosting.
     bool fastRefresh_ = true;
+    ReaderRefreshStrategy readerRefreshStrategy_ = ReaderRefreshStrategy::Balanced;
 };
 
 extern DisplayService g_displayService;
