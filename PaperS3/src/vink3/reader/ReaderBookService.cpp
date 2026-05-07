@@ -105,6 +105,37 @@ bool ReaderBookService::isTxtPath(const char* name) const {
     return s.endsWith(".txt");
 }
 
+bool ReaderBookService::isBookPath(const char* name) const {
+    if (!name) return false;
+    String s(name);
+    s.toLowerCase();
+    return s.endsWith(".txt") || s.endsWith(".epub");
+}
+
+void ReaderBookService::normalizeChildPath(const char* dirPath, const char* rawName, char* out, size_t len) const {
+    if (!out || len == 0) return;
+    out[0] = '\0';
+    if (!dirPath || !dirPath[0] || !rawName || !rawName[0]) return;
+    String dir(dirPath);
+    String raw(rawName);
+    if (!dir.startsWith("/")) dir = String("/") + dir;
+    while (dir.length() > 1 && dir.endsWith("/")) dir.remove(dir.length() - 1);
+
+    String path;
+    const String prefix = dir + "/";
+    if (raw.startsWith(prefix) || (dir == "/" && raw.startsWith("/"))) {
+        path = raw;
+    } else if (raw.startsWith("/")) {
+        // Some SD implementations return child names as "/name" even when the
+        // parent directory was opened as "/books". Treat that as relative to
+        // the current browser directory, not as an SD-root absolute path.
+        path = (dir == "/") ? raw : dir + raw;
+    } else {
+        path = (dir == "/") ? String("/") + raw : dir + "/" + raw;
+    }
+    strlcpy(out, path.c_str(), len);
+}
+
 bool ReaderBookService::scanBooks() {
     if (!ensureSdReady() || !ensureBookBuffers()) return false;
     if (!currentLibraryDir_[0]) strlcpy(currentLibraryDir_, BOOKS_DIR, sizeof(currentLibraryDir_));
@@ -140,14 +171,9 @@ void ReaderBookService::scanBookDir(const char* dirPath, uint8_t depth) {
     while (f && bookCount_ < kMaxBooks) {
         const char* rawName = f.name();
         if (rawName && rawName[0]) {
-            String path;
-            if (rawName[0] == '/') {
-                path = rawName;
-            } else {
-                path = dirPath;
-                if (!path.endsWith("/")) path += "/";
-                path += rawName;
-            }
+            char pathBuf[160];
+            normalizeChildPath(dirPath, rawName, pathBuf, sizeof(pathBuf));
+            String path(pathBuf);
 
             const char* slash = strrchr(path.c_str(), '/');
             const char* leaf = slash ? slash + 1 : path.c_str();
@@ -155,7 +181,7 @@ void ReaderBookService::scanBookDir(const char* dirPath, uint8_t depth) {
             if (!hidden) {
                 if (f.isDirectory()) {
                     addLibraryEntry(path.c_str(), true);
-                } else if (isTxtPath(path.c_str())) {
+                } else if (isBookPath(path.c_str())) {
                     addLibraryEntry(path.c_str(), false);
                 }
             }
@@ -193,7 +219,7 @@ void ReaderBookService::parentDirOf(const char* path, char* out, size_t len) con
 
 bool ReaderBookService::addLibraryEntry(const char* path, bool isDirectory, const char* displayName) {
     if (!path || !path[0] || bookCount_ >= kMaxBooks) return false;
-    if (!isDirectory && !isTxtPath(path)) return false;
+    if (!isDirectory && !isBookPath(path)) return false;
     if (strlen(path) >= sizeof(bookPaths_[bookCount_])) {
         Serial.printf("[vink3][book] skip library path too long: %s\n", path);
         return false;
@@ -840,7 +866,7 @@ void ReaderBookService::renderLibraryPage(uint16_t page) {
     const int start = bookPage_ * kBooksPerPage;
     const int end = min(bookCount_, start + kBooksPerPage);
     char summary[160];
-    snprintf(summary, sizeof(summary), "文件浏览器 %s · %d 项 · 读/目/页", currentLibraryDir_, bookCount_);
+    snprintf(summary, sizeof(summary), "文件浏览器 %s · %d 项", currentLibraryDir_, bookCount_);
     char rows[kBooksPerPage][180];
     const char* rowPtrs[kBooksPerPage];
     int rowCount = 0;
@@ -894,6 +920,15 @@ bool ReaderBookService::handleLibraryTap(int16_t x, int16_t y) {
         bookPage_ = 0;
         booksScanned_ = false;
         renderLibraryPage(0);
+        return true;
+    }
+    if (!isTxtPath(bookPaths_[index])) {
+        const char* info[] = {
+            "当前版本先支持 TXT 阅读。",
+            "EPUB 文件已能在书架中识别显示，",
+            "正文解析会放到后续版本。",
+        };
+        g_uiRenderer.renderUiActionPage(SystemState::Library, "暂不支持", info, 3, nullptr, 0);
         return true;
     }
     lastLibraryTapOpenedBook_ = openBook(bookPaths_[index]);
