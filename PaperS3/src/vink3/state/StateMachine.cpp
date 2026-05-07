@@ -23,21 +23,6 @@ SystemState tabStateForAction(UiAction action) {
     }
 }
 
-// Wait for the power button to be released before the deep-sleep fallback.
-// On PaperS3, entering deep sleep while the side key is still held can wake the
-// device immediately when the user releases it, which looks like a reboot.
-static void waitPowerKeyRelease(uint32_t timeoutMs = 10000) {
-    const uint32_t start = millis();
-    while (M5.BtnPWR.isPressed()) {
-        M5.update();
-        delay(30);
-        if (millis() - start >= timeoutMs) {
-            Serial.println("[vink3][power] BtnPWR release timeout, proceeding anyway");
-            break;
-        }
-    }
-}
-
 void shutdownPaperS3(const char* reason) {
     Serial.println("[vink3][power] shutdown requested");
     g_readerBook.saveCurrentProgress();
@@ -46,20 +31,21 @@ void shutdownPaperS3(const char* reason) {
     g_displayService.waitIdle(5000);
     delay(300);
 
-    // Real-device result overrides the library expectation: on this PaperS3,
-    // M5.Power.powerOff() behaves like a restart path. Treat side-key shutdown
-    // as display sleep + ESP32-S3 deep sleep instead, and do not arm any wake
-    // source here. The next wake should come only from the board power/reset
-    // circuitry, not from a still-bouncing BtnPWR event.
-    waitPowerKeyRelease();
-    M5.Display.sleep();
+    // ReadPaper's shutdown path saves state, gives SD/display time to settle,
+    // then calls M5.Power.powerOff(). M5Unified implements the PaperS3-specific
+    // GPIO44 power-hold pulse internally, so do not duplicate the pulse here.
+    delay(500);
     M5.Display.waitDisplay();
-    delay(200);
+    delay(2000);
+    Serial.println("[vink3][power] calling M5.Power.powerOff() via ReadPaper-style shutdown");
+    Serial.flush();
+    M5.Power.powerOff();
+
     esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
     esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_OFF);
     esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_SLOW_MEM, ESP_PD_OPTION_OFF);
     esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_FAST_MEM, ESP_PD_OPTION_OFF);
-    Serial.println("[vink3][power] entering ESP32-S3 deep sleep (M5.Power.powerOff bypassed)");
+    Serial.println("[vink3][power] M5.Power.powerOff returned; entering fallback ESP32-S3 deep sleep");
     Serial.flush();
     delay(100);
     esp_deep_sleep_start();
@@ -98,6 +84,9 @@ void renderState(SystemState state) {
         }
         case SystemState::LegadoSync:
             g_uiRenderer.renderLegadoSync("Legado sync service ready");
+            break;
+        case SystemState::ShutdownConfirm:
+            g_uiRenderer.renderShutdownConfirm();
             break;
         default:
             g_uiRenderer.renderHome(state);
@@ -203,8 +192,22 @@ void StateMachine::handle(const Message& message) {
                     break;
 
                 case UiAction::RequestShutdown:
+                    state_ = SystemState::ShutdownConfirm;
+                    g_uiRenderer.renderShutdownConfirm();
+                    g_displayService.enqueueFull(true, 100);
+                    suppressAfterTransition();
+                    break;
+
+                case UiAction::ConfirmShutdown:
                     state_ = SystemState::Shutdown;
                     shutdownPaperS3("正在关机");
+                    break;
+
+                case UiAction::CancelShutdown:
+                    state_ = SystemState::Settings;
+                    renderState(state_);
+                    g_displayService.enqueueFull(false, 100);
+                    suppressAfterTransition();
                     break;
 
                 case UiAction::StartLegadoSync:
