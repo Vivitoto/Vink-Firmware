@@ -11,6 +11,12 @@
 
 namespace vink3 {
 
+namespace {
+// TOC cache schema. Bump whenever chapter detection/title display rules change
+// so old bad `.vink-toc` files do not survive firmware updates.
+static constexpr uint32_t kTocCacheMagic = 0x56435432UL; // VCT2
+}
+
 ReaderBookService g_readerBook;
 
 bool ReaderBookService::begin() {
@@ -318,8 +324,10 @@ bool ReaderBookService::loadTocCache() {
     uint16_t count = 0;
     f.read(reinterpret_cast<uint8_t*>(&magic), sizeof(magic));
     f.read(reinterpret_cast<uint8_t*>(&count), sizeof(count));
-    if (magic != 0x56435431UL || count == 0 || count > kMaxTocEntries) {
+    if (magic != kTocCacheMagic || count == 0 || count > kMaxTocEntries) {
         f.close();
+        Serial.printf("[vink3][book] TOC cache stale/invalid: magic=0x%08lx count=%u, rebuilding\n",
+                      static_cast<unsigned long>(magic), static_cast<unsigned>(count));
         return false;
     }
     tocCount_ = 0;
@@ -349,7 +357,7 @@ void ReaderBookService::saveTocCache() {
     getTocCachePath(cachePath, sizeof(cachePath));
     File f = SD.open(cachePath, FILE_WRITE);
     if (!f) return;
-    uint32_t magic = 0x56435431UL; // VCT1
+    uint32_t magic = kTocCacheMagic;
     uint16_t count = static_cast<uint16_t>(tocCount_);
     f.write(reinterpret_cast<const uint8_t*>(&magic), sizeof(magic));
     f.write(reinterpret_cast<const uint8_t*>(&count), sizeof(count));
