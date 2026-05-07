@@ -31,6 +31,9 @@ public:
     void renderUiListPage(SystemState active, const char* title, const char* summary,
                           const char* const* rows, int rowCount, int16_t rowY, int16_t rowH,
                           uint16_t page, uint16_t totalPages, int activeRow = -1);
+    void renderUiActionPage(SystemState active, const char* title,
+                            const char* const* infoLines, int infoCount,
+                            const char* const* actions, int actionCount);
     void renderTransfer();
     void renderSettings();
     void renderDiagnostics(const Message& lastTouch, const char* eventName);
