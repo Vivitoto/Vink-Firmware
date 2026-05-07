@@ -13,6 +13,7 @@ enum class SystemState : uint8_t {
     Settings,
     Diagnostics,
     LegadoSync,
+    ShutdownConfirm,
     Sleeping,
     Shutdown,
 };
