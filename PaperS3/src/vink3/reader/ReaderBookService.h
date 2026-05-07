@@ -67,6 +67,8 @@ private:
     void sortBooks();
     void swapBookEntries(int a, int b);
     bool isTxtPath(const char* name) const;
+    bool isBookPath(const char* name) const;
+    void normalizeChildPath(const char* dirPath, const char* rawName, char* out, size_t len) const;
     void setDisplayNameFromPath(char* out, size_t len, const char* path) const;
     void parentDirOf(const char* path, char* out, size_t len) const;
     void closeCurrent();
