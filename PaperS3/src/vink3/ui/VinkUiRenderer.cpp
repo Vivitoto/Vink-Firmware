@@ -212,18 +212,36 @@ void VinkUiRenderer::renderHome(SystemState state) {
     (void)state;
 }
 
-void VinkUiRenderer::renderReaderHome() {
+void VinkUiRenderer::renderReaderHome(const char* bookTitle, const char* bookPath,
+                                      const char* progressText, bool hasLastBook) {
     if (!canvas_) return;
     clear();
     drawStatusBar("Vink");
     drawTabs(SystemState::Reader);
-    drawCard(28, kContentY, 484, 184, "当前书籍", "TXT 书籍入口");
-    drawButton(56, 286, 180, 48, "打开");
+
+    canvas_->fillRoundRect(28, kContentY, 484, 184, 18, TFT_WHITE);
+    canvas_->drawRoundRect(28, kContentY, 484, 184, 18, TFT_BLACK);
+    g_cjkText.drawText(56, kContentY + 18, hasLastBook ? "最近阅读" : "当前书籍", TFT_BLACK);
+    if (hasLastBook) {
+        char titleLine[160];
+        char pathLine[160];
+        char progressLine[96];
+        g_cjkText.fitTextToWidth(bookTitle && bookTitle[0] ? bookTitle : "TXT", titleLine, sizeof(titleLine), 420);
+        g_cjkText.fitTextToWidth(bookPath && bookPath[0] ? bookPath : "", pathLine, sizeof(pathLine), 420);
+        g_cjkText.fitTextToWidth(progressText && progressText[0] ? progressText : "上次进度：未开始", progressLine, sizeof(progressLine), 420);
+        g_cjkText.drawText(56, kContentY + 56, titleLine, TFT_BLACK);
+        g_cjkText.drawText(56, kContentY + 90, progressLine, kGrayText);
+        g_cjkText.drawText(56, kContentY + 124, pathLine, kGrayText);
+    } else {
+        g_cjkText.drawText(56, kContentY + 62, "还没有最近阅读记录", kGrayText);
+        g_cjkText.drawText(56, kContentY + 100, "先从书架选择一本 TXT", kGrayText);
+    }
+    drawButton(56, 286, 180, 48, hasLastBook ? "继续" : "打开");
     drawButton(304, 286, 180, 48, "书架");
     drawCard(28, 374, 224, 126, "目录", "章节 / 跳页");
     drawCard(288, 374, 224, 126, "书签", "标注 / 截图");
     drawCard(28, 524, 484, 176, "正文设置", "字体 · 字号 · 刷新 · 简体中文");
-    drawFooterHint("点卡片进入，滑动切换");
+    drawFooterHint(hasLastBook ? "点继续回到上次阅读，滑动切换" : "点书架选书，滑动切换");
 }
 
 void VinkUiRenderer::renderLibrary() {
@@ -257,19 +275,28 @@ void VinkUiRenderer::renderUiListPage(SystemState active, const char* title, con
 
     const int16_t x = 28;
     const int16_t w = 484;
+    const bool plainRows = active == SystemState::Reader;
     for (int i = 0; rows && i < rowCount; ++i) {
         const int16_t y = rowY + i * rowH;
         const bool isActive = i == activeRow;
-        canvas_->fillRoundRect(x, y, w, rowH - 8, 14, TFT_WHITE);
-        canvas_->drawRoundRect(x, y, w, rowH - 8, 14, TFT_BLACK);
-        if (isActive) {
-            // Current chapter marker: use visual UI chrome, not a leading '*'.
-            canvas_->drawRoundRect(x + 3, y + 3, w - 6, rowH - 14, 12, TFT_BLACK);
-            canvas_->fillRoundRect(x + 20, y + rowH - 16, 120, 3, 2, TFT_BLACK);
+        if (!plainRows) {
+            canvas_->fillRoundRect(x, y, w, rowH - 8, 14, TFT_WHITE);
+            canvas_->drawRoundRect(x, y, w, rowH - 8, 14, TFT_BLACK);
+        } else if (i > 0) {
+            canvas_->drawFastHLine(x + 18, y - 3, w - 36, kGrayMid);
         }
         char line[160];
         g_cjkText.fitTextToWidth(rows[i] ? rows[i] : "", line, sizeof(line), w - 36);
-        g_cjkText.drawText(x + 18, y + 18, line, TFT_BLACK);
+        const int16_t textX = x + 18;
+        const int16_t textY = y + (plainRows ? 12 : 18);
+        g_cjkText.drawText(textX, textY, line, TFT_BLACK);
+        if (isActive) {
+            // Current TOC item: match the tab style with a clean underline only.
+            // No extra row frame; frames made the directory page look dirty.
+            int16_t underlineW = min<int16_t>(g_cjkText.textWidth(line), w - 36);
+            if (underlineW < 64) underlineW = 64;
+            canvas_->fillRoundRect(textX, y + rowH - 10, underlineW, 3, 2, TFT_BLACK);
+        }
     }
 
     char footer[48];
