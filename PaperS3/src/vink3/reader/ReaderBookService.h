@@ -77,8 +77,15 @@ private:
     void setTitleFromPath(const char* path);
     void getSidecarPath(char* out, size_t len, const char* suffix) const;
     void getSidecarPathForBook(char* out, size_t len, const char* bookPath, const char* suffix) const;
+    void getLegacySidecarPathForBook(char* out, size_t len, const char* bookPath, const char* suffix) const;
+    uint64_t hashBookPath(const char* bookPath) const;
+    void formatHashHex(uint64_t hash, char* out, size_t len) const;
+    void ensureParentDirForPath(const char* path) const;
+    bool removeSidecarForCurrentBook(const char* suffix);
     uint8_t detectBookFlags(const char* bookPath) const;
     uint32_t bookFileSize(const char* bookPath) const;
+    uint64_t sampleFileFingerprint(const char* path, uint32_t* outSize = nullptr) const;
+    void refreshActiveTextIdentity();
     void formatBytes(uint32_t bytes, char* out, size_t len) const;
     void formatBookFlags(uint8_t flags, char* out, size_t len) const;
     void showBlockingOpenStatus(const char* stage);
@@ -121,6 +128,8 @@ private:
     char activeTextPath_[160] = {0};
     char currentLibraryDir_[160] = "/books";
     char title_[72] = {0};
+    uint32_t activeTextSize_ = 0;
+    uint64_t activeTextFingerprint_ = 0;
     ChapterDetectResult* toc_ = nullptr;
     uint32_t* pageStarts_ = nullptr;
     char (*bookPaths_)[160] = nullptr;

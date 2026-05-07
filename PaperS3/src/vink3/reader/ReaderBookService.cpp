@@ -14,12 +14,16 @@ namespace vink3 {
 namespace {
 // TOC cache schema. Bump whenever chapter detection/title display rules change
 // so old bad `.vink-toc` files do not survive firmware updates.
-static constexpr uint32_t kTocCacheMagic = 0x56435432UL; // VCT2
-static constexpr uint32_t kProgressMagic = 0x56505232UL; // VPR2
-static constexpr uint32_t kPageCacheMagic = 0x56504732UL; // VPG2
+static constexpr uint32_t kTocCacheMagic = 0x56435434UL; // VCT4
+static constexpr uint32_t kProgressMagic = 0x56505233UL; // VPR3
+static constexpr uint32_t kPageCacheMagic = 0x56504733UL; // VPG3
 static constexpr uint32_t kLastBookMagic = 0x564C4231UL; // VLB1
 static constexpr size_t kPathBufSize = 192;
-static constexpr const char* kLastBookRecordPath = "/books/.vink-last-book";
+static constexpr const char* kConfigRoot = "/config";
+static constexpr const char* kVinkCacheRoot = "/config/vink-cache";
+static constexpr const char* kSidecarRoot = "/config/vink-cache/books";
+static constexpr const char* kLastBookRecordPath = "/config/vink-cache/.vink-last-book";
+static constexpr const char* kLegacyLastBookRecordPath = "/books/.vink-last-book";
 }
 
 ReaderBookService g_readerBook;
@@ -59,6 +63,9 @@ bool ReaderBookService::ensureSdReady() {
     if (sdReady_) {
         if (!SD.exists(BOOKS_DIR)) SD.mkdir(BOOKS_DIR);
         if (!SD.exists(PROGRESS_DIR)) SD.mkdir(PROGRESS_DIR);
+        if (!SD.exists(kConfigRoot)) SD.mkdir(kConfigRoot);
+        if (!SD.exists(kVinkCacheRoot)) SD.mkdir(kVinkCacheRoot);
+        if (!SD.exists(kSidecarRoot)) SD.mkdir(kSidecarRoot);
     }
     Serial.printf("[vink3][book] SD %s\n", sdReady_ ? "ready" : "unavailable");
     return sdReady_;
@@ -294,6 +301,8 @@ void ReaderBookService::closeCurrent() {
     bookPath_[0] = '\0';
     activeTextPath_[0] = '\0';
     title_[0] = '\0';
+    activeTextSize_ = 0;
+    activeTextFingerprint_ = 0;
 }
 
 void ReaderBookService::setTitleFromPath(const char* path) {
@@ -305,13 +314,50 @@ void ReaderBookService::setTitleFromPath(const char* path) {
 }
 
 void ReaderBookService::getSidecarPath(char* out, size_t len, const char* suffix) const {
-    // Keep generated metadata next to the book for easier file management:
-    //   /books/foo.txt -> /books/foo.vink-toc / foo.vink-progress / foo.vink-pages
+    // Keep generated metadata out of /books so the bookshelf directory stays
+    // clean for user-managed book files. /config is the SD-side root reserved
+    // for Vink configuration and cache data:
+    //   /books/foo.txt -> /config/vink-cache/books/ab/ab12...ef.vink-toc
+    //   /books/dir/foo.txt -> /config/vink-cache/books/cd/cd34...90.vink-pages
     // Use the original book path, not the temporary UTF-8 conversion path.
     getSidecarPathForBook(out, len, bookPath_, suffix);
 }
 
 void ReaderBookService::getSidecarPathForBook(char* out, size_t len, const char* bookPath, const char* suffix) const {
+    if (!out || len == 0) return;
+    out[0] = '\0';
+    if (!bookPath || !bookPath[0]) return;
+
+    const uint64_t hash = hashBookPath(bookPath);
+    char hex[17];
+    formatHashHex(hash, hex, sizeof(hex));
+    // Hash paths avoid long/non-ASCII mirrored cache names and keep one flat,
+    // deterministic mapping per normalized absolute book path. A 2-hex shard
+    // keeps large libraries from putting every cache file in one directory.
+    snprintf(out, len, "%s/%c%c/%s%s", kSidecarRoot, hex[0], hex[1], hex, suffix ? suffix : "");
+}
+
+uint64_t ReaderBookService::hashBookPath(const char* bookPath) const {
+    // FNV-1a 64-bit over the absolute source path. This is tiny compared with
+    // SD IO/pagination work and avoids fragile filename/path mirroring in the
+    // cache directory. Cache payloads still validate file size/schema/layout.
+    uint64_t h = 1469598103934665603ULL;
+    if (!bookPath) return h;
+    for (const unsigned char* p = reinterpret_cast<const unsigned char*>(bookPath); *p; ++p) {
+        h ^= static_cast<uint64_t>(*p);
+        h *= 1099511628211ULL;
+    }
+    return h;
+}
+
+void ReaderBookService::formatHashHex(uint64_t hash, char* out, size_t len) const {
+    if (!out || len == 0) return;
+    snprintf(out, len, "%08lx%08lx",
+             static_cast<unsigned long>((hash >> 32) & 0xFFFFFFFFUL),
+             static_cast<unsigned long>(hash & 0xFFFFFFFFUL));
+}
+
+void ReaderBookService::getLegacySidecarPathForBook(char* out, size_t len, const char* bookPath, const char* suffix) const {
     if (!out || len == 0) return;
     out[0] = '\0';
     if (!bookPath || !bookPath[0]) return;
@@ -325,15 +371,57 @@ void ReaderBookService::getSidecarPathForBook(char* out, size_t len, const char*
     }
 }
 
+void ReaderBookService::ensureParentDirForPath(const char* path) const {
+    if (!path || !path[0] || !sdReady_) return;
+    char dir[kPathBufSize];
+    strlcpy(dir, path, sizeof(dir));
+    char* slash = strrchr(dir, '/');
+    if (!slash || slash == dir) return;
+    *slash = '\0';
+
+    for (char* p = dir + 1; *p; ++p) {
+        if (*p != '/') continue;
+        *p = '\0';
+        if (dir[0] && !SD.exists(dir)) SD.mkdir(dir);
+        *p = '/';
+    }
+    if (!SD.exists(dir)) SD.mkdir(dir);
+}
+
+bool ReaderBookService::removeSidecarForCurrentBook(const char* suffix) {
+    if (!open_ || !ensureSdReady() || !suffix) return false;
+    bool removed = false;
+    char path[kPathBufSize];
+    getSidecarPath(path, sizeof(path), suffix);
+    if (path[0] && SD.exists(path)) {
+        SD.remove(path);
+        removed = true;
+        Serial.printf("[vink3][book] sidecar removed: %s\n", path);
+    }
+    getLegacySidecarPathForBook(path, sizeof(path), bookPath_, suffix);
+    if (path[0] && SD.exists(path)) {
+        SD.remove(path);
+        removed = true;
+        Serial.printf("[vink3][book] legacy sidecar removed: %s\n", path);
+    }
+    return removed;
+}
+
 uint8_t ReaderBookService::detectBookFlags(const char* bookPath) const {
     if (!bookPath || !bookPath[0]) return 0;
     uint8_t flags = 0;
-    char sidecar[160];
+    char sidecar[kPathBufSize];
     getSidecarPathForBook(sidecar, sizeof(sidecar), bookPath, ".vink-toc");
+    if (sidecar[0] && SD.exists(sidecar)) flags |= kBookHasTocCache;
+    getLegacySidecarPathForBook(sidecar, sizeof(sidecar), bookPath, ".vink-toc");
     if (sidecar[0] && SD.exists(sidecar)) flags |= kBookHasTocCache;
     getSidecarPathForBook(sidecar, sizeof(sidecar), bookPath, ".vink-progress");
     if (sidecar[0] && SD.exists(sidecar)) flags |= kBookHasProgress;
+    getLegacySidecarPathForBook(sidecar, sizeof(sidecar), bookPath, ".vink-progress");
+    if (sidecar[0] && SD.exists(sidecar)) flags |= kBookHasProgress;
     getSidecarPathForBook(sidecar, sizeof(sidecar), bookPath, ".vink-pages");
+    if (sidecar[0] && SD.exists(sidecar)) flags |= kBookHasPageCache;
+    getLegacySidecarPathForBook(sidecar, sizeof(sidecar), bookPath, ".vink-pages");
     if (sidecar[0] && SD.exists(sidecar)) flags |= kBookHasPageCache;
     return flags;
 }
@@ -345,6 +433,56 @@ uint32_t ReaderBookService::bookFileSize(const char* bookPath) const {
     uint32_t size = f.size();
     f.close();
     return size;
+}
+
+uint64_t ReaderBookService::sampleFileFingerprint(const char* path, uint32_t* outSize) const {
+    if (outSize) *outSize = 0;
+    if (!path || !path[0]) return 0;
+    File f = SD.open(path, FILE_READ);
+    if (!f) return 0;
+
+    const uint32_t size = f.size();
+    if (outSize) *outSize = size;
+    uint64_t h = 1469598103934665603ULL;
+    auto mixByte = [&](uint8_t b) {
+        h ^= static_cast<uint64_t>(b);
+        h *= 1099511628211ULL;
+    };
+    auto mix32 = [&](uint32_t v) {
+        for (int i = 0; i < 4; ++i) mixByte(static_cast<uint8_t>((v >> (i * 8)) & 0xFF));
+    };
+    mix32(size);
+
+    static constexpr uint32_t kFingerprintSampleBytes = 512;
+    uint8_t buf[128];
+    auto sampleRange = [&](uint32_t offset, uint32_t count) {
+        if (count == 0 || !f.seek(offset)) return;
+        uint32_t remaining = count;
+        while (remaining > 0) {
+            const uint32_t want = min<uint32_t>(remaining, sizeof(buf));
+            int got = f.read(buf, want);
+            if (got <= 0) break;
+            for (int i = 0; i < got; ++i) mixByte(buf[i]);
+            remaining -= static_cast<uint32_t>(got);
+        }
+    };
+
+    const uint32_t head = min<uint32_t>(size, kFingerprintSampleBytes);
+    sampleRange(0, head);
+    if (size > kFingerprintSampleBytes) {
+        const uint32_t tail = min<uint32_t>(size - head, kFingerprintSampleBytes);
+        sampleRange(size - tail, tail);
+    }
+    f.close();
+    return h;
+}
+
+void ReaderBookService::refreshActiveTextIdentity() {
+    activeTextFingerprint_ = sampleFileFingerprint(activeTextPath_, &activeTextSize_);
+    Serial.printf("[vink3][book] active text fingerprint: size=%lu fp=%08lx%08lx\n",
+                  static_cast<unsigned long>(activeTextSize_),
+                  static_cast<unsigned long>((activeTextFingerprint_ >> 32) & 0xFFFFFFFFUL),
+                  static_cast<unsigned long>(activeTextFingerprint_ & 0xFFFFFFFFUL));
 }
 
 void ReaderBookService::formatBytes(uint32_t bytes, char* out, size_t len) const {
@@ -407,15 +545,23 @@ bool ReaderBookService::loadTocCache() {
     char cachePath[kPathBufSize];
     getTocCachePath(cachePath, sizeof(cachePath));
     File f = SD.open(cachePath, FILE_READ);
+    if (!f) {
+        getLegacySidecarPathForBook(cachePath, sizeof(cachePath), bookPath_, ".vink-toc");
+        f = SD.open(cachePath, FILE_READ);
+    }
     if (!f) return false;
     uint32_t magic = 0;
     uint16_t count = 0;
+    uint32_t cachedSize = 0;
+    uint64_t cachedFingerprint = 0;
     f.read(reinterpret_cast<uint8_t*>(&magic), sizeof(magic));
     f.read(reinterpret_cast<uint8_t*>(&count), sizeof(count));
-    if (magic != kTocCacheMagic || count == 0 || count > kMaxTocEntries) {
+    f.read(reinterpret_cast<uint8_t*>(&cachedSize), sizeof(cachedSize));
+    f.read(reinterpret_cast<uint8_t*>(&cachedFingerprint), sizeof(cachedFingerprint));
+    if (magic != kTocCacheMagic || count == 0 || count > kMaxTocEntries || cachedSize != activeTextSize() || cachedFingerprint != activeTextFingerprint_) {
         f.close();
-        Serial.printf("[vink3][book] TOC cache stale/invalid: magic=0x%08lx count=%u, rebuilding\n",
-                      static_cast<unsigned long>(magic), static_cast<unsigned>(count));
+        Serial.printf("[vink3][book] TOC cache stale/invalid: magic=0x%08lx count=%u size=%lu, rebuilding\n",
+                      static_cast<unsigned long>(magic), static_cast<unsigned>(count), static_cast<unsigned long>(cachedSize));
         return false;
     }
     tocCount_ = 0;
@@ -443,12 +589,17 @@ void ReaderBookService::saveTocCache() {
     if (!bookPath_[0] || tocCount_ <= 0 || !ensureSdReady()) return;
     char cachePath[kPathBufSize];
     getTocCachePath(cachePath, sizeof(cachePath));
+    ensureParentDirForPath(cachePath);
     File f = SD.open(cachePath, FILE_WRITE);
     if (!f) return;
     uint32_t magic = kTocCacheMagic;
     uint16_t count = static_cast<uint16_t>(tocCount_);
+    uint32_t fileSize = activeTextSize();
+    uint64_t fingerprint = activeTextFingerprint_;
     f.write(reinterpret_cast<const uint8_t*>(&magic), sizeof(magic));
     f.write(reinterpret_cast<const uint8_t*>(&count), sizeof(count));
+    f.write(reinterpret_cast<const uint8_t*>(&fileSize), sizeof(fileSize));
+    f.write(reinterpret_cast<const uint8_t*>(&fingerprint), sizeof(fingerprint));
     for (int i = 0; i < tocCount_; ++i) {
         uint8_t type = toc_[i].title.indexOf("卷") >= 0 ? 1 : 0;
         uint16_t titleLen = min<size_t>(toc_[i].title.length(), 120);
@@ -464,6 +615,7 @@ void ReaderBookService::saveTocCache() {
 }
 
 uint32_t ReaderBookService::activeTextSize() const {
+    if (activeTextSize_ > 0) return activeTextSize_;
     const char* p = activeTextPath_[0] ? activeTextPath_ : bookPath_;
     if (!p || !p[0]) return 0;
     File f = SD.open(p, FILE_READ);
@@ -478,17 +630,23 @@ bool ReaderBookService::loadProgress() {
     char path[kPathBufSize];
     getProgressPath(path, sizeof(path));
     File f = SD.open(path, FILE_READ);
+    if (!f) {
+        getLegacySidecarPathForBook(path, sizeof(path), bookPath_, ".vink-progress");
+        f = SD.open(path, FILE_READ);
+    }
     if (!f) return false;
     uint32_t magic = 0;
     uint32_t cachedSize = 0;
+    uint64_t cachedFingerprint = 0;
     uint16_t chapter = 0;
     uint16_t page = 0;
     f.read(reinterpret_cast<uint8_t*>(&magic), sizeof(magic));
     f.read(reinterpret_cast<uint8_t*>(&cachedSize), sizeof(cachedSize));
+    f.read(reinterpret_cast<uint8_t*>(&cachedFingerprint), sizeof(cachedFingerprint));
     f.read(reinterpret_cast<uint8_t*>(&chapter), sizeof(chapter));
     f.read(reinterpret_cast<uint8_t*>(&page), sizeof(page));
     f.close();
-    if (magic != kProgressMagic || cachedSize != activeTextSize() || chapter >= tocCount_) return false; // VPR2
+    if (magic != kProgressMagic || cachedSize != activeTextSize() || cachedFingerprint != activeTextFingerprint_ || chapter >= tocCount_) return false; // VPR3
     if (!buildChapterPages(chapter)) return false;
     currentTocIndex_ = chapter;
     currentPage_ = page < pageCount_ ? page : 0;
@@ -502,14 +660,17 @@ void ReaderBookService::saveProgress() {
     if (!bookPath_[0] || currentTocIndex_ < 0 || !ensureSdReady()) return;
     char path[kPathBufSize];
     getProgressPath(path, sizeof(path));
+    ensureParentDirForPath(path);
     File f = SD.open(path, FILE_WRITE);
     if (!f) return;
     uint32_t magic = kProgressMagic;
     uint32_t fileSize = activeTextSize();
+    uint64_t fingerprint = activeTextFingerprint_;
     uint16_t chapter = static_cast<uint16_t>(currentTocIndex_);
     uint16_t page = static_cast<uint16_t>(max(0, currentPage_));
     f.write(reinterpret_cast<const uint8_t*>(&magic), sizeof(magic));
     f.write(reinterpret_cast<const uint8_t*>(&fileSize), sizeof(fileSize));
+    f.write(reinterpret_cast<const uint8_t*>(&fingerprint), sizeof(fingerprint));
     f.write(reinterpret_cast<const uint8_t*>(&chapter), sizeof(chapter));
     f.write(reinterpret_cast<const uint8_t*>(&page), sizeof(page));
     f.close();
@@ -523,14 +684,22 @@ bool ReaderBookService::readProgressForBook(const char* bookPath, uint16_t& chap
     char path[kPathBufSize];
     getSidecarPathForBook(path, sizeof(path), bookPath, ".vink-progress");
     File f = SD.open(path, FILE_READ);
+    if (!f) {
+        getLegacySidecarPathForBook(path, sizeof(path), bookPath, ".vink-progress");
+        f = SD.open(path, FILE_READ);
+    }
     if (!f) return false;
     uint32_t magic = 0;
     uint32_t cachedSize = 0;
+    uint64_t cachedFingerprint = 0;
     f.read(reinterpret_cast<uint8_t*>(&magic), sizeof(magic));
     f.read(reinterpret_cast<uint8_t*>(&cachedSize), sizeof(cachedSize));
+    f.read(reinterpret_cast<uint8_t*>(&cachedFingerprint), sizeof(cachedFingerprint));
     f.read(reinterpret_cast<uint8_t*>(&chapter), sizeof(chapter));
     f.read(reinterpret_cast<uint8_t*>(&page), sizeof(page));
     f.close();
+    (void)cachedSize;
+    (void)cachedFingerprint;
     return magic == kProgressMagic;
 }
 
@@ -539,6 +708,7 @@ bool ReaderBookService::loadLastBookPath(char* out, size_t len) const {
     out[0] = '\0';
     if (!sdReady_) return false;
     File f = SD.open(kLastBookRecordPath, FILE_READ);
+    if (!f) f = SD.open(kLegacyLastBookRecordPath, FILE_READ);
     if (!f) return false;
     uint32_t magic = 0;
     uint16_t pathLen = 0;
@@ -556,6 +726,7 @@ bool ReaderBookService::loadLastBookPath(char* out, size_t len) const {
 
 void ReaderBookService::saveLastBookPath() {
     if (!bookPath_[0] || !ensureSdReady()) return;
+    ensureParentDirForPath(kLastBookRecordPath);
     File f = SD.open(kLastBookRecordPath, FILE_WRITE);
     if (!f) return;
     uint32_t magic = kLastBookMagic;
@@ -598,12 +769,17 @@ bool ReaderBookService::loadChapterPageCache(int index, uint32_t start, uint32_t
     char path[kPathBufSize];
     getPageCachePath(path, sizeof(path));
     File f = SD.open(path, FILE_READ);
+    if (!f) {
+        getLegacySidecarPathForBook(path, sizeof(path), bookPath_, ".vink-pages");
+        f = SD.open(path, FILE_READ);
+    }
     if (!f) return false;
     const uint32_t wantedLayout = readerLayoutKey();
     bool found = false;
     while (f.available()) {
         uint32_t magic = 0;
         uint32_t cachedSize = 0;
+        uint64_t cachedFingerprint = 0;
         uint32_t layout = 0;
         uint16_t chapter = 0;
         uint16_t count = 0;
@@ -611,6 +787,7 @@ bool ReaderBookService::loadChapterPageCache(int index, uint32_t start, uint32_t
         uint32_t cachedEnd = 0;
         if (f.read(reinterpret_cast<uint8_t*>(&magic), sizeof(magic)) != sizeof(magic)) break;
         if (f.read(reinterpret_cast<uint8_t*>(&cachedSize), sizeof(cachedSize)) != sizeof(cachedSize)) break;
+        if (f.read(reinterpret_cast<uint8_t*>(&cachedFingerprint), sizeof(cachedFingerprint)) != sizeof(cachedFingerprint)) break;
         if (f.read(reinterpret_cast<uint8_t*>(&layout), sizeof(layout)) != sizeof(layout)) break;
         if (f.read(reinterpret_cast<uint8_t*>(&chapter), sizeof(chapter)) != sizeof(chapter)) break;
         if (f.read(reinterpret_cast<uint8_t*>(&count), sizeof(count)) != sizeof(count)) break;
@@ -618,7 +795,7 @@ bool ReaderBookService::loadChapterPageCache(int index, uint32_t start, uint32_t
         if (f.read(reinterpret_cast<uint8_t*>(&cachedEnd), sizeof(cachedEnd)) != sizeof(cachedEnd)) break;
         if (magic != kPageCacheMagic || count == 0 || count > kMaxChapterPages) break;
         const size_t need = static_cast<size_t>(count) * sizeof(uint32_t);
-        if (cachedSize == activeTextSize() && layout == wantedLayout && chapter == index && cachedStart == start && cachedEnd == end) {
+        if (cachedSize == activeTextSize() && cachedFingerprint == activeTextFingerprint_ && layout == wantedLayout && chapter == index && cachedStart == start && cachedEnd == end) {
             size_t got = f.read(reinterpret_cast<uint8_t*>(pageStarts_), need);
             if (got != need) break;
             pageCount_ = count;
@@ -638,12 +815,17 @@ bool ReaderBookService::chapterPageCacheValid(int index, uint32_t start, uint32_
     char path[kPathBufSize];
     getPageCachePath(path, sizeof(path));
     File f = SD.open(path, FILE_READ);
+    if (!f) {
+        getLegacySidecarPathForBook(path, sizeof(path), bookPath_, ".vink-pages");
+        f = SD.open(path, FILE_READ);
+    }
     if (!f) return false;
     const uint32_t wantedLayout = readerLayoutKey();
     bool found = false;
     while (f.available()) {
         uint32_t magic = 0;
         uint32_t cachedSize = 0;
+        uint64_t cachedFingerprint = 0;
         uint32_t layout = 0;
         uint16_t chapter = 0;
         uint16_t count = 0;
@@ -651,13 +833,14 @@ bool ReaderBookService::chapterPageCacheValid(int index, uint32_t start, uint32_
         uint32_t cachedEnd = 0;
         if (f.read(reinterpret_cast<uint8_t*>(&magic), sizeof(magic)) != sizeof(magic)) break;
         if (f.read(reinterpret_cast<uint8_t*>(&cachedSize), sizeof(cachedSize)) != sizeof(cachedSize)) break;
+        if (f.read(reinterpret_cast<uint8_t*>(&cachedFingerprint), sizeof(cachedFingerprint)) != sizeof(cachedFingerprint)) break;
         if (f.read(reinterpret_cast<uint8_t*>(&layout), sizeof(layout)) != sizeof(layout)) break;
         if (f.read(reinterpret_cast<uint8_t*>(&chapter), sizeof(chapter)) != sizeof(chapter)) break;
         if (f.read(reinterpret_cast<uint8_t*>(&count), sizeof(count)) != sizeof(count)) break;
         if (f.read(reinterpret_cast<uint8_t*>(&cachedStart), sizeof(cachedStart)) != sizeof(cachedStart)) break;
         if (f.read(reinterpret_cast<uint8_t*>(&cachedEnd), sizeof(cachedEnd)) != sizeof(cachedEnd)) break;
         if (magic != kPageCacheMagic || count == 0 || count > kMaxChapterPages) break;
-        if (cachedSize == activeTextSize() && layout == wantedLayout && chapter == index && cachedStart == start && cachedEnd == end) {
+        if (cachedSize == activeTextSize() && cachedFingerprint == activeTextFingerprint_ && layout == wantedLayout && chapter == index && cachedStart == start && cachedEnd == end) {
             found = true;
             break;
         }
@@ -671,15 +854,18 @@ void ReaderBookService::saveChapterPageCacheData(int index, uint32_t start, uint
     if (!bookPath_[0] || !starts || count <= 0 || !ensureSdReady()) return;
     char path[kPathBufSize];
     getPageCachePath(path, sizeof(path));
+    ensureParentDirForPath(path);
     File f = SD.open(path, FILE_APPEND);
     if (!f) return;
     uint32_t magic = kPageCacheMagic;
     uint32_t fileSize = activeTextSize();
+    uint64_t fingerprint = activeTextFingerprint_;
     uint32_t layout = readerLayoutKey();
     uint16_t chapter = static_cast<uint16_t>(index);
     uint16_t pageCount = static_cast<uint16_t>(count);
     f.write(reinterpret_cast<const uint8_t*>(&magic), sizeof(magic));
     f.write(reinterpret_cast<const uint8_t*>(&fileSize), sizeof(fileSize));
+    f.write(reinterpret_cast<const uint8_t*>(&fingerprint), sizeof(fingerprint));
     f.write(reinterpret_cast<const uint8_t*>(&layout), sizeof(layout));
     f.write(reinterpret_cast<const uint8_t*>(&chapter), sizeof(chapter));
     f.write(reinterpret_cast<const uint8_t*>(&pageCount), sizeof(pageCount));
@@ -775,6 +961,7 @@ bool ReaderBookService::openBook(const char* path) {
         String tmp = TextCodec::convertToUTF8(path);
         if (tmp.length() > 0) strlcpy(activeTextPath_, tmp.c_str(), sizeof(activeTextPath_));
     }
+    refreshActiveTextIdentity();
 
     open_ = true;
     saveLastBookPath();
@@ -1056,12 +1243,7 @@ bool ReaderBookService::restartReading() {
 
 bool ReaderBookService::clearPageCache() {
     if (!open_ || !ensureSdReady()) return false;
-    char path[kPathBufSize];
-    getPageCachePath(path, sizeof(path));
-    if (path[0] && SD.exists(path)) {
-        SD.remove(path);
-        Serial.printf("[vink3][book] page cache removed: %s\n", path);
-    }
+    removeSidecarForCurrentBook(".vink-pages");
     pageCount_ = 0;
     currentPage_ = 0;
     nextPreheatTocIndex_ = -1;
@@ -1074,17 +1256,8 @@ bool ReaderBookService::rebuildTocCache() {
     if (!open_ || !ensureSdReady()) return false;
     char reopenPath[sizeof(bookPath_)];
     strlcpy(reopenPath, bookPath_, sizeof(reopenPath));
-    char path[kPathBufSize];
-    getTocCachePath(path, sizeof(path));
-    if (path[0] && SD.exists(path)) {
-        SD.remove(path);
-        Serial.printf("[vink3][book] TOC cache removed: %s\n", path);
-    }
-    getPageCachePath(path, sizeof(path));
-    if (path[0] && SD.exists(path)) {
-        SD.remove(path);
-        Serial.printf("[vink3][book] page cache removed with TOC rebuild: %s\n", path);
-    }
+    removeSidecarForCurrentBook(".vink-toc");
+    removeSidecarForCurrentBook(".vink-pages");
     return openBook(reopenPath);
 }
 

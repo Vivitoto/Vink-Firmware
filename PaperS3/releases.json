@@ -5,6 +5,21 @@
   "description": "面向 M5Stack PaperS3 的 Vink 电子书阅读固件。",
   "releases": [
     {
+      "version": "v0.3.20",
+      "name": "Vink-PaperS3 v0.3.20",
+      "summary": "将书籍目录、分页、进度等生成文件统一移入 /config/vink-cache，并加入路径哈希与轻量书籍指纹校验，保持 /books 目录整洁。",
+      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.3.20",
+      "changelog": "## Vink-PaperS3 v0.3.20\n\n### 书籍缓存目录\n- 书籍目录缓存、分页缓存、阅读进度和最近阅读记录不再写到 `/books` 目录。\n- 新的 SD 配置/缓存根目录为 `/config/vink-cache`，系统会在 SD 卡中自动创建：\n  - `/config`\n  - `/config/vink-cache`\n  - `/config/vink-cache/books`\n- `/books` 以后只用于放用户书籍文件，避免 `.vink-toc`、`.vink-pages`、`.vink-progress` 混在书库里。\n\n### 哈希缓存路径\n- 每本书的缓存文件使用书籍绝对路径的 64-bit FNV-1a 哈希生成短文件名。\n- 路径格式：`/config/vink-cache/books/<前两位>/<16位hash>.vink-toc|.vink-pages|.vink-progress`。\n- 这样可以避免中文路径、超长路径、多级目录直接映射到缓存目录带来的路径长度和兼容性问题。\n\n### 书籍指纹校验\n- 打开书籍时只采样文件开头 512 字节和结尾 512 字节，加上文件大小生成轻量指纹，不扫描整本书。\n- TOC 缓存升级为 `VCT4`，校验文件大小和采样指纹。\n- 进度缓存升级为 `VPR3`，校验文件大小和采样指纹。\n- 分页缓存升级为 `VPG3`，校验文件大小、采样指纹、阅读布局和章节起止 offset。\n- 如果同一路径下替换了书籍，旧目录/分页/进度不会被误用。\n\n### 兼容与维护\n- 旧版放在书籍旁边的 `.vink-toc`、`.vink-pages`、`.vink-progress` 仍可被读取用于迁移。\n- 书籍入口页的 `清除分页缓存` 和 `重新生成目录` 会同时删除新缓存路径与旧版旁路缓存，避免旧缓存残留。\n\n### 验证状态\n- 本地 smoke、diff check、PlatformIO build、SPIFFS build、full 16MB merge 均通过。\n- 需要真机验证：新缓存目录自动创建、旧缓存迁移读取、缓存清理按钮、新指纹缓存命中/失效。\n",
+      "assets": {
+        "full": {
+          "name": "Vink-PaperS3-v0.3.20-full-16MB.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.3.20/Vink-PaperS3-v0.3.20-full-16MB.bin",
+          "size": 16777216,
+          "flashOffset": 0
+        }
+      }
+    },
+    {
       "version": "v0.3.19",
       "name": "Vink-PaperS3 v0.3.19",
       "summary": "优化启动页、关机完成页与书籍缓存维护：去掉诊断启动页和底部备注，新增书籍入口缓存清理/目录重建与诊断页返回。",
