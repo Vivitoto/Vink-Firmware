@@ -5,6 +5,21 @@
   "description": "面向 M5Stack PaperS3 的 Vink 电子书阅读固件。",
   "releases": [
     {
+      "version": "v0.3.21",
+      "name": "Vink-PaperS3 v0.3.21",
+      "summary": "修复 v0.3.20 大书目录/翻页重启风险，优化目录扫描和 GBK 转码速度，并扩展 UI 字库到 GB2312 全量常用覆盖。",
+      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.3.21",
+      "changelog": "## Vink-PaperS3 v0.3.21\n\n### 恶性问题修复\n- 修复大书生成目录后进入正文、翻页时可能自动重启的问题。\n- 根因之一是目录数组元素包含 `String`，旧实现用 `calloc` 分配导致 `String` 未构造；本版改为 PSRAM/raw malloc 后 placement-new 构造每个目录项。\n- Reader 状态任务栈从 8192 提升到 16384，降低正文渲染/翻页时 4KB 页面缓冲带来的栈溢出风险。\n- 移除翻页后同步预分页下一章，避免大书在翻页路径中长时间占用 CPU 触发 watchdog；下一章改为按需分页。\n- 分页缓存升级为 `VPG4`，自动避开 v0.3.20 旧分页缓存。\n\n### 目录生成/转码性能\n- 目录扫描读取行从逐字节 `File::read()` 改为 `readBytesUntil('\n')` 批量读取。\n- 大书目录扫描每 64 行主动 `yield()`，避免长时间扫描卡住系统任务。\n- GBK→UTF-8 转码改为 4KB 输出缓冲，减少小块 SD 写入，并在长转码过程中主动让出 CPU。\n\n### UI 字库覆盖\n- 编译进固件的 24px UI 字库从 3892 字扩展到 6909 字。\n- 中文覆盖约 6763 个 GB2312 一级+二级汉字，包含 `隼`。\n- ASCII 可打印字符完整覆盖 95 个，包含英文大小写 `A-Z` / `a-z` 和数字。\n- 额外包含常用罗马数字：`ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩⅪⅫⅬⅭⅮⅯ`。\n- 缺字不再静默空白，会显示占位方框，便于定位遗漏字符。\n\n### 空间清理\n- 移除冗余 ReadPaper UI subset fallback 源码。\n- 移除 SPIFFS 中重复的 24px UI 字库文件；UI 字库以编译版为准，SPIFFS 仍保留 16/20px 字库。\n- 扩展后 app 使用约 80.0% 分区空间，仍保留约 2.5MB app 空间。\n\n### 验证状态\n- 本地 smoke、diff check、PlatformIO build、SPIFFS build、full 16MB merge 均通过。\n- 需要真机验证：1100+ 章目录生成速度、翻页稳定性、`隼`/英文 V/罗马 V 等 UI 显示。\n",
+      "assets": {
+        "full": {
+          "name": "Vink-PaperS3-v0.3.21-full-16MB.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.3.21/Vink-PaperS3-v0.3.21-full-16MB.bin",
+          "size": 16777216,
+          "flashOffset": 0
+        }
+      }
+    },
+    {
       "version": "v0.3.20",
       "name": "Vink-PaperS3 v0.3.20",
       "summary": "将书籍目录、分页、进度等生成文件统一移入 /config/vink-cache，并加入路径哈希与轻量书籍指纹校验，保持 /books 目录整洁。",

@@ -109,7 +109,7 @@ bool StateMachine::begin(uint8_t queueLen) {
         if (!queue_) return false;
     }
     if (!task_) {
-        BaseType_t ok = xTaskCreatePinnedToCore(taskThunk, "vink3-state", 8192, this, 3, &task_, 1);
+        BaseType_t ok = xTaskCreatePinnedToCore(taskThunk, "vink3-state", 16384, this, 3, &task_, 1);
         if (ok != pdPASS) {
             task_ = nullptr;
             return false;

@@ -49,6 +49,7 @@ int ChapterDetector::detect(File& file, ChapterDetectResult* results, int maxRes
     int lastChapterOffset = 0;
     int lastChapterNumber = 0;
     int consecutiveEmptyLines = 0;
+    uint32_t linesScanned = 0;
 
     file.seek(0);
 
@@ -119,6 +120,7 @@ int ChapterDetector::detect(File& file, ChapterDetectResult* results, int maxRes
         }
 
         consecutiveEmptyLines = 0;
+        if ((++linesScanned & 0x3F) == 0) yield();
     }
 
     if (_debug) {
@@ -663,22 +665,15 @@ int ChapterDetector::scoreLine(const char* line, int len, int baseScore, int cha
 }
 
 int ChapterDetector::readLine(File& file, char* buf, int maxLen) {
-    int len = 0;
-    bool hitNewline = false;
-    while (file.available() && len < maxLen - 1) {
-        char c = file.read();
-        if (c == '\n') {
-            hitNewline = true;
-            break;
-        }
-        if (c != '\r') {
-            buf[len++] = c;
-        }
-    }
+    if (!buf || maxLen <= 1) return 0;
+    int len = file.readBytesUntil('\n', buf, maxLen - 1);
+    while (len > 0 && buf[len - 1] == '\r') len--;
+
     // If a physical TXT line is longer than our buffer, discard the remainder.
     // Otherwise the tail of a prose paragraph can be processed as a separate
-    // fake short line and accidentally become a TOC entry.
-    if (!hitNewline && len >= maxLen - 1) {
+    // fake short line and accidentally become a TOC entry. readBytesUntil()
+    // batches SD reads and is much faster than byte-by-byte File::read().
+    if (len >= maxLen - 1) {
         while (file.available()) {
             char c = file.read();
             if (c == '\n') break;

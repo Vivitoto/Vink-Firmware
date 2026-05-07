@@ -2,6 +2,7 @@
 #include "GBKTable.h"
 #include "Config.h"
 #include "vink3/text/GbkUnicodeTable.h"
+#include <cstring>
 
 // ===== 编码检测 =====
 
@@ -220,8 +221,16 @@ String TextCodec::convertToUTF8(const char* inputPath) {
     uint32_t totalOut = 0;
     uint32_t lastPrint = 0;
     
+    uint8_t buf[1024];
+    uint8_t outBuf[4096];
+    size_t outLen = 0;
+    auto flushOut = [&]() {
+        if (outLen == 0) return;
+        outFile.write(outBuf, outLen);
+        outLen = 0;
+    };
+
     while (inFile.available()) {
-        uint8_t buf[256];
         int len = inFile.read(buf, sizeof(buf));
         if (len <= 0) break;
         
@@ -229,17 +238,22 @@ String TextCodec::convertToUTF8(const char* inputPath) {
             uint8_t utf8Buf[4];
             int n = converter.feedByte(buf[i], utf8Buf);
             if (n > 0) {
-                outFile.write(utf8Buf, n);
+                if (outLen + static_cast<size_t>(n) > sizeof(outBuf)) flushOut();
+                memcpy(outBuf + outLen, utf8Buf, static_cast<size_t>(n));
+                outLen += static_cast<size_t>(n);
                 totalOut += n;
             }
         }
         
         totalIn += len;
         if (totalIn - lastPrint > 50000) {
+            flushOut();
             Serial.printf("[Codec] Converted %d bytes...\n", totalIn);
             lastPrint = totalIn;
+            yield();
         }
     }
+    flushOut();
     
     inFile.close();
     outFile.close();

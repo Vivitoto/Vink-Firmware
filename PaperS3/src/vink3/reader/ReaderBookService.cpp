@@ -8,6 +8,7 @@
 #include "../../TextCodec.h"
 #include <SPI.h>
 #include <esp_heap_caps.h>
+#include <new>
 
 namespace vink3 {
 
@@ -16,7 +17,7 @@ namespace {
 // so old bad `.vink-toc` files do not survive firmware updates.
 static constexpr uint32_t kTocCacheMagic = 0x56435434UL; // VCT4
 static constexpr uint32_t kProgressMagic = 0x56505233UL; // VPR3
-static constexpr uint32_t kPageCacheMagic = 0x56504733UL; // VPG3
+static constexpr uint32_t kPageCacheMagic = 0x56504734UL; // VPG4
 static constexpr uint32_t kLastBookMagic = 0x564C4231UL; // VLB1
 static constexpr size_t kPathBufSize = 192;
 static constexpr const char* kConfigRoot = "/config";
@@ -73,13 +74,15 @@ bool ReaderBookService::ensureSdReady() {
 
 bool ReaderBookService::ensureTocBuffer() {
     if (toc_) return true;
-    toc_ = static_cast<ChapterDetectResult*>(heap_caps_calloc(kMaxTocEntries, sizeof(ChapterDetectResult), MALLOC_CAP_SPIRAM));
-    if (!toc_) {
-        toc_ = static_cast<ChapterDetectResult*>(calloc(kMaxTocEntries, sizeof(ChapterDetectResult)));
-    }
-    if (!toc_) {
+    void* mem = heap_caps_malloc(sizeof(ChapterDetectResult) * kMaxTocEntries, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!mem) mem = malloc(sizeof(ChapterDetectResult) * kMaxTocEntries);
+    if (!mem) {
         Serial.println("[vink3][book] failed to allocate TOC buffer");
         return false;
+    }
+    toc_ = static_cast<ChapterDetectResult*>(mem);
+    for (int i = 0; i < kMaxTocEntries; ++i) {
+        new (&toc_[i]) ChapterDetectResult();
     }
     return true;
 }
@@ -1505,7 +1508,10 @@ bool ReaderBookService::renderCurrentReadingPage() {
     strlcpy(header, toc_[currentTocIndex_].title.c_str(), sizeof(header));
     g_readerText.renderTextPage(header, body, currentPage_ + 1, pageCount_);
     saveProgress();
-    maybePreheatNextChapter();
+    // Do not pre-paginate synchronously from the UI/state task. On large books
+    // or malformed chapter spans, eager preheat can monopolize the ESP32-S3 long
+    // enough to trip the watchdog when the user turns a page. Build the next
+    // chapter on demand instead; it is safer than a surprise reboot.
     return true;
 }
 
