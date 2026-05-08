@@ -65,6 +65,18 @@ void suppressAfterTransition(uint32_t cooldownMs = 220) {
     g_inputService.suppressUntilRelease(cooldownMs);
 }
 
+void enqueueReaderDisplay(bool pageTurnCandidate = false) {
+    DisplayRequest request;
+    request.x = 0;
+    request.y = 0;
+    request.w = kPaperS3Width;
+    request.h = kPaperS3Height;
+    if (pageTurnCandidate && g_readerText.pageTurnEffectEnabled()) {
+        request.effect = DisplayEffect::VerticalShutter;
+    }
+    g_displayService.enqueue(request, 100);
+}
+
 void renderState(SystemState state) {
     switch (state) {
         case SystemState::Home:
@@ -284,7 +296,7 @@ void StateMachine::handle(const Message& message) {
 
                 case UiAction::None:
                     if (state_ == SystemState::ReaderMenu && g_readerBook.handleTap(message.touch.x, message.touch.y)) {
-                        g_displayService.enqueueFull(false, 100);
+                        enqueueReaderDisplay(true);
                     } else if (state_ == SystemState::Library && g_readerBook.handleLibraryTap(message.touch.x, message.touch.y)) {
                         if (g_readerBook.lastLibraryTapOpenedBook()) {
                             state_ = SystemState::ReaderMenu;
@@ -308,7 +320,7 @@ void StateMachine::handle(const Message& message) {
                 break;
             }
             if (state_ == SystemState::ReaderMenu) {
-                if (g_readerBook.nextPage()) g_displayService.enqueueFull(false, 100);
+                if (g_readerBook.nextPage()) enqueueReaderDisplay(true);
                 break;
             }
             if (state_ == SystemState::Library) {
@@ -329,7 +341,7 @@ void StateMachine::handle(const Message& message) {
                 break;
             }
             if (state_ == SystemState::ReaderMenu) {
-                if (g_readerBook.prevPage()) g_displayService.enqueueFull(false, 100);
+                if (g_readerBook.prevPage()) enqueueReaderDisplay(true);
                 break;
             }
             if (state_ == SystemState::Library) {
@@ -350,7 +362,7 @@ void StateMachine::handle(const Message& message) {
                 break;
             }
             if (state_ == SystemState::ReaderMenu && g_readerBook.nextPage()) {
-                g_displayService.enqueueFull(false, 100);
+                enqueueReaderDisplay(true);
             } else if (state_ == SystemState::Library && g_readerBook.nextLibraryPage()) {
                 g_displayService.enqueueFull(false, 100);
             }
@@ -363,7 +375,7 @@ void StateMachine::handle(const Message& message) {
                 break;
             }
             if (state_ == SystemState::ReaderMenu && g_readerBook.prevPage()) {
-                g_displayService.enqueueFull(false, 100);
+                enqueueReaderDisplay(true);
             } else if (state_ == SystemState::Library && g_readerBook.prevLibraryPage()) {
                 g_displayService.enqueueFull(false, 100);
             }

@@ -5,6 +5,21 @@
   "description": "面向 M5Stack PaperS3 的 Vink 电子书阅读固件。",
   "releases": [
     {
+      "version": "v0.4.1",
+      "name": "Vink-PaperS3 v0.4.1",
+      "summary": "重建 Vink 阅读内核：新增正式阅读设置模型、排版/分页恢复、抗锯齿曲线、下划线与翻页显示效果，并修复设置切换后的继续阅读路径。",
+      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.1",
+      "changelog": "## Vink-PaperS3 v0.4.1\n\n### 阅读内核重建\n- 新增 Vink 原生阅读设置模型，统一管理排版、渲染、间距、刷新和翻页相关选项。\n- 排版变化只失效分页缓存，不重建目录索引；切换设置后会按当前 byte offset 重建章节分页并恢复到相近位置。\n- 修复阅读菜单切换排版后点“继续阅读”可能无响应的问题。\n- 分页逻辑区分真实段落起点和页面续页，避免续页错误缩进；真实段首会归一化原文已有空格后再缩进。\n\n### 显示与渲染\n- 抗锯齿改为按字形边缘覆盖进行软化：直向边缘和斜向边缘使用不同灰阶，减少快速刷新时的锯齿感。\n- 新增正文点状下划线开关，并支持下划线偏移参数。\n- 新增翻页显示效果开关；开启后翻页请求走更强刷新路径，降低残影，呈现接近全刷的清理效果。\n- 阅读菜单可直接切换刷新策略、抗锯齿、下划线和翻页效果。\n\n### 版本整理\n- 固件版本更新为 v0.4.1。\n- 内部实现和测试文案整理为 Vink 自有阅读内核表述，不保留第三方固件命名痕迹。\n\n### 验证状态\n- 本地 smoke、diff check、PlatformIO build、SPIFFS build、full 16MB merge 均通过。\n- 需要真机验证：抗锯齿视觉、下划线位置、翻页清屏效果、长章节分页恢复。\n",
+      "assets": {
+        "full": {
+          "name": "Vink-PaperS3-v0.4.1-full-16MB.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.1/Vink-PaperS3-v0.4.1-full-16MB.bin",
+          "size": 16777216,
+          "flashOffset": 0
+        }
+      }
+    },
+    {
       "version": "v0.3.21",
       "name": "Vink-PaperS3 v0.3.21",
       "summary": "修复 v0.3.20 大书目录/翻页重启风险，优化目录扫描和 GBK 转码速度，并扩展 UI 字库到 GB2312 全量常用覆盖。",

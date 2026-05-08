@@ -212,7 +212,11 @@ epd_mode_t DisplayService::chooseRefreshMode(const DisplayRequest& request) {
         kDisplayMiddleRefreshThreshold > 0 &&
         pushCount_ >= kDisplayMiddleRefreshThreshold &&
         pushCount_ % kDisplayMiddleRefreshThreshold == 0;
-    const bool useQualityMode = request.quality || (fullEvery > 0 && pushCount_ >= fullEvery);
+    // Vink PageTurnEffect behaves like a deliberate page-turn refresh rather
+    // than a no-op flag. On PaperS3, route it through the quality LUT so page
+    // turns get that cleaner, almost full-refresh feel and reset ghosting debt.
+    const bool hasPageTurnEffect = request.effect != DisplayEffect::None;
+    const bool useQualityMode = request.quality || hasPageTurnEffect || (fullEvery > 0 && pushCount_ >= fullEvery);
 
     if (useQualityMode) {
         pushCount_ = 0;
@@ -227,7 +231,7 @@ epd_mode_t DisplayService::chooseRefreshMode(const DisplayRequest& request) {
         M5.Display.waitDisplay();
     }
 
-    // Formal refresh strategy inspired by EDC Book: speed/balanced/clear trade
+    // Formal refresh strategy inspired by Vink: speed/balanced/clear trade
     // off ghosting cleanup frequency and LUT aggressiveness.
     return normalMode;
 }

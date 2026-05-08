@@ -2,6 +2,7 @@
 #include <Arduino.h>
 #include <SD.h>
 #include "../../ChapterDetector.h"
+#include "ReaderTextRenderer.h"
 
 namespace vink3 {
 
@@ -39,7 +40,7 @@ public:
 
 private:
     static constexpr int kMaxTocEntries = 2000;
-    static constexpr int kTocEntriesPerPage = 13;
+    static constexpr int kTocEntriesPerPage = 15;
     static constexpr int kMaxBooks = 160;
     static constexpr int kBooksPerPage = 12;
     static constexpr uint8_t kMaxLibraryScanDepth = 6;
@@ -49,7 +50,7 @@ private:
     static constexpr uint8_t kBookIsDirectory = 0x80;
     static constexpr int16_t kListFirstRowY = 204;
     static constexpr int16_t kListRowH = 52;
-    static constexpr int16_t kTocFirstRowY = kListFirstRowY;
+    static constexpr int16_t kTocFirstRowY = 176;
     static constexpr int16_t kTocRowH = 48;
     static constexpr int16_t kEntryButtonX = 70;
     static constexpr int16_t kEntryButtonW = 400;
@@ -59,6 +60,7 @@ private:
     static constexpr int16_t kEntryRestartY = 642;
     static constexpr int16_t kEntryClearPagesY = 714;
     static constexpr int16_t kEntryRebuildTocY = 786;
+    static constexpr int16_t kEntryPageTurnY = 858;
     static constexpr int kMaxChapterPages = 512;
 
     bool ensureTocBuffer();
@@ -108,6 +110,9 @@ private:
     bool loadChapterPageCache(int index, uint32_t start, uint32_t end);
     void saveChapterPageCache(int index, uint32_t start, uint32_t end);
     uint32_t readerLayoutKey() const;
+    bool fileOffsetStartsParagraph(uint32_t offset, uint32_t chapterStart) const;
+    ReaderRenderOptions currentRenderOptionsForOffset(uint32_t offset, uint32_t chapterStart) const;
+    int pageIndexForOffset(uint32_t offset) const;
     void saveChapterPageCacheData(int index, uint32_t start, uint32_t end, const uint32_t* starts, int count);
     bool chapterPageCacheValid(int index, uint32_t start, uint32_t end);
     bool preheatChapterPageCache(int index);
@@ -122,10 +127,12 @@ private:
     bool closeReaderMenu();
     bool cycleRefreshStrategy();
     bool toggleAntiAlias();
+    bool toggleUnderline();
+    bool togglePageTurnEffect();
     bool cycleLayoutPreset();
     bool clearPageCache();
     bool rebuildTocCache();
-    uint32_t chapterContentStart(int index);
+    uint32_t chapterContentStart(int index) const;
     uint32_t chapterEndOffset(int index);
     size_t trimUtf8Tail(char* text, size_t len) const;
 
@@ -152,6 +159,8 @@ private:
     int pageCount_ = 0;
     int currentPage_ = 0;
     int nextPreheatTocIndex_ = -1;
+    uint32_t pendingResumeOffset_ = 0;
+    bool hasPendingResumeOffset_ = false;
     bool hasProgress_ = false;
     bool showingBookEntry_ = false;
     bool showingReaderMenu_ = false;

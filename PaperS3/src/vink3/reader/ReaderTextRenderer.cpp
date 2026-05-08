@@ -14,6 +14,7 @@ ReaderTextRenderer g_readerText;
 
 bool ReaderTextRenderer::begin(M5Canvas* canvas) {
     canvas_ = canvas;
+    applyLayoutPresetToSettings();
     return canvas_ && loadDefaultFont();
 }
 
@@ -57,14 +58,79 @@ uint16_t ReaderTextRenderer::fontSize() const {
     return font_.isLoaded() ? font_.getFontSize() : 24;
 }
 
+void ReaderTextRenderer::applyLayoutPresetToSettings() {
+    settings_ = ReaderSettings{};
+    auto on = [](uint16_t& raw, uint8_t idx) { ReaderSettings::setSlot(raw, idx, 1); };
+    auto level = [](uint16_t& raw, uint8_t idx, uint8_t value) { ReaderSettings::setSlot(raw, idx, value); };
+
+    switch (layoutPreset_) {
+        case 0:
+            // 原始：Vink packed model with all formatting optimizations off.
+            settings_.showMode = ReaderShowMode::Std;
+            settings_.flashPeriod = ReaderFlashPeriod::Pages10;
+            break;
+        case 2:
+            // 紧凑：same Vink options, tighter spacing slots.
+            on(settings_.formatting1, 0); // Indent
+            on(settings_.formatting1, 1); // BlankLineOpt
+            on(settings_.formatting1, 2); // BreakLineOpt
+            on(settings_.formatting1, 3); // NewPage
+            on(settings_.formatting1, 4); // DynamicLineHeight
+            on(settings_.renderOpt1, 1);  // AntiAlias
+            level(settings_.spacing, 0, 0);
+            level(settings_.spacing, 1, 0);
+            level(settings_.spacing, 2, 0);
+            level(settings_.spacing, 3, 1);
+            level(settings_.spacing, 4, 0);
+            level(settings_.spacing, 5, 1);
+            settings_.showMode = ReaderShowMode::Fast;
+            settings_.flashPeriod = ReaderFlashPeriod::Pages20;
+            break;
+        case 1:
+        default:
+            // 优化：Vink-native default behavior built around the formal
+            // formatting1/render_opt1/spacing option groups.
+            on(settings_.formatting1, 0); // Indent
+            on(settings_.formatting1, 1); // BlankLineOpt
+            on(settings_.formatting1, 2); // BreakLineOpt
+            on(settings_.formatting1, 3); // NewPage
+            on(settings_.formatting1, 4); // DynamicLineHeight
+            on(settings_.renderOpt1, 1);  // AntiAlias
+            level(settings_.spacing, 0, 1);
+            level(settings_.spacing, 1, 1);
+            level(settings_.spacing, 2, 1);
+            level(settings_.spacing, 3, 1);
+            level(settings_.spacing, 4, 1);
+            level(settings_.spacing, 5, 1);
+            settings_.showMode = ReaderShowMode::Std;
+            settings_.flashPeriod = ReaderFlashPeriod::Pages10;
+            break;
+    }
+}
+
 void ReaderTextRenderer::toggleAntiAlias() {
-    antiAliasEnabled_ = !antiAliasEnabled_;
+    if (settings_.schema == 0) applyLayoutPresetToSettings();
+    ReaderSettings::setSlot(settings_.renderOpt1, 1, antiAliasEnabled() ? 0 : 1);
     Serial.printf("[vink3][reader] anti-alias -> %s\n", antiAliasLabel());
+}
+
+void ReaderTextRenderer::toggleUnderline() {
+    if (settings_.schema == 0) applyLayoutPresetToSettings();
+    ReaderSettings::setSlot(settings_.renderOpt1, 0, underlineEnabled() ? 0 : 1);
+    Serial.printf("[vink3][reader] Vink underline -> %s render_opt1=0x%04x\n", underlineLabel(), settings_.renderOpt1);
+}
+
+void ReaderTextRenderer::togglePageTurnEffect() {
+    if (settings_.schema == 0) applyLayoutPresetToSettings();
+    ReaderSettings::setSlot(settings_.renderOpt1, 3, pageTurnEffectEnabled() ? 0 : 1);
+    Serial.printf("[vink3][reader] Vink page-turn effect -> %s render_opt1=0x%04x\n", pageTurnEffectLabel(), settings_.renderOpt1);
 }
 
 void ReaderTextRenderer::cycleLayoutPreset() {
     layoutPreset_ = (layoutPreset_ + 1) % 3;
-    Serial.printf("[vink3][reader] layout preset -> %s\n", layoutPresetLabel());
+    applyLayoutPresetToSettings();
+    Serial.printf("[vink3][reader] Vink layout preset -> %s formatting1=0x%04x render_opt1=0x%04x spacing=0x%04x\n",
+                  layoutPresetLabel(), settings_.formatting1, settings_.renderOpt1, settings_.spacing);
 }
 
 const char* ReaderTextRenderer::layoutPresetLabel() const {
@@ -77,33 +143,52 @@ const char* ReaderTextRenderer::layoutPresetLabel() const {
 }
 
 ReaderRenderOptions ReaderTextRenderer::currentOptions() const {
+    if (settings_.schema == 0) const_cast<ReaderTextRenderer*>(this)->applyLayoutPresetToSettings();
+
     ReaderRenderOptions opt;
-    switch (layoutPreset_) {
-        case 0:
-            opt.indentFirstLine = false;
-            opt.compactBlankLines = false;
-            opt.dynamicLineHeight = false;
-            opt.lineGap = 12;
-            break;
-        case 2:
-            opt.indentFirstLine = true;
-            opt.compactBlankLines = true;
-            opt.dynamicLineHeight = true;
-            opt.lineGap = 8;
-            opt.marginTop = 78;
-            opt.marginBottom = 40;
-            break;
-        case 1:
-        default:
-            opt.indentFirstLine = true;
-            opt.compactBlankLines = true;
-            opt.dynamicLineHeight = true;
-            opt.lineGap = 12;
-            break;
+    opt.fontSize = fontSize();
+
+    static constexpr int16_t kTopMargins[4] = {72, 74, 82, 90};
+    static constexpr int16_t kBottomMargins[4] = {26, 30, 36, 44};
+    static constexpr int16_t kSideMargins[4] = {24, 28, 34, 40};
+    static constexpr int16_t kLineGaps[4] = {5, 7, 10, 13};
+    // Vink keeps four letter-spacing levels. Clamp the tightest level to zero
+    // for the current renderer
+    // so glyphs do not overlap on the PaperS3 panel.
+    static constexpr int16_t kLetterGaps[4] = {0, 0, 1, 2};
+    static constexpr int16_t kParagraphGaps[4] = {0, 3, 6, 10};
+    static constexpr int16_t kUnderlineOffsets[4] = {1, 2, 4, 6};
+
+    opt.marginTop = kTopMargins[settings_.topBottomLevel()];
+    opt.marginBottom = kBottomMargins[settings_.topBottomLevel()];
+    opt.marginLeft = kSideMargins[settings_.leftRightLevel()];
+    opt.marginRight = kSideMargins[settings_.leftRightLevel()];
+    opt.lineGap = kLineGaps[settings_.lineSpacingLevel()];
+    opt.letterGap = kLetterGaps[settings_.letterSpacingLevel()];
+    opt.paragraphGap = kParagraphGaps[settings_.paragraphSpacingLevel()];
+    opt.underlineOffset = kUnderlineOffsets[settings_.underlineOffsetLevel()];
+    opt.indentFirstLine = settings_.indentEnabled();
+    opt.compactBlankLines = settings_.blankLineOptEnabled();
+    opt.dynamicLineHeight = settings_.dynamicLineHeightEnabled();
+    opt.breakLineOpt = settings_.breakLineOptEnabled();
+    opt.underline = settings_.underlineEnabled();
+    opt.firstLineIndentPx = opt.indentFirstLine ? max<int16_t>(fontSize() * 2, 56) : 0;
+
+    // Original comparison mode intentionally disables the Vink formatting
+    // transforms but still keeps Vink's safe text box.
+    if (layoutPreset_ == 0) {
+        opt.marginLeft = 32;
+        opt.marginTop = 82;
+        opt.marginRight = 30;
+        opt.marginBottom = 40;
+        opt.lineGap = 10;
+        opt.letterGap = 0;
+        opt.paragraphGap = 0;
+        opt.underlineOffset = 2;
+        opt.firstLineIndentPx = 0;
     }
     return opt;
 }
-
 uint32_t ReaderTextRenderer::decodeUtf8(const uint8_t* buf, size_t& pos, size_t len) {
     if (pos >= len) return 0;
     uint8_t c = buf[pos];
@@ -189,9 +274,9 @@ int16_t ReaderTextRenderer::textWidth(const char* text) const {
 uint16_t ReaderTextRenderer::pixelColorForNibble(uint8_t nibble, uint16_t color) const {
     if (color == TFT_WHITE) return TFT_WHITE;
     if (color != TFT_BLACK) return color;
-    // EDC Book/梦西游-style AntiAlias switch: enabled keeps softened gray edge
+    // Vink-native AntiAlias switch: enabled keeps softened gray edge
     // pixels for fast e-paper refresh; disabled uses a hard black/white cutoff.
-    if (!antiAliasEnabled_) return (nibble >= 8) ? TFT_BLACK : TFT_WHITE;
+    if (!antiAliasEnabled()) return (nibble >= 8) ? TFT_BLACK : TFT_WHITE;
     // Slightly darken mid tones so softened strokes remain visible in fast LUTs.
     static const uint8_t kRemap[16] __attribute__((aligned(1))) = {
         0, 0, 1, 2, 3, 4, 5, 7, 8, 10, 11, 12, 13, 14, 15, 15
@@ -212,10 +297,10 @@ void ReaderTextRenderer::drawReadPaperGlyph(const ReadPaperGlyph& glyph, int16_t
     // 'v' and punctuation in the middle of /books/.txt prompts. Use yOffset so
     // lowercase, punctuation, and descenders keep the original ReadPaper metrics.
     const int16_t drawY = y + glyph.yOffset;
-    uint32_t pixelIdx = 0;
     uint8_t bitPos = 0;
     uint32_t bytePos = 0;
     const uint32_t totalPixels = static_cast<uint32_t>(glyph.bitmapW) * glyph.bitmapH;
+    if (totalPixels == 0) return;
 
     auto nextBit = [&]() -> int {
         if (bytePos >= glyph.bitmapSize) return -1;
@@ -229,26 +314,76 @@ void ReaderTextRenderer::drawReadPaperGlyph(const ReadPaperGlyph& glyph, int16_t
         return bit;
     };
 
-    while (pixelIdx < totalPixels && bytePos < glyph.bitmapSize) {
+    auto decodePixel = [&]() -> uint8_t {
         int first = nextBit();
-        if (first < 0) break;
-        uint8_t pixel = 0;
-        if (first == 0) {
-            pixel = 0;
-        } else {
-            int second = nextBit();
-            if (second < 0) break;
-            pixel = second == 0 ? 10 : 11;
+        if (first <= 0) return 0;
+        int second = nextBit();
+        if (second < 0) return 0;
+        return second == 0 ? 10 : 11;
+    };
+
+    // The bundled reader font stream is nearly binary, so a plain gray remap is
+    // not enough to match Vink's “AntiAlias: reduce jaggies in Fast mode”
+    // behavior. Build a tiny per-glyph coverage mask and apply an Vink-native
+    // edge curve: light gray on diagonal edge pixels, stronger gray on direct
+    // horizontal/vertical edge pixels, then the dark stroke core. This preserves
+    // crisp text in Clear/Std while making Fast refresh look much less stairy.
+    static constexpr uint32_t kMaxAAGlyphPixels = 48 * 48;
+    if (antiAliasEnabled() && color == TFT_BLACK && totalPixels <= kMaxAAGlyphPixels) {
+        uint8_t pixels[kMaxAAGlyphPixels];
+        memset(pixels, 0, totalPixels);
+        for (uint32_t i = 0; i < totalPixels; ++i) pixels[i] = decodePixel();
+
+        const uint16_t directEdge = pixelColorForNibble(4, TFT_BLACK);
+        const uint16_t diagonalEdge = pixelColorForNibble(2, TFT_BLACK);
+        for (uint16_t row = 0; row < glyph.bitmapH; ++row) {
+            for (uint16_t col = 0; col < glyph.bitmapW; ++col) {
+                const uint32_t idx = static_cast<uint32_t>(row) * glyph.bitmapW + col;
+                if (pixels[idx] != 0) continue;
+                bool direct = false;
+                bool diagonal = false;
+                for (int8_t dy = -1; dy <= 1; ++dy) {
+                    const int16_t ny = static_cast<int16_t>(row) + dy;
+                    if (ny < 0 || ny >= glyph.bitmapH) continue;
+                    for (int8_t dx = -1; dx <= 1; ++dx) {
+                        if (dx == 0 && dy == 0) continue;
+                        const int16_t nx = static_cast<int16_t>(col) + dx;
+                        if (nx < 0 || nx >= glyph.bitmapW) continue;
+                        const uint32_t nidx = static_cast<uint32_t>(ny) * glyph.bitmapW + nx;
+                        if (pixels[nidx] == 0) continue;
+                        if (dx == 0 || dy == 0) direct = true;
+                        else diagonal = true;
+                    }
+                }
+                if (!direct && !diagonal) continue;
+                const int16_t px = drawX + static_cast<int16_t>(col);
+                const int16_t py = drawY + static_cast<int16_t>(row);
+                if (px >= 0 && px < kPaperS3Width && py >= 0 && py < kPaperS3Height) {
+                    canvas_->drawPixel(px, py, direct ? directEdge : diagonalEdge);
+                }
+            }
         }
 
-        if (pixel != 0) {
-            const int16_t px = drawX + static_cast<int16_t>(pixelIdx % glyph.bitmapW);
-            const int16_t py = drawY + static_cast<int16_t>(pixelIdx / glyph.bitmapW);
+        for (uint32_t i = 0; i < totalPixels; ++i) {
+            const uint8_t pixel = pixels[i];
+            if (pixel == 0) continue;
+            const int16_t px = drawX + static_cast<int16_t>(i % glyph.bitmapW);
+            const int16_t py = drawY + static_cast<int16_t>(i / glyph.bitmapW);
             if (px >= 0 && px < kPaperS3Width && py >= 0 && py < kPaperS3Height) {
                 canvas_->drawPixel(px, py, pixelColorForNibble(pixel, color));
             }
         }
-        pixelIdx++;
+        return;
+    }
+
+    for (uint32_t pixelIdx = 0; pixelIdx < totalPixels && bytePos < glyph.bitmapSize; ++pixelIdx) {
+        const uint8_t pixel = decodePixel();
+        if (pixel == 0) continue;
+        const int16_t px = drawX + static_cast<int16_t>(pixelIdx % glyph.bitmapW);
+        const int16_t py = drawY + static_cast<int16_t>(pixelIdx / glyph.bitmapW);
+        if (px >= 0 && px < kPaperS3Width && py >= 0 && py < kPaperS3Height) {
+            canvas_->drawPixel(px, py, pixelColorForNibble(pixel, color));
+        }
     }
 }
 
@@ -302,7 +437,7 @@ void ReaderTextRenderer::drawGlyph(uint32_t unicode, int16_t x, int16_t y, uint1
     }
 }
 
-void ReaderTextRenderer::drawText(int16_t x, int16_t y, const char* text, uint16_t color) {
+void ReaderTextRenderer::drawText(int16_t x, int16_t y, const char* text, uint16_t color, int16_t letterGap) {
     if (!canvas_ || !text) return;
     if (!readPaperFullReady_ && !font_.isLoaded()) return;
     int16_t cx = x;
@@ -313,12 +448,13 @@ void ReaderTextRenderer::drawText(int16_t x, int16_t y, const char* text, uint16
         uint32_t ch = decodeUtf8(bytes, pos, len);
         if (ch == '\n') break;
         drawGlyph(ch, cx, y, color);
-        cx += charAdvance(ch);
+        cx += charAdvance(ch) + letterGap;
     }
 }
 
-bool ReaderTextRenderer::isParagraphStart(const char* text, size_t pos) const {
-    if (!text || pos == 0) return true;
+bool ReaderTextRenderer::isParagraphStart(const char* text, size_t pos, bool chunkStartsAtParagraph) const {
+    if (!text) return false;
+    if (pos == 0) return chunkStartsAtParagraph;
     size_t i = pos;
     while (i > 0) {
         char c = text[i - 1];
@@ -326,10 +462,69 @@ bool ReaderTextRenderer::isParagraphStart(const char* text, size_t pos) const {
         if (c != ' ' && c != '\t') return false;
         --i;
     }
-    return true;
+    return chunkStartsAtParagraph;
 }
 
-size_t ReaderTextRenderer::findWrapBreak(const char* text, size_t start, int16_t maxWidth) const {
+bool ReaderTextRenderer::isForbiddenLineStart(uint32_t unicode) const {
+    switch (unicode) {
+        case 0x0021: // !
+        case 0x0025: // %
+        case 0x0029: // )
+        case 0x002C: // ,
+        case 0x002E: // .
+        case 0x003A: // :
+        case 0x003B: // ;
+        case 0x003F: // ?
+        case 0x005D: // ]
+        case 0x007D: // }
+        case 0x00B7: // ·
+        case 0x2019: // ’
+        case 0x201D: // ”
+        case 0x2026: // …
+        case 0x3001: // 、
+        case 0x3002: // 。
+        case 0x3009: // 〉
+        case 0x300B: // 》
+        case 0x300D: // 」
+        case 0x300F: // 』
+        case 0x3011: // 】
+        case 0x3015: // 〕
+        case 0xFF01: // ！
+        case 0xFF09: // ）
+        case 0xFF0C: // ，
+        case 0xFF0E: // ．
+        case 0xFF1A: // ：
+        case 0xFF1B: // ；
+        case 0xFF1F: // ？
+        case 0xFF3D: // ］
+        case 0xFF5D: // ｝
+            return true;
+        default:
+            return false;
+    }
+}
+
+size_t ReaderTextRenderer::skipLeadingSourceIndent(const char* text, size_t pos, size_t len) const {
+    while (pos < len) {
+        const char c = text[pos];
+        if (c == ' ' || c == '\t') {
+            ++pos;
+            continue;
+        }
+        // UTF-8 ideographic space U+3000. Vink-native indent should replace
+        // source indentation, not stack on top of it.
+        if (pos + 2 < len && static_cast<uint8_t>(text[pos]) == 0xE3 &&
+            static_cast<uint8_t>(text[pos + 1]) == 0x80 &&
+            static_cast<uint8_t>(text[pos + 2]) == 0x80) {
+            pos += 3;
+            continue;
+        }
+        break;
+    }
+    return pos;
+}
+
+size_t ReaderTextRenderer::findWrapBreak(const char* text, size_t start, int16_t maxWidth, int16_t letterGap) const {
     const uint8_t* bytes = reinterpret_cast<const uint8_t*>(text);
     const size_t len = strlen(text);
     size_t pos = start;
@@ -339,8 +534,11 @@ size_t ReaderTextRenderer::findWrapBreak(const char* text, size_t start, int16_t
         size_t before = pos;
         uint32_t ch = decodeUtf8(bytes, pos, len);
         if (ch == '\n') return before;
-        uint8_t adv = charAdvance(ch);
-        if (width + adv > maxWidth) return lastGood > start ? lastGood : before;
+        int16_t adv = static_cast<int16_t>(charAdvance(ch)) + letterGap;
+        if (width + adv > maxWidth) {
+            if (isForbiddenLineStart(ch) && lastGood > start) return pos;
+            return lastGood > start ? lastGood : before;
+        }
         width += adv;
         lastGood = pos;
     }
@@ -353,28 +551,35 @@ size_t ReaderTextRenderer::measurePageBytes(const char* text, size_t len, const 
     int16_t y = options.marginTop;
     const int16_t maxWidth = kPaperS3Width - options.marginLeft - options.marginRight;
     const int16_t baseLineHeight = fontSize() + options.lineGap;
-    const int16_t lineHeight = options.dynamicLineHeight ? max<int16_t>(fontSize() + 4, baseLineHeight - 2) : baseLineHeight;
+    const int16_t lineHeight = options.dynamicLineHeight ? max<int16_t>(fontSize() + 3, baseLineHeight) : baseLineHeight;
     const int16_t bottom = kPaperS3Height - options.marginBottom;
     const uint8_t* bytes = reinterpret_cast<const uint8_t*>(text);
 
-    while (pos < len && y + lineHeight < bottom) {
+    while (pos < len && y + lineHeight <= bottom) {
         bool skippedBlank = false;
         while (pos < len && (text[pos] == '\n' || text[pos] == '\r')) { pos++; skippedBlank = true; }
         if (skippedBlank && !options.compactBlankLines) y += lineHeight / 2;
-        if (pos >= len) break;
+        if (pos >= len || y + lineHeight > bottom) break;
 
+        const bool paragraphStart = options.indentFirstLine && isParagraphStart(text, pos, options.startsAtParagraph);
+        if (paragraphStart) pos = skipLeadingSourceIndent(text, pos, len);
         const size_t lineStart = pos;
         size_t lastGood = pos;
-        int16_t width = (options.indentFirstLine && isParagraphStart(text, lineStart)) ? static_cast<int16_t>(fontSize() * 2) : 0;
+        int16_t width = paragraphStart ? options.firstLineIndentPx : 0;
+        bool hardBreak = false;
         while (pos < len) {
             const size_t before = pos;
             uint32_t ch = decodeUtf8(bytes, pos, len);
             if (ch == '\n' || ch == '\r') {
                 pos = before;
+                hardBreak = true;
                 break;
             }
-            const uint8_t adv = charAdvance(ch);
+            const int16_t adv = static_cast<int16_t>(charAdvance(ch)) + options.letterGap;
             if (width + adv > maxWidth) {
+                if (options.breakLineOpt && isForbiddenLineStart(ch) && lastGood > lineStart) {
+                    lastGood = pos;
+                }
                 pos = lastGood > lineStart ? lastGood : pos;
                 break;
             }
@@ -387,6 +592,7 @@ size_t ReaderTextRenderer::measurePageBytes(const char* text, size_t len, const 
             pos = force > lineStart ? force : lineStart + 1;
         }
         y += lineHeight;
+        if (hardBreak && options.paragraphGap > 0) y += options.paragraphGap;
     }
     return pos;
 }
@@ -434,25 +640,34 @@ void ReaderTextRenderer::renderTextPage(const char* title, const char* body, uin
     int16_t y = options.marginTop;
     const int16_t maxWidth = kPaperS3Width - options.marginLeft - options.marginRight;
     const int16_t baseLineHeight = fontSize() + options.lineGap;
-    const int16_t lineHeight = options.dynamicLineHeight ? max<int16_t>(fontSize() + 4, baseLineHeight - 2) : baseLineHeight;
+    const int16_t lineHeight = options.dynamicLineHeight ? max<int16_t>(fontSize() + 3, baseLineHeight) : baseLineHeight;
     const int16_t bottom = kPaperS3Height - options.marginBottom;
-    while (pos < len && y + lineHeight < bottom) {
+    while (pos < len && y + lineHeight <= bottom) {
         bool skippedBlank = false;
         while (pos < len && (text[pos] == '\n' || text[pos] == '\r')) { pos++; skippedBlank = true; }
         if (skippedBlank && !options.compactBlankLines) y += lineHeight / 2;
-        if (pos >= len || y + lineHeight >= bottom) break;
-        const bool paragraphStart = options.indentFirstLine && isParagraphStart(text, pos);
-        const int16_t indent = paragraphStart ? static_cast<int16_t>(fontSize() * 2) : 0;
-        size_t end = findWrapBreak(text, pos, maxWidth - indent);
+        if (pos >= len || y + lineHeight > bottom) break;
+        const bool paragraphStart = options.indentFirstLine && isParagraphStart(text, pos, options.startsAtParagraph);
+        if (paragraphStart) pos = skipLeadingSourceIndent(text, pos, len);
+        const int16_t indent = paragraphStart ? options.firstLineIndentPx : 0;
+        size_t end = findWrapBreak(text, pos, maxWidth - indent, options.letterGap);
         if (end <= pos) break;
+        const bool hardBreak = text[end] == '\n' || text[end] == '\r';
         char line[256];
         size_t n = end - pos;
         if (n >= sizeof(line)) n = sizeof(line) - 1;
         memcpy(line, text + pos, n);
         line[n] = '\0';
-        drawText(options.marginLeft + indent, y, line, fg);
+        drawText(options.marginLeft + indent, y, line, fg, options.letterGap);
+        if (options.underline) {
+            const int16_t uy = y + static_cast<int16_t>(fontSize()) + options.underlineOffset;
+            for (int16_t x = options.marginLeft; x < kPaperS3Width - options.marginRight; x += 6) {
+                canvas_->drawFastHLine(x, uy, 3, mid);
+            }
+        }
         pos = end;
         y += lineHeight;
+        if (hardBreak && options.paragraphGap > 0) y += options.paragraphGap;
     }
 
     char footer[48];

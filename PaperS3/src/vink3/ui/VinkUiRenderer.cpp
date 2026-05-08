@@ -327,7 +327,7 @@ void VinkUiRenderer::renderUiActionPage(SystemState active, const char* title,
     static constexpr int16_t kButtonX = 70;
     static constexpr int16_t kButtonW = 400;
     static constexpr int16_t kButtonH = 52;
-    static constexpr int16_t kButtonY[] = {498, 570, 642, 714, 786};
+    static constexpr int16_t kButtonY[] = {498, 570, 642, 714, 786, 858};
     const int drawCount = min(actionCount, static_cast<int>(sizeof(kButtonY) / sizeof(kButtonY[0])));
     for (int i = 0; actions && i < drawCount; ++i) {
         const int16_t by = kButtonY[i];
