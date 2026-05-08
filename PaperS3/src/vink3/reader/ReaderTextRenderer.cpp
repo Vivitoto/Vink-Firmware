@@ -126,6 +126,41 @@ void ReaderTextRenderer::togglePageTurnEffect() {
     Serial.printf("[vink3][reader] Vink page-turn effect -> %s render_opt1=0x%04x\n", pageTurnEffectLabel(), settings_.renderOpt1);
 }
 
+void ReaderTextRenderer::cyclePageMargin() {
+    if (settings_.schema == 0) applyLayoutPresetToSettings();
+    const uint8_t next = (max(settings_.topBottomLevel(), settings_.leftRightLevel()) + 1) & 0x03;
+    ReaderSettings::setSlot(settings_.spacing, 0, next);
+    ReaderSettings::setSlot(settings_.spacing, 1, next);
+    Serial.printf("[vink3][reader] page margin -> %s spacing=0x%04x\n", pageMarginLabel(), settings_.spacing);
+}
+
+const char* ReaderTextRenderer::pageMarginLabel() const {
+    const uint8_t level = max(settings_.topBottomLevel(), settings_.leftRightLevel());
+    switch (level) {
+        case 0: return "窄";
+        case 1: return "标准";
+        case 2: return "宽";
+        case 3: return "超宽";
+    }
+    return "标准";
+}
+
+void ReaderTextRenderer::cycleLineSpacing() {
+    if (settings_.schema == 0) applyLayoutPresetToSettings();
+    ReaderSettings::setSlot(settings_.spacing, 2, (settings_.lineSpacingLevel() + 1) & 0x03);
+    Serial.printf("[vink3][reader] line spacing -> %s spacing=0x%04x\n", lineSpacingLabel(), settings_.spacing);
+}
+
+const char* ReaderTextRenderer::lineSpacingLabel() const {
+    switch (settings_.lineSpacingLevel()) {
+        case 0: return "紧凑";
+        case 1: return "标准";
+        case 2: return "宽松";
+        case 3: return "超宽";
+    }
+    return "标准";
+}
+
 void ReaderTextRenderer::cycleLayoutPreset() {
     layoutPreset_ = (layoutPreset_ + 1) % 3;
     applyLayoutPresetToSettings();
@@ -277,9 +312,11 @@ uint16_t ReaderTextRenderer::pixelColorForNibble(uint8_t nibble, uint16_t color)
     // Vink-native AntiAlias switch: enabled keeps softened gray edge
     // pixels for fast e-paper refresh; disabled uses a hard black/white cutoff.
     if (!antiAliasEnabled()) return (nibble >= 8) ? TFT_BLACK : TFT_WHITE;
-    // Slightly darken mid tones so softened strokes remain visible in fast LUTs.
+    // Keep the glyph core black. The previous AA curve let 10/11 coverage draw
+    // as dark gray, which made body text look foggy on real PaperS3. Use gray
+    // only for deliberately-added edge pixels; original stroke pixels stay ink.
     static const uint8_t kRemap[16] __attribute__((aligned(1))) = {
-        0, 0, 1, 2, 3, 4, 5, 7, 8, 10, 11, 12, 13, 14, 15, 15
+        0, 0, 1, 2, 3, 4, 5, 7, 9, 12, 15, 15, 15, 15, 15, 15
     };
     static const uint16_t k4BitToRgb565[16] __attribute__((aligned(2))) = {
         0xFFFF, 0xEFFF, 0xCFFF, 0xADAD, 0x8A8A, 0x7B7B,
@@ -322,26 +359,23 @@ void ReaderTextRenderer::drawReadPaperGlyph(const ReadPaperGlyph& glyph, int16_t
         return second == 0 ? 10 : 11;
     };
 
-    // The bundled reader font stream is nearly binary, so a plain gray remap is
-    // not enough to match Vink's “AntiAlias: reduce jaggies in Fast mode”
-    // behavior. Build a tiny per-glyph coverage mask and apply an Vink-native
-    // edge curve: light gray on diagonal edge pixels, stronger gray on direct
-    // horizontal/vertical edge pixels, then the dark stroke core. This preserves
-    // crisp text in Clear/Std while making Fast refresh look much less stairy.
+    // Keep anti-aliasing conservative. The first v0.4.1 curve painted a full
+    // gray halo around strokes; on real PaperS3 that made Chinese body text look
+    // foggy. This sharper curve only fills sparse corner pixels where a blank
+    // pixel touches one direct stroke and at least two diagonal strokes.
     static constexpr uint32_t kMaxAAGlyphPixels = 48 * 48;
     if (antiAliasEnabled() && color == TFT_BLACK && totalPixels <= kMaxAAGlyphPixels) {
         uint8_t pixels[kMaxAAGlyphPixels];
         memset(pixels, 0, totalPixels);
         for (uint32_t i = 0; i < totalPixels; ++i) pixels[i] = decodePixel();
 
-        const uint16_t directEdge = pixelColorForNibble(4, TFT_BLACK);
-        const uint16_t diagonalEdge = pixelColorForNibble(2, TFT_BLACK);
+        const uint16_t cornerEdge = pixelColorForNibble(1, TFT_BLACK);
         for (uint16_t row = 0; row < glyph.bitmapH; ++row) {
             for (uint16_t col = 0; col < glyph.bitmapW; ++col) {
                 const uint32_t idx = static_cast<uint32_t>(row) * glyph.bitmapW + col;
                 if (pixels[idx] != 0) continue;
-                bool direct = false;
-                bool diagonal = false;
+                uint8_t directCount = 0;
+                uint8_t diagonalCount = 0;
                 for (int8_t dy = -1; dy <= 1; ++dy) {
                     const int16_t ny = static_cast<int16_t>(row) + dy;
                     if (ny < 0 || ny >= glyph.bitmapH) continue;
@@ -351,15 +385,15 @@ void ReaderTextRenderer::drawReadPaperGlyph(const ReadPaperGlyph& glyph, int16_t
                         if (nx < 0 || nx >= glyph.bitmapW) continue;
                         const uint32_t nidx = static_cast<uint32_t>(ny) * glyph.bitmapW + nx;
                         if (pixels[nidx] == 0) continue;
-                        if (dx == 0 || dy == 0) direct = true;
-                        else diagonal = true;
+                        if (dx == 0 || dy == 0) directCount++;
+                        else diagonalCount++;
                     }
                 }
-                if (!direct && !diagonal) continue;
+                if (!(directCount == 1 && diagonalCount >= 2)) continue;
                 const int16_t px = drawX + static_cast<int16_t>(col);
                 const int16_t py = drawY + static_cast<int16_t>(row);
                 if (px >= 0 && px < kPaperS3Width && py >= 0 && py < kPaperS3Height) {
-                    canvas_->drawPixel(px, py, direct ? directEdge : diagonalEdge);
+                    canvas_->drawPixel(px, py, cornerEdge);
                 }
             }
         }

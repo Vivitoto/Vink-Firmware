@@ -356,9 +356,9 @@ void VinkUiRenderer::renderSettings() {
     clear();
     drawStatusBar("设置");
     drawTabs(SystemState::Settings);
-    drawSettingsGroup(kContentY, "阅读", "排版优化", g_readerText.layoutPresetLabel(), "抗锯齿", g_readerText.antiAliasLabel());
-    drawSettingsGroup(352, "显示", "刷新策略", g_displayService.readerRefreshStrategyLabel(), "触摸校准", "诊断");
-    drawSettingsGroup(550, "连接", "WiFi", "配置", "Legado", "地址");
+    drawSettingsGroup(kContentY, "排版", "页边距", g_readerText.pageMarginLabel(), "行间距", g_readerText.lineSpacingLabel());
+    drawSettingsGroup(352, "阅读", "排版优化", g_readerText.layoutPresetLabel(), "抗锯齿", g_readerText.antiAliasLabel());
+    drawSettingsGroup(550, "显示", "刷新策略", g_displayService.readerRefreshStrategyLabel(), "翻页效果", g_readerText.pageTurnEffectLabel());
     drawSettingsGroup(748, "系统", "电源", "点按关机", "关于", kVinkPaperS3FirmwareVersion);
 }
 
@@ -514,10 +514,12 @@ UiAction VinkUiRenderer::hitTest(SystemState state, int16_t x, int16_t y) const 
             if (inRect(x, y, 56, 278, 180, 48)) return UiAction::StartLegadoSync;
             break;
         case SystemState::Settings:
-            if (inRect(x, y, 56, 212, 424, 60)) return UiAction::CycleReaderLayoutPreset;
-            if (inRect(x, y, 56, 272, 424, 60)) return UiAction::ToggleReaderAntiAlias;
-            if (inRect(x, y, 56, 410, 424, 60)) return UiAction::CycleReaderRefreshStrategy;
-            if (inRect(x, y, 56, 470, 424, 60)) return UiAction::OpenDiagnostics;
+            if (inRect(x, y, 56, 212, 424, 60)) return UiAction::CycleReaderPageMargin;
+            if (inRect(x, y, 56, 272, 424, 60)) return UiAction::CycleReaderLineSpacing;
+            if (inRect(x, y, 56, 410, 424, 60)) return UiAction::CycleReaderLayoutPreset;
+            if (inRect(x, y, 56, 470, 424, 60)) return UiAction::ToggleReaderAntiAlias;
+            if (inRect(x, y, 56, 608, 424, 60)) return UiAction::CycleReaderRefreshStrategy;
+            if (inRect(x, y, 56, 668, 424, 60)) return UiAction::ToggleReaderPageTurnEffect;
             if (inRect(x, y, 56, 806, 424, 60)) return UiAction::RequestShutdown;
             if (y >= kContentY) return UiAction::OpenSettings;
             break;

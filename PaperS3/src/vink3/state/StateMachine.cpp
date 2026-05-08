@@ -262,6 +262,32 @@ void StateMachine::handle(const Message& message) {
                     suppressAfterTransition();
                     break;
 
+                case UiAction::CycleReaderPageMargin:
+                    g_readerText.cyclePageMargin();
+                    g_readerBook.invalidatePaginationForLayoutChange();
+                    state_ = SystemState::Settings;
+                    renderState(state_);
+                    g_displayService.enqueueFull(false, 100);
+                    suppressAfterTransition();
+                    break;
+
+                case UiAction::CycleReaderLineSpacing:
+                    g_readerText.cycleLineSpacing();
+                    g_readerBook.invalidatePaginationForLayoutChange();
+                    state_ = SystemState::Settings;
+                    renderState(state_);
+                    g_displayService.enqueueFull(false, 100);
+                    suppressAfterTransition();
+                    break;
+
+                case UiAction::ToggleReaderPageTurnEffect:
+                    g_readerText.togglePageTurnEffect();
+                    state_ = SystemState::Settings;
+                    renderState(state_);
+                    g_displayService.enqueueFull(false, 100);
+                    suppressAfterTransition();
+                    break;
+
                 case UiAction::StartLegadoSync:
                 {
                     // Keep the ReadPaper-like event path: UI hit-test creates an action,

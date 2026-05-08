@@ -5,6 +5,21 @@
   "description": "面向 M5Stack PaperS3 的 Vink 电子书阅读固件。",
   "releases": [
     {
+      "version": "v0.4.2",
+      "name": "Vink-PaperS3 v0.4.2",
+      "summary": "根据真机视频对比调校阅读显示：锐化抗锯齿、降低翻页过渡闪动，并在设置页补充页边距与行间距入口。",
+      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.2",
+      "changelog": "## Vink-PaperS3 v0.4.2\n\n### 真机显示调校\n- 根据 Vink v0.4.1 与参考阅读器翻页视频对比，调整正文抗锯齿策略。\n- 字形核心像素保持黑色，只在少量角落像素做轻灰过渡，避免 v0.4.1 边缘灰雾过重导致文字发糊。\n- 均衡刷新策略改为优先使用 text LUT，减少翻页时的整页抖动感，同时保留周期性完整清理。\n- 翻页效果不再强制走 quality 全刷，而是走更克制的 text 刷新路径，降低视觉闪动和过渡能量。\n\n### 排版设置入口\n- 设置页新增 `页边距` 和 `行间距` 两个直接可调项。\n- 调整页边距/行间距后会失效当前分页缓存，并按当前阅读位置重建分页，目录缓存保持不变。\n- 设置页保留 `排版优化`、`抗锯齿`、`刷新策略` 和 `翻页效果` 状态。\n\n### 验证状态\n- 本地 smoke、diff check、PlatformIO build、SPIFFS build、full 16MB merge 均通过。\n- 需要真机验证：文字清晰度、翻页残影、页边距/行间距切换后的分页恢复。\n",
+      "assets": {
+        "full": {
+          "name": "Vink-PaperS3-v0.4.2-full-16MB.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.2/Vink-PaperS3-v0.4.2-full-16MB.bin",
+          "size": 16777216,
+          "flashOffset": 0
+        }
+      }
+    },
+    {
       "version": "v0.4.1",
       "name": "Vink-PaperS3 v0.4.1",
       "summary": "重建 Vink 阅读内核：新增正式阅读设置模型、排版/分页恢复、抗锯齿曲线、下划线与翻页显示效果，并修复设置切换后的继续阅读路径。",

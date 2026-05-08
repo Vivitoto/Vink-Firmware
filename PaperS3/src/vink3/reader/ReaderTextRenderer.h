@@ -100,6 +100,10 @@ public:
     void togglePageTurnEffect();
     bool pageTurnEffectEnabled() const { return settings_.pageTurnEffectEnabled(); }
     const char* pageTurnEffectLabel() const { return pageTurnEffectEnabled() ? "开启" : "关闭"; }
+    void cyclePageMargin();
+    const char* pageMarginLabel() const;
+    void cycleLineSpacing();
+    const char* lineSpacingLabel() const;
     void cycleLayoutPreset();
     uint8_t layoutPreset() const { return layoutPreset_; }
     const ReaderSettings& settings() const { return settings_; }

@@ -203,8 +203,12 @@ epd_mode_t DisplayService::chooseRefreshMode(const DisplayRequest& request) {
         case ReaderRefreshStrategy::Balanced:
         default:
             fullEvery = 10;
-            normalMode = kMiddleRefresh;
-            middleStep = true;
+            // Real-video comparison showed the reader should favor a text LUT
+            // for normal page turns: cleaner glyph edges and less visible page
+            // flash than the faster middle LUT, while still doing periodic full
+            // cleanup through fullEvery.
+            normalMode = kNormalRefresh;
+            middleStep = false;
             break;
     }
 
@@ -212,11 +216,15 @@ epd_mode_t DisplayService::chooseRefreshMode(const DisplayRequest& request) {
         kDisplayMiddleRefreshThreshold > 0 &&
         pushCount_ >= kDisplayMiddleRefreshThreshold &&
         pushCount_ % kDisplayMiddleRefreshThreshold == 0;
-    // Vink PageTurnEffect behaves like a deliberate page-turn refresh rather
-    // than a no-op flag. On PaperS3, route it through the quality LUT so page
-    // turns get that cleaner, almost full-refresh feel and reset ghosting debt.
+    // Page-turn effect is not a forced full flash. Video comparison showed the
+    // target feel is a restrained, cleaner text refresh with lower visible
+    // transition energy; periodic full cleanup still comes from fullEvery.
     const bool hasPageTurnEffect = request.effect != DisplayEffect::None;
-    const bool useQualityMode = request.quality || hasPageTurnEffect || (fullEvery > 0 && pushCount_ >= fullEvery);
+    if (hasPageTurnEffect && !request.quality) {
+        M5.Display.setColorDepth(kTextColorDepthHigh);
+        return kNormalRefresh;
+    }
+    const bool useQualityMode = request.quality || (fullEvery > 0 && pushCount_ >= fullEvery);
 
     if (useQualityMode) {
         pushCount_ = 0;
