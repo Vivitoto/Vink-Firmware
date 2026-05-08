@@ -2,7 +2,7 @@
 #include <Arduino.h>
 
 // ===== 屏幕参数 (M5Stack Paper S3) =====
-// Match ReadPaper's proven PaperS3 portrait framebuffer geometry.
+// Match Vink's proven PaperS3 portrait framebuffer geometry.
 #define SCREEN_WIDTH    540
 #define SCREEN_HEIGHT   960
 #define EINK_GRAY_LEVELS 16
@@ -90,7 +90,7 @@ enum class AppState {
     // 主标签页
     TAB_READING,      // 📖 读书主页（最近阅读 + 统计）
     TAB_LIBRARY,      // 📚 书架（9宫格封面）
-    TAB_TRANSFER,     // 🛜 传输（WiFi/蓝牙/同步）
+    TAB_TRANSFER,     // 🛜 传输（WiFi / USB / 导出）
     TAB_SETTINGS,     // ⚙️ 设置（卡片式）
     // 阅读状态
     READER,
@@ -100,7 +100,6 @@ enum class AppState {
     SETTINGS_REFRESH, // 残影控制
     SETTINGS_FONT,    // 字体切换
     SETTINGS_WIFI,    // WiFi配置
-    SETTINGS_LEGADO,  // Legado同步
     // 阅读工具
     CHAPTER_LIST,     // 章节目录
     BOOKMARK_LIST,    // 书签列表
@@ -150,26 +149,27 @@ struct BatteryInfo {
 // ===== 刷新策略（局刷/全刷控制）=====
 // ===== 刷新频率档位 =====
 enum class RefreshFrequency {
-    FREQ_LOW,      // 极速：DU4 快刷，每20页 GC16 全刷
-    FREQ_MEDIUM,   // 均衡：DU 快刷，每10页 GC16 全刷
-    FREQ_HIGH      // 清晰：GL16 文本刷新，每5页 GC16 全刷
+    FREQ_LOW,      // 极速：更少清屏，优先翻页速度
+    FREQ_MEDIUM,   // 均衡：默认阅读刷新节奏
+    FREQ_HIGH      // 清晰：更频繁清理残影
 };
 
 struct RefreshStrategy {
     RefreshFrequency frequency;
-    uint8_t fullRefreshEvery;   // 每 N 页做一次全刷
+    uint8_t middleRefreshEvery; // 每 N 页做一次中间刷新
+    uint8_t fullRefreshEvery;   // 每 M 页做一次 GC16 全刷；0 表示不按页数全刷
     bool usePartialUpdate;      // 是否启用局刷
     
     static RefreshStrategy FromFrequency(RefreshFrequency freq) {
         switch (freq) {
             case RefreshFrequency::FREQ_LOW:
-                return { .frequency = freq, .fullRefreshEvery = 20, .usePartialUpdate = true };
+                return { .frequency = freq, .middleRefreshEvery = 20, .fullRefreshEvery = 0, .usePartialUpdate = true };
             case RefreshFrequency::FREQ_MEDIUM:
-                return { .frequency = freq, .fullRefreshEvery = 10, .usePartialUpdate = true };
+                return { .frequency = freq, .middleRefreshEvery = 10, .fullRefreshEvery = 20, .usePartialUpdate = true };
             case RefreshFrequency::FREQ_HIGH:
-                return { .frequency = freq, .fullRefreshEvery = 5, .usePartialUpdate = true };
+                return { .frequency = freq, .middleRefreshEvery = 5, .fullRefreshEvery = 10, .usePartialUpdate = true };
             default:
-                return { .frequency = RefreshFrequency::FREQ_MEDIUM, .fullRefreshEvery = 5, .usePartialUpdate = true };
+                return { .frequency = RefreshFrequency::FREQ_MEDIUM, .middleRefreshEvery = 10, .fullRefreshEvery = 20, .usePartialUpdate = true };
         }
     }
     

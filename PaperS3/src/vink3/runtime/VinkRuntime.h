@@ -1,7 +1,7 @@
 #pragma once
 #include <Arduino.h>
 #include <M5Unified.h>
-#include "../ReadPaper176.h"
+#include "../VinkPaperS3Core.h"
 
 namespace vink3 {
 

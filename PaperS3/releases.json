@@ -5,6 +5,21 @@
   "description": "面向 M5Stack PaperS3 的 Vink 电子书阅读固件。",
   "releases": [
     {
+      "version": "v0.4.3",
+      "name": "Vink-PaperS3 v0.4.3",
+      "summary": "改用流式分页提升目录/跨章节打开速度，章节级恢复避免排版变更错页，并补齐 Web UI 缓存维护、上传到 /books 与设备端 WiFi/Web UI 提示。",
+      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.3",
+      "changelog": "## Vink-PaperS3 v0.4.3\n\n### 阅读分页策略\n- 阅读器改为流式分页：进入章节时只测量当前屏，目录跳转和跨章节打开不再等待整章分页。\n- 不再读取或写入持久 `.vink-pages` 分页缓存，避免旧排版缓存导致错页。\n- 阅读进度调整为章节级恢复；修改字号、边距、行距、段距等排版设置后，会按当前章节起点用新设置立即重排。\n- 正文页脚在未知总页数时显示“第 N 页”，不再用不准确的章节总页数。\n\n### Web UI 与缓存维护\n- Web UI 书架页保留缓存状态查看，并支持单本、批量、无主目录/分页缓存清理。\n- 缓存清理只删除 `.vink-toc` / `.vink-pages`，保留 `.vink-progress` 阅读记录。\n- Web UI 支持把 TXT 直接上传到 `/books`，并保留完整配置备份。\n\n### 设备端提示\n- 传输/WiFi 页面显示更明确的 SSID 与 `http://<设备IP>` Web UI 访问提示。\n- 去掉截图、书架导出、阅读进度导出等不需要的入口。\n\n### 验证状态\n- 本地 smoke、diff check、PlatformIO build、SPIFFS build、full 16MB merge 均通过。\n- 需要真机验证：大书目录跳转速度、跨章节翻页速度、改排版后的当前章节重排、Web UI 缓存维护按钮。\n",
+      "assets": {
+        "full": {
+          "name": "Vink-PaperS3-v0.4.3-full-16MB.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.3/Vink-PaperS3-v0.4.3-full-16MB.bin",
+          "size": 16777216,
+          "flashOffset": 0
+        }
+      }
+    },
+    {
       "version": "v0.4.2",
       "name": "Vink-PaperS3 v0.4.2",
       "summary": "根据真机视频对比调校阅读显示：锐化抗锯齿、降低翻页过渡闪动，并在设置页补充页边距与行间距入口。",

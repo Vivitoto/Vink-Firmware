@@ -49,20 +49,13 @@ int ChapterDetector::detect(File& file, ChapterDetectResult* results, int maxRes
     int lastChapterOffset = 0;
     int lastChapterNumber = 0;
     int consecutiveEmptyLines = 0;
-    uint32_t linesScanned = 0;
 
     file.seek(0);
 
     while (file.available() && count < maxResults) {
         uint32_t lineStartOffset = file.position();
         int lineLen = readLine(file, _lineBuffer, LINE_BUF_SIZE);
-        if (lineLen <= 0) {
-            if (file.available()) {
-                consecutiveEmptyLines++;
-                continue;
-            }
-            break;
-        }
+        if (lineLen <= 0) break;
 
         // 跳过空行
         bool isEmpty = true;
@@ -120,7 +113,6 @@ int ChapterDetector::detect(File& file, ChapterDetectResult* results, int maxRes
         }
 
         consecutiveEmptyLines = 0;
-        if ((++linesScanned & 0x3F) == 0) yield();
     }
 
     if (_debug) {
@@ -203,18 +195,17 @@ bool ChapterDetector::matchChineseChapter(const char* line, int len, ChapterDete
     // 必须以"第"开头
     if (line[0] != 0xE7 || line[1] != 0xAC || line[2] != 0xAC) return false;  // "第"
 
-    // 查找"章/回/卷/节/集/部"
+    // 查找"章/回/卷/节/集"
     const char* keywords[] = {
         "\xE7\xAB\xA0",  // 章
         "\xE5\x9B\x9E",  // 回
         "\xE5\x8D\xB7",  // 卷
         "\xE8\x8A\x82",  // 节
         "\xE9\x9B\x86",  // 集
-        "\xE9\x83\xA8",  // 部
     };
-    const char* keywordNames[] = {"章", "回", "卷", "节", "集", "部"};
+    const char* keywordNames[] = {"章", "回", "卷", "节", "集"};
 
-    for (int k = 0; k < 6; k++) {
+    for (int k = 0; k < 5; k++) {
         const char* kw = keywords[k];
         // 在 line 中查找 keyword
         for (int i = 3; i < len - 2; i++) {
@@ -227,9 +218,20 @@ bool ChapterDetector::matchChineseChapter(const char* line, int len, ChapterDete
                 if (numLen > 0 && numLen < 20) {
                     int num = chineseToNumber(line + 3, numLen);
                     if (num > 0) {
-                        // Preserve the book's original chapter title for display.
-                        // The parsed numeric value is only for ordering/dedup heuristics.
-                        out.title = String(line, len);
+                        out.title = String("第") + String(num) + String(keywordNames[k]);
+                        // 尝试提取标题后缀
+                        int suffixStart = i + 3;
+                        if (suffixStart < len) {
+                            // 跳过空格和分隔符
+                            while (suffixStart < len && (line[suffixStart] == ' ' ||
+                                   line[suffixStart] == '\t' || line[suffixStart] == 0xEF)) {
+                                suffixStart++;
+                            }
+                            if (suffixStart < len) {
+                                out.title += " ";
+                                out.title += String(line + suffixStart, len - suffixStart);
+                            }
+                        }
                         out.score = 100;
                         out.chapterNumber = num;
                         return true;
@@ -287,8 +289,16 @@ bool ChapterDetector::matchArabicChapter(const char* line, int len, ChapterDetec
             (unsigned char)line[kwStart+1] == (unsigned char)kw[1] &&
             (unsigned char)line[kwStart+2] == (unsigned char)kw[2]) {
 
-            // Preserve original title text; keep `num` only for ordering/dedup.
-            out.title = String(line, len);
+            out.title = String("第") + String(num) + String(keywordNames[k]);
+            int suffixStart = kwStart + 3;
+            if (suffixStart < len) {
+                while (suffixStart < len && (line[suffixStart] == ' ' ||
+                       line[suffixStart] == '\t')) suffixStart++;
+                if (suffixStart < len) {
+                    out.title += " ";
+                    out.title += String(line + suffixStart, len - suffixStart);
+                }
+            }
             out.score = 80;
             out.chapterNumber = num;
             return true;
@@ -356,53 +366,7 @@ bool ChapterDetector::matchEnglishChapter(const char* line, int len, ChapterDete
 
 bool ChapterDetector::matchVolume(const char* line, int len, ChapterDetectResult& out) {
     // 模式：[中文数字] + 卷/册/部/篇，或“卷一 / 部二 / 篇三”。
-    // This matcher used to scan the whole prose line and `chineseToNumber()`
-    // tolerated unrelated Chinese characters, so body text such as “一部分”、
-    // “腹部”、 “皮卷” could be emitted as fake TOC entries. Keep volume matching
-    // strict: number text must be at the line boundary and the keyword must be
-    // followed by a separator/end, unless the normal “第X部/卷” matcher handled it.
-    if (len < 3 || len > 72) return false;
-
-    auto nextCodepoint = [](const char* s, int n, int& pos) -> uint32_t {
-        if (pos >= n) return 0;
-        uint8_t c = static_cast<uint8_t>(s[pos]);
-        if (c < 0x80) { pos++; return c; }
-        if ((c & 0xE0) == 0xC0 && pos + 1 < n) {
-            uint32_t cp = ((c & 0x1F) << 6) | (static_cast<uint8_t>(s[pos + 1]) & 0x3F);
-            pos += 2; return cp;
-        }
-        if ((c & 0xF0) == 0xE0 && pos + 2 < n) {
-            uint32_t cp = ((c & 0x0F) << 12) |
-                          ((static_cast<uint8_t>(s[pos + 1]) & 0x3F) << 6) |
-                          (static_cast<uint8_t>(s[pos + 2]) & 0x3F);
-            pos += 3; return cp;
-        }
-        pos++; return c;
-    };
-    auto isNumberText = [&](const char* s, int n) -> bool {
-        if (n <= 0 || n > 24) return false;
-        bool seen = false;
-        for (int pos = 0; pos < n; ) {
-            uint32_t cp = nextCodepoint(s, n, pos);
-            const bool ok = (cp >= '0' && cp <= '9') ||
-                            (cp >= U'０' && cp <= U'９') ||
-                            cp == U'零' || cp == U'〇' || cp == U'一' || cp == U'二' || cp == U'两' ||
-                            cp == U'三' || cp == U'四' || cp == U'五' || cp == U'六' || cp == U'七' ||
-                            cp == U'八' || cp == U'九' || cp == U'十' || cp == U'百' || cp == U'千' || cp == U'万';
-            if (!ok) return false;
-            seen = true;
-        }
-        return seen;
-    };
-    auto isSeparatorOrEnd = [&](int pos) -> bool {
-        if (pos >= len) return true;
-        if (line[pos] == ' ' || line[pos] == '\t' || line[pos] == ':' || line[pos] == '-' || line[pos] == '.') return true;
-        if (pos + 2 < len && static_cast<uint8_t>(line[pos]) == 0xE3 && static_cast<uint8_t>(line[pos + 1]) == 0x80 &&
-            (static_cast<uint8_t>(line[pos + 2]) == 0x80 || static_cast<uint8_t>(line[pos + 2]) == 0x81)) return true; // fullwidth space / 、
-        if (pos + 2 < len && static_cast<uint8_t>(line[pos]) == 0xEF && static_cast<uint8_t>(line[pos + 1]) == 0xBC &&
-            static_cast<uint8_t>(line[pos + 2]) == 0x9A) return true; // ：
-        return false;
-    };
+    if (len < 3) return false;
 
     const char* keywords[] = {
         "\xE5\x8D\xB7",  // 卷
@@ -410,6 +374,7 @@ bool ChapterDetector::matchVolume(const char* line, int len, ChapterDetectResult
         "\xE9\x83\xA8",  // 部
         "\xE7\xAF\x87",  // 篇
     };
+    const char* keywordNames[] = {"卷", "册", "部", "篇"};
 
     for (int k = 0; k < 4; k++) {
         const char* kw = keywords[k];
@@ -420,27 +385,46 @@ bool ChapterDetector::matchVolume(const char* line, int len, ChapterDetectResult
             static_cast<uint8_t>(line[1]) == static_cast<uint8_t>(kw[1]) &&
             static_cast<uint8_t>(line[2]) == static_cast<uint8_t>(kw[2])) {
             int numEnd = 3;
-            while (numEnd < len && !isSeparatorOrEnd(numEnd)) numEnd++;
-            if (isNumberText(line + 3, numEnd - 3)) {
-                int num = chineseToNumber(line + 3, numEnd - 3);
-                if (num > 0) {
-                    out.title = String(line, len);
-                    out.score = 70;
-                    out.chapterNumber = num;
-                    return true;
+            while (numEnd < len && line[numEnd] != ' ' && line[numEnd] != '\t') numEnd++;
+            int num = chineseToNumber(line + 3, numEnd - 3);
+            if (num > 0) {
+                out.title = String("第") + String(num) + String(keywordNames[k]);
+                if (numEnd < len) {
+                    while (numEnd < len && (line[numEnd] == ' ' || line[numEnd] == '\t')) numEnd++;
+                    if (numEnd < len) {
+                        out.title += " ";
+                        out.title += String(line + numEnd, len - numEnd);
+                    }
                 }
+                out.score = 70;
+                out.chapterNumber = num;
+                return true;
             }
         }
 
-        // Infix form: 一卷 风起 / 2部 旧事. Reject prose like “一部分”.
-        for (int i = 1; i < len - 2; i++) {
+        for (int i = 0; i < len - 2; i++) {
             if ((unsigned char)line[i] == (unsigned char)kw[0] &&
                 (unsigned char)line[i+1] == (unsigned char)kw[1] &&
-                (unsigned char)line[i+2] == (unsigned char)kw[2] &&
-                isNumberText(line, i) && isSeparatorOrEnd(i + 3)) {
-                int num = chineseToNumber(line, i);
+                (unsigned char)line[i+2] == (unsigned char)kw[2]) {
+
+                // 检查前面是否有中文数字或阿拉伯数字
+                int num = 0;
+                if (i > 0) {
+                    // 尝试解析前面的数字
+                    int numStart = i - 1;
+                    while (numStart >= 0 && isdigit(line[numStart])) numStart--;
+                    if (numStart < i - 1) {
+                        for (int j = numStart + 1; j < i; j++) {
+                            num = num * 10 + (line[j] - '0');
+                        }
+                    } else {
+                        // 尝试中文数字
+                        num = chineseToNumber(line, i);
+                    }
+                }
+
                 if (num > 0) {
-                    out.title = String(line, len);
+                    out.title = String("第") + String(num) + String(keywordNames[k]);
                     out.score = 60;
                     out.chapterNumber = num;
                     return true;
@@ -665,18 +649,15 @@ int ChapterDetector::scoreLine(const char* line, int len, int baseScore, int cha
 }
 
 int ChapterDetector::readLine(File& file, char* buf, int maxLen) {
-    if (!buf || maxLen <= 1) return 0;
-    int len = file.readBytesUntil('\n', buf, maxLen - 1);
-    while (len > 0 && buf[len - 1] == '\r') len--;
-
-    // If a physical TXT line is longer than our buffer, discard the remainder.
-    // Otherwise the tail of a prose paragraph can be processed as a separate
-    // fake short line and accidentally become a TOC entry. readBytesUntil()
-    // batches SD reads and is much faster than byte-by-byte File::read().
-    if (len >= maxLen - 1) {
-        while (file.available()) {
-            char c = file.read();
-            if (c == '\n') break;
+    int len = 0;
+    while (file.available() && len < maxLen - 1) {
+        char c = file.read();
+        if (c == '\n') {
+            buf[len] = '\0';
+            return len;
+        }
+        if (c != '\r') {
+            buf[len++] = c;
         }
     }
     buf[len] = '\0';

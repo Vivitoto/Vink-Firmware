@@ -1,6 +1,6 @@
 #include "InputService.h"
 #include "../display/DisplayService.h"
-#include "../ReadPaper176.h"
+#include "../VinkPaperS3Core.h"
 
 namespace vink3 {
 
@@ -10,6 +10,9 @@ namespace {
 constexpr uint32_t kPollDelayMs = 10;
 constexpr uint32_t kDebounceMs = 120;
 constexpr uint32_t kMoveDiagnosticMs = 100;
+constexpr uint32_t kPowerBootIgnoreMs = 1200;
+constexpr uint32_t kPowerStablePressMs = 60;
+constexpr uint32_t kPowerLongHoldMs = 1200;
 constexpr uint32_t kLongPressMs = 700;
 constexpr int16_t kTapSlopPx = 30;
 constexpr int16_t kLongPressMovePx = 34;
@@ -47,12 +50,12 @@ bool InputService::begin(StateMachine* stateMachine) {
             return false;
         }
     }
-    // Official PaperS3 documentation describes the side key as a hardware
-    // power key: single click powers on, double-click powers off, long press
-    // enters download mode. Current M5Unified does not expose that PMS150G
-    // side key as a readable BtnPWR state for board_M5PaperS3, so the input
-    // service must not pretend a software single-press shutdown exists.
-    Serial.println("[vink3][input] service started; PaperS3 side power key is hardware-managed");
+    // PaperS3 side power key is exposed through M5Unified BtnPWR; GPIO36 is
+    // a legacy M5Paper touch interrupt in references, not a reliable PaperS3
+    // power-key input. Do not configure/read GPIO36 as a power button.
+    M5.BtnPWR.setDebounceThresh(0);
+    M5.BtnPWR.setHoldThresh(0);
+    Serial.println("[vink3][input] service started");
     return true;
 }
 
@@ -64,6 +67,7 @@ void InputService::taskLoop() {
     for (;;) {
         M5.update();
         const uint32_t now = millis();
+        pollPowerButton(now);
         pollTouch();
         vTaskDelay(pdMS_TO_TICKS(kPollDelayMs));
     }
@@ -210,5 +214,58 @@ void InputService::pollTouch() {
     }
 }
 
+void InputService::pollPowerButton(uint32_t now) {
+    if (!stateMachine_) return;
+
+    const bool pressed = M5.BtnPWR.isPressed();
+
+    // Real-device feedback: using GPIO36 as a PaperS3 power key produced no
+    // useful response. Treat M5Unified BtnPWR as the only physical source and
+    // make the action visible/immediate: one stable press requests shutdown.
+    if (!powerButtonArmed_) {
+        if (now > kPowerBootIgnoreMs && !pressed) {
+            powerButtonArmed_ = true;
+            powerPressStartedMs_ = 0;
+            powerWasPressed_ = false;
+            powerLongPosted_ = false;
+            Serial.println("[vink3][power] BtnPWR armed after boot release");
+        }
+        return;
+    }
+
+    if (pressed) {
+        if (!powerWasPressed_) {
+            powerWasPressed_ = true;
+            powerLongPosted_ = false;
+            powerPressStartedMs_ = now;
+            Serial.println("[vink3][power] BtnPWR down");
+        }
+        if (!powerLongPosted_ && powerPressStartedMs_ != 0 && now - powerPressStartedMs_ >= kPowerLongHoldMs) {
+            powerLongPosted_ = true;
+            powerButtonArmed_ = false;
+            Message msg;
+            msg.type = MessageType::PowerButton;
+            msg.timestampMs = now;
+            stateMachine_->post(msg, 0);
+            Serial.println("[vink3][power] BtnPWR long hold -> shutdown request");
+        }
+        return;
+    }
+
+    if (powerWasPressed_) {
+        const uint32_t held = powerPressStartedMs_ ? now - powerPressStartedMs_ : 0;
+        powerWasPressed_ = false;
+        powerPressStartedMs_ = 0;
+        if (!powerLongPosted_ && held >= kPowerStablePressMs) {
+            powerButtonArmed_ = false;
+            Message msg;
+            msg.type = MessageType::PowerButton;
+            msg.timestampMs = now;
+            stateMachine_->post(msg, 0);
+            Serial.printf("[vink3][power] BtnPWR click held=%lu -> shutdown request\n", static_cast<unsigned long>(held));
+        }
+        powerLongPosted_ = false;
+    }
+}
 
 } // namespace vink3

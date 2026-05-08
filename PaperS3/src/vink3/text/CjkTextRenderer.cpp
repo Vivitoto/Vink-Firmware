@@ -1,13 +1,16 @@
 #include "CjkTextRenderer.h"
+#include "VinkUiFallbackFont.h"
 #include "VinkUiFont24.h"
 #include "../../Config.h"
-#include "../ReadPaper176.h"
+#include "../VinkPaperS3Core.h"
 #include <pgmspace.h>
 #include <cstring>
 
 namespace vink3 {
 
 namespace {
+constexpr uint32_t kVinkFontHeaderSize = 134;
+constexpr uint32_t kVinkFontEntrySize = 20;
 constexpr uint32_t kGrayHeaderSize = 16;
 constexpr uint32_t kGrayEntrySize = 16;
 }
@@ -21,12 +24,15 @@ bool CjkTextRenderer::begin(M5Canvas* canvas) {
     progmemUiFontSize_ = 0;
     progmemUiBaseline_ = 0;
     progmemUiBitmapStart_ = 0;
+    readPaperSubsetReady_ = false;
+    vinkFontCharCount_ = 0;
+    vinkFontHeight_ = 0;
     if (!canvas_) return false;
 
     // Official PaperS3 docs confirm a 16-level grayscale EPD, but the custom
     // font source is Vink-owned. Real-device feedback showed SPIFFS-dependent
     // UI fonts can silently fall back to the tiny built-in subset and then mix
-    // with 32px ReadPaper glyphs. Make the compiled 24px Simplified Chinese UI
+    // with 32px Vink glyphs. Make the compiled 24px Simplified Chinese UI
     // font the primary path so the shell does not depend on the filesystem.
     const bool progmemUi = beginProgmemUiFont();
     if (progmemUi) {
@@ -35,22 +41,73 @@ bool CjkTextRenderer::begin(M5Canvas* canvas) {
                       static_cast<unsigned long>(g_vink_ui_font24_size));
     }
 
-    if (progmemUi) return true;
+    // SPIFFS font remains a secondary fallback only. It is useful for future font
+    // switching, but it must not be required for the core shell to be readable.
+    const bool bundled16 = font_.loadBundledFont(FONT_FILE_16) &&
+        strcmp(font_.getCurrentFontPath(), FONT_FILE_16) == 0;
+    if (bundled16) Serial.println("[vink3][cjk] bundled SC 16px UI font fallback loaded");
+    const bool bundled20 = bundled16 ? false :
+        (font_.loadBundledFont(FONT_FILE_20) &&
+         strcmp(font_.getCurrentFontPath(), FONT_FILE_20) == 0);
+    if (bundled20) Serial.println("[vink3][cjk] bundled SC 20px UI font fallback loaded");
+    if (!bundled16 && !bundled20 && font_.isLoaded()) {
+        Serial.printf("[vink3][cjk] bundled SC font unavailable, secondary fallback active: %s\n",
+                      font_.getCurrentFontPath());
+    }
 
-    Serial.println("[vink3][cjk] compiled UI font unavailable; M5GFX ASCII fallback may miss Chinese");
+    const bool subset = beginVinkUiFallbackFont();
+    if (subset) {
+        Serial.printf("[vink3][cjk] Vink font v3 UI subset last-resort fallback armed: glyphs=%lu size=%lu\n",
+                      static_cast<unsigned long>(vinkFontCharCount_),
+                      static_cast<unsigned long>(g_vink_ui_fallback_font_size));
+    }
+
+    if (progmemUi || font_.isLoaded() || subset) return true;
+
+    if (font_.loadBuiltinFont()) {
+        Serial.println("[vink3][cjk] fallback built-in UI font loaded; Chinese coverage may be limited");
+        return true;
+    }
+
+    Serial.println("[vink3][cjk] CJK font load failed; M5GFX text fallback may miss Chinese");
     return false;
-
 }
 
 bool CjkTextRenderer::ready() const {
-    return canvas_ && progmemUiReady_;
+    return canvas_ && (progmemUiReady_ || readPaperSubsetReady_ || font_.isLoaded());
 }
 
 uint16_t CjkTextRenderer::fontSize() const {
-    // Layout follows the compiled UI font. Keeping UI text independent from
-    // SD/SPIFFS fonts avoids surprise missing-glyph fallbacks on fresh cards.
+    // Layout must follow the primary renderer actually used for most glyphs.
+    // The compiled 24px UI font is now primary; SPIFFS and Vink are only
+    // fallbacks, so their height must not pull tab/button/settings centering.
     if (progmemUiReady_) return progmemUiFontSize_;
+    if (font_.isLoaded()) return font_.getFontSize();
+    if (readPaperSubsetReady_) return vinkFontHeight_;
     return 16;
+}
+
+uint8_t CjkTextRenderer::rpByte(uint32_t offset) {
+    if (offset >= g_vink_ui_fallback_font_size) return 0;
+    return pgm_read_byte(&g_vink_ui_fallback_font_data[offset]);
+}
+
+uint16_t CjkTextRenderer::rpU16(uint32_t offset) {
+    uint8_t b0 = rpByte(offset);
+    uint8_t b1 = rpByte(offset + 1);
+    return static_cast<uint16_t>(b0) | (static_cast<uint16_t>(b1) << 8);
+}
+
+uint32_t CjkTextRenderer::rpU32(uint32_t offset) {
+    uint32_t b0 = rpByte(offset);
+    uint32_t b1 = rpByte(offset + 1);
+    uint32_t b2 = rpByte(offset + 2);
+    uint32_t b3 = rpByte(offset + 3);
+    return b0 | (b1 << 8) | (b2 << 16) | (b3 << 24);
+}
+
+int8_t CjkTextRenderer::rpI8(uint32_t offset) {
+    return static_cast<int8_t>(rpByte(offset));
 }
 
 uint8_t CjkTextRenderer::uiByte(uint32_t offset) {
@@ -95,7 +152,7 @@ bool CjkTextRenderer::beginProgmemUiFont() {
 void CjkTextRenderer::deriveProgmemUiMetrics() {
     // FreeType stores each glyph relative to a baseline. Previous UI drawing
     // centered every bitmap by its own height, which made mixed-case words like
-    // "Legado" float per letter and erased descenders: g/p/y should extend
+    // Mixed Latin text can float per letter and erase descenders: g/p/y should extend
     // below the L baseline. Derive one common baseline from representative CJK
     // UI glyphs, then draw every glyph against that same baseline.
     progmemUiBaseline_ = (progmemUiFontSize_ * 7) / 8;
@@ -145,6 +202,43 @@ bool CjkTextRenderer::findProgmemUiGlyph(uint32_t unicode, GrayGlyph& out) const
     return false;
 }
 
+bool CjkTextRenderer::beginVinkUiFallbackFont() {
+    if (!g_vink_ui_fallback_font_available || g_vink_ui_fallback_font_size < kVinkFontHeaderSize) return false;
+    vinkFontCharCount_ = rpU32(0);
+    vinkFontHeight_ = rpByte(4);
+    const uint8_t version = rpByte(5);
+    if (vinkFontCharCount_ == 0 || vinkFontHeight_ == 0 || version != 3) return false;
+    const uint32_t entriesEnd = kVinkFontHeaderSize + vinkFontCharCount_ * kVinkFontEntrySize;
+    if (entriesEnd >= g_vink_ui_fallback_font_size) return false;
+    readPaperSubsetReady_ = true;
+    return true;
+}
+
+bool CjkTextRenderer::findVinkGlyph(uint32_t unicode, VinkGlyph& out) const {
+    if (!readPaperSubsetReady_ || unicode > 0xFFFF) return false;
+    int32_t lo = 0;
+    int32_t hi = static_cast<int32_t>(vinkFontCharCount_) - 1;
+    while (lo <= hi) {
+        int32_t mid = lo + (hi - lo) / 2;
+        uint32_t off = kVinkFontHeaderSize + static_cast<uint32_t>(mid) * kVinkFontEntrySize;
+        uint16_t cp = rpU16(off);
+        if (cp == unicode) {
+            out.unicode = cp;
+            out.width = rpU16(off + 2);
+            out.bitmapW = rpByte(off + 4);
+            out.bitmapH = rpByte(off + 5);
+            out.xOffset = rpI8(off + 6);
+            out.yOffset = rpI8(off + 7);
+            out.bitmapOffset = rpU32(off + 8);
+            out.bitmapSize = rpU32(off + 12);
+            return out.bitmapOffset + out.bitmapSize <= g_vink_ui_fallback_font_size;
+        }
+        if (cp < unicode) lo = mid + 1;
+        else hi = mid - 1;
+    }
+    return false;
+}
+
 uint32_t CjkTextRenderer::decodeUtf8(const uint8_t* buf, size_t& pos, size_t len) {
     if (pos >= len) return 0;
     uint8_t c = buf[pos];
@@ -177,45 +271,21 @@ int16_t CjkTextRenderer::textWidth(const char* text) {
         GrayGlyph uiGlyph;
         if (findProgmemUiGlyph(ch, uiGlyph)) {
             w += uiGlyph.advance > 0 ? uiGlyph.advance : (ch < 128 ? 8 : fontSize());
+        } else if (font_.isLoaded()) {
+            uint8_t adv = font_.getCharAdvance(ch);
+            w += adv > 0 ? adv : (ch < 128 ? 8 : fontSize());
+        } else if (readPaperSubsetReady_) {
+            VinkGlyph glyph;
+            if (findVinkGlyph(ch, glyph)) {
+                w += glyph.width > 0 ? glyph.width : (ch < 128 ? 8 : fontSize());
+            } else {
+                w += ch < 128 ? 8 : fontSize();
+            }
         } else {
             w += ch < 128 ? 8 : fontSize();
         }
     }
     return w;
-}
-
-void CjkTextRenderer::fitTextToWidth(const char* text, char* out, size_t outSize, int16_t maxWidth) {
-    if (!out || outSize == 0) return;
-    out[0] = '\0';
-    if (!text) return;
-    strlcpy(out, text, outSize);
-    if (textWidth(out) <= maxWidth) return;
-
-    static constexpr const char* kEllipsis = "...";
-    const int16_t ellipsisWidth = textWidth(kEllipsis);
-    const uint8_t* bytes = reinterpret_cast<const uint8_t*>(text);
-    const size_t len = strlen(text);
-    size_t pos = 0;
-    size_t lastFit = 0;
-    while (pos < len) {
-        const size_t before = pos;
-        (void)decodeUtf8(bytes, pos, len);
-        if (pos <= before) break;
-        char candidate[160];
-        const size_t n = min(before == 0 ? pos : pos, sizeof(candidate) - 1);
-        memcpy(candidate, text, n);
-        candidate[n] = '\0';
-        if (textWidth(candidate) + ellipsisWidth > maxWidth) break;
-        lastFit = pos;
-    }
-    if (lastFit == 0) {
-        strlcpy(out, kEllipsis, outSize);
-        return;
-    }
-    const size_t copyLen = min(lastFit, outSize - 1);
-    memcpy(out, text, copyLen);
-    out[copyLen] = '\0';
-    if (copyLen + strlen(kEllipsis) < outSize) strcat(out, kEllipsis);
 }
 
 uint16_t CjkTextRenderer::pixelColorForNibble(uint8_t nibble, uint16_t color) const {
@@ -257,6 +327,54 @@ void CjkTextRenderer::drawProgmemUiGlyph(const GrayGlyph& glyph, int16_t x, int1
     }
 }
 
+void CjkTextRenderer::drawVinkGlyph(const VinkGlyph& glyph, int16_t x, int16_t y, uint16_t color) {
+    if (!canvas_) return;
+    const int16_t drawX = x + glyph.xOffset;
+    // Experience-based, needs real PaperS3 confirmation: Vink UI renderers pass
+    // y as a line-box top, while Vink glyph yOffset is baseline-oriented.
+    // Using y + fontHeight - yOffset caused mixed Latin/CJK fallback glyphs to
+    // stair-step. Keep fallback glyphs visually top-aligned in the same line box.
+    const int16_t drawY = y + max<int16_t>(0, (static_cast<int16_t>(fontSize()) - static_cast<int16_t>(glyph.bitmapH)) / 2);
+    uint32_t pixelIdx = 0;
+    uint8_t bitPos = 0;
+    uint32_t bytePos = 0;
+    const uint32_t totalPixels = static_cast<uint32_t>(glyph.bitmapW) * glyph.bitmapH;
+
+    auto nextBit = [&]() -> int {
+        if (bytePos >= glyph.bitmapSize) return -1;
+        uint8_t current = rpByte(glyph.bitmapOffset + bytePos);
+        int bit = (current >> (7 - bitPos)) & 0x01;
+        bitPos++;
+        if (bitPos >= 8) {
+            bitPos = 0;
+            bytePos++;
+        }
+        return bit;
+    };
+
+    while (pixelIdx < totalPixels && bytePos < glyph.bitmapSize) {
+        int first = nextBit();
+        if (first < 0) break;
+        uint8_t pixel = 0; // white / transparent
+        if (first == 0) {
+            pixel = 0;
+        } else {
+            int second = nextBit();
+            if (second < 0) break;
+            pixel = second == 0 ? 10 : 11;
+        }
+
+        if (pixel != 0) {
+            const int16_t px = drawX + static_cast<int16_t>(pixelIdx % glyph.bitmapW);
+            const int16_t py = drawY + static_cast<int16_t>(pixelIdx / glyph.bitmapW);
+            if (px >= 0 && px < kPaperS3Width && py >= 0 && py < kPaperS3Height) {
+                canvas_->drawPixel(px, py, pixelColorForNibble(pixel, color));
+            }
+        }
+        pixelIdx++;
+    }
+}
+
 void CjkTextRenderer::drawGlyph(uint32_t unicode, int16_t x, int16_t y, uint16_t color) {
     if (!canvas_) return;
 
@@ -266,19 +384,66 @@ void CjkTextRenderer::drawGlyph(uint32_t unicode, int16_t x, int16_t y, uint16_t
         return;
     }
 
-    // Missing glyphs should be visible during debugging instead of silently
-    // leaving blanks in book names or TOC rows. With the expanded GB2312 UI
-    // font this should be rare.
-    if (unicode > 0x20) {
-        const int16_t box = max<int16_t>(8, fontSize() - 8);
-        canvas_->drawRect(x + 2, y + 4, box, box, color);
+    // Prefer the bundled SC font when it actually contains the glyph. If the
+    // SPIFFS font was not flashed, fell back to the tiny built-in font, or simply
+    // misses a character, keep going to the compiled Vink subset instead
+    // of silently advancing the cursor and leaving blank Chinese labels.
+    if (font_.isLoaded()) {
+        if (font_.getFontType() == FontType::GRAY_4BPP) {
+            uint8_t width = 0, height = 0, advance = 0;
+            int8_t bearingX = 0, bearingY = 0;
+            const uint8_t* bmp = font_.getCharBitmapGray(unicode, width, height, bearingX, bearingY, advance);
+            if (bmp && width > 0 && height > 0) {
+                const int16_t drawX = x + bearingX;
+                // UI callers pass y as the top of a text box, not a FreeType
+                // baseline. Draw against one baseline so Latin descenders stay
+                // below capitals and mixed CJK/Latin labels do not stair-step.
+                const int16_t fallbackBaseline = (static_cast<int16_t>(font_.getFontSize()) * 7) / 8;
+                const int16_t drawY = y + fallbackBaseline - static_cast<int16_t>(bearingY);
+                for (int row = 0; row < height; row++) {
+                    const int16_t py = drawY + row;
+                    if (py < 0 || py >= kPaperS3Height) continue;
+                    for (int col = 0; col < width; col++) {
+                        const int16_t px = drawX + col;
+                        if (px < 0 || px >= kPaperS3Width) continue;
+                        const int srcIdx = row * ((width + 1) / 2) + col / 2;
+                        const uint8_t nibble = (col % 2 == 0) ? ((bmp[srcIdx] >> 4) & 0x0F) : (bmp[srcIdx] & 0x0F);
+                        if (nibble > 0) canvas_->drawPixel(px, py, pixelColorForNibble(nibble, color));
+                    }
+                }
+                return;
+            }
+        } else {
+            uint8_t width = 0, height = 0;
+            const uint8_t* bmp = font_.getCharBitmap(unicode, width, height);
+            if (bmp && width > 0 && height > 0) {
+                for (int row = 0; row < height; row++) {
+                    const int16_t py = y + row;
+                    if (py < 0 || py >= kPaperS3Height) continue;
+                    for (int col = 0; col < width; col++) {
+                        const int16_t px = x + col;
+                        if (px < 0 || px >= kPaperS3Width) continue;
+                        int byteIdx = row * ((width + 7) / 8) + col / 8;
+                        int bitIdx = 7 - (col % 8);
+                        if (bmp[byteIdx] & (1 << bitIdx)) canvas_->drawPixel(px, py, color);
+                    }
+                }
+                return;
+            }
+        }
     }
 
+    if (readPaperSubsetReady_) {
+        VinkGlyph glyph;
+        if (findVinkGlyph(unicode, glyph)) {
+            drawVinkGlyph(glyph, x, y, color);
+        }
+    }
 }
 
 void CjkTextRenderer::drawText(int16_t x, int16_t y, const char* text, uint16_t color) {
     if (!canvas_ || !text) return;
-    if (!progmemUiReady_) {
+    if (!progmemUiReady_ && !readPaperSubsetReady_ && !font_.isLoaded()) {
         canvas_->setTextColor(color, TFT_WHITE);
         canvas_->setTextSize(1);
         canvas_->setCursor(x, y);
@@ -302,6 +467,12 @@ void CjkTextRenderer::drawText(int16_t x, int16_t y, const char* text, uint16_t 
         GrayGlyph uiGlyph;
         if (findProgmemUiGlyph(ch, uiGlyph)) {
             cx += uiGlyph.advance > 0 ? uiGlyph.advance : (ch < 128 ? 8 : fontSize());
+        } else if (font_.isLoaded()) {
+            uint8_t adv = font_.getCharAdvance(ch);
+            cx += adv > 0 ? adv : (ch < 128 ? 8 : fontSize());
+        } else if (readPaperSubsetReady_) {
+            VinkGlyph glyph;
+            cx += findVinkGlyph(ch, glyph) && glyph.width > 0 ? glyph.width : (ch < 128 ? 8 : fontSize());
         } else {
             cx += ch < 128 ? 8 : fontSize();
         }

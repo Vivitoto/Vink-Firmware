@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Generate a small ReadPaper V3 font subset for Vink UI strings.
+"""Generate a small Vink font v3 font subset for Vink UI strings.
 
-Input is ReadPaper's generated src/text/lite.cpp from the remote reference tree.
+Input is Vink's generated src/text/lite.cpp from the remote reference tree.
 Output is a compact PROGMEM C++ file with the same V3 header/glyph-entry layout,
 but containing only glyphs needed by the v0.3 shell UI.
 """
@@ -53,7 +53,7 @@ def parse_lite_cpp(path: Path) -> bytes:
     body = text[brace + 1:end]
     body = re.sub(r"//.*", "", body)
     data = bytearray()
-    # ReadPaper's generated file includes offset comments with decimal numbers;
+    # Vink's generated file includes offset comments with decimal numbers;
     # only consume explicit hexadecimal byte literals from the C array.
     for m in BYTE_RE.finditer(body):
         data.append(int(m.group(1), 16))
@@ -92,7 +92,7 @@ def generate(source: bytes, chars: set[str]) -> tuple[bytes, list[str]]:
     font_height = source[4]
     version = source[5]
     if version != 3:
-        raise SystemExit(f"expected ReadPaper V3 font, got version={version}")
+        raise SystemExit(f"expected Vink font v3 font, got version={version}")
     entries = [read_entry(source, i) for i in range(char_count)]
     by_cp = {e["unicode"]: e for e in entries}
     wanted = sorted({ord(ch) for ch in chars if ord(ch) <= 0xFFFF})
@@ -126,11 +126,11 @@ def write_cpp(out_cpp: Path, data: bytes) -> None:
     out_cpp.parent.mkdir(parents=True, exist_ok=True)
     with out_cpp.open("w", encoding="utf-8") as f:
         f.write("#include <Arduino.h>\n")
-        f.write("#include \"ReadPaperUiFont.h\"\n\n")
+        f.write("#include \"VinkUiFallbackFont.h\"\n\n")
         f.write("namespace vink3 {\n")
-        f.write("const bool g_readpaper_ui_font_available = true;\n")
-        f.write(f"const uint32_t g_readpaper_ui_font_size = {len(data)};\n")
-        f.write("const uint8_t g_readpaper_ui_font_data[] PROGMEM = {\n")
+        f.write("const bool g_vink_ui_fallback_font_available = true;\n")
+        f.write(f"const uint32_t g_vink_ui_fallback_font_size = {len(data)};\n")
+        f.write("const uint8_t g_vink_ui_fallback_font_data[] PROGMEM = {\n")
         for i in range(0, len(data), 16):
             chunk = data[i:i+16]
             f.write("    " + ", ".join(f"0x{b:02X}" for b in chunk) + ",\n")
@@ -144,9 +144,9 @@ def write_header(out_h: Path) -> None:
         "#pragma once\n"
         "#include <Arduino.h>\n\n"
         "namespace vink3 {\n"
-        "extern const bool g_readpaper_ui_font_available;\n"
-        "extern const uint32_t g_readpaper_ui_font_size;\n"
-        "extern const uint8_t g_readpaper_ui_font_data[] PROGMEM;\n"
+        "extern const bool g_vink_ui_fallback_font_available;\n"
+        "extern const uint32_t g_vink_ui_fallback_font_size;\n"
+        "extern const uint8_t g_vink_ui_fallback_font_data[] PROGMEM;\n"
         "} // namespace vink3\n",
         encoding="utf-8",
     )

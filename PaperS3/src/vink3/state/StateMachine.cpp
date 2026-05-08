@@ -1,12 +1,15 @@
 #include "StateMachine.h"
+#include "../config/ConfigService.h"
 #include "../display/DisplayService.h"
+#include "../sync/WifiService.h"
 #include "../reader/ReaderBookService.h"
 #include "../reader/ReaderTextRenderer.h"
-#include "../sync/LegadoService.h"
 #include "../ui/VinkUiRenderer.h"
 #include "../input/InputService.h"
-#include "../ReadPaper176.h"
+#include "../../FontManager.h"
+#include "../VinkPaperS3Core.h"
 #include <esp_sleep.h>
+#include <SD.h>
 
 namespace vink3 {
 
@@ -23,6 +26,35 @@ SystemState tabStateForAction(UiAction action) {
     }
 }
 
+
+// Wait indefinitely for the power button to be released.
+// On PaperS3 the power key must be released before we enter deep sleep,
+// otherwise releasing it after esp_deep_sleep_start() wakes the device.
+// If the key is still held after 10 s we give up and enter deep sleep anyway
+// (the shutdown has already been triggered via M5.Power.powerOff).
+static void waitPowerKeyRelease(uint32_t timeoutMs = 10000) {
+    const uint32_t start = millis();
+    while (M5.BtnPWR.isPressed()) {
+        M5.update();
+        delay(30);
+        if (millis() - start >= timeoutMs) {
+            Serial.println("[vink3][power] BtnPWR release timeout, proceeding anyway");
+            break;
+        }
+    }
+}
+
+static void enterSleep(const char* reason) {
+    // Auto sleep is deliberately disabled by default until the PaperS3 wake
+    // source is validated on real hardware. GPIO38 is SD MOSI, not GT911 INT;
+    // do not arm it as a wake source. If the user explicitly enables the setting
+    // before wake validation, show a safe notice and keep the device awake.
+    Serial.println("[vink3][power] auto sleep requested but wake path is not validated; staying awake");
+    g_uiRenderer.renderShutdown(reason ? "自动休眠未启用：唤醒路径待真机验证" : "休眠待验证");
+    g_displayService.enqueueFull(false, 100);
+    g_stateMachine.onActivity();
+}
+
 void shutdownPaperS3(const char* reason) {
     Serial.println("[vink3][power] shutdown requested");
     g_readerBook.saveCurrentProgress();
@@ -31,57 +63,55 @@ void shutdownPaperS3(const char* reason) {
     g_displayService.waitIdle(5000);
     delay(300);
 
-    // ReadPaper-style shutdown: save state, give SD/display time to settle,
-    // then call M5.Power.powerOff(). M5Unified implements the PaperS3-specific
-    // GPIO44 power-hold pulse internally, so do not duplicate the pulse here.
-    delay(500);
+    // Official/factory order: sleep the EPD, wait for it, then ask M5Unified
+    // to power off. Do not add a manual GPIO44 pulse unless real-device logs
+    // prove M5Unified's PaperS3 LOW→HIGH pulse sequence is insufficient.
+    waitPowerKeyRelease();  // blocking; do NOT enter sleep while button is held
+    M5.Display.sleep();
     M5.Display.waitDisplay();
-
-    // E-ink keeps its last image after power is cut. Draw a final, explicit
-    // "powered off" page before calling M5.Power.powerOff() so real-device
-    // testing can distinguish a completed shutdown path from a stuck busy page.
-    g_uiRenderer.renderPowerOffReady();
-    g_displayService.enqueueFull(true, 100);
-    g_displayService.waitIdle(8000);
-    M5.Display.waitDisplay();
-    delay(1500);
-    Serial.println("[vink3][power] final power-off page drawn; calling M5.Power.powerOff()");
-    Serial.flush();
+    delay(200);
     M5.Power.powerOff();
 
-    esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
-    esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_OFF);
-    esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_SLOW_MEM, ESP_PD_OPTION_OFF);
-    esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_FAST_MEM, ESP_PD_OPTION_OFF);
-    Serial.println("[vink3][power] M5.Power.powerOff returned; entering fallback ESP32-S3 deep sleep");
-    Serial.flush();
-    delay(100);
+    // After powerOff() returns the PMIC may still be ramping down.
+    // Give it up to 2 s to actually cut power. If the button is released
+    // during this window the device stays off; if it is still held the
+    // device will wake from deep sleep (see below) and the user sees a boot -
+    // this is unavoidable when powerOff() does not guarantee hard power-cut.
+    delay(2000);
+
+    // Final safety net: ensure the button is released before deep sleep.
+    // If it is still held, enter deep sleep anyway — the shutdown has been
+    // triggered; the next release will wake the device which is expected.
+    waitPowerKeyRelease(8000);
+
+    // Do not configure a touch wake source here yet: official GT911 INT is
+    // GPIO48, while GPIO38 is SD MOSI. Deep-sleep wake capability for GPIO48
+    // must be verified before enabling touch wake. Use deep sleep only as a
+    // last-resort CPU halt if powerOff() did not cut power.
     esp_deep_sleep_start();
+    // esp_deep_sleep_start() never returns; if we are here something is wrong
+    // with the CPU or the compiler.
     Serial.println("[vink3][power] WARNING: deep_sleep_start returned!");
-    for (;;) delay(1000);
+    for (;;) delay(1000);  // spin forever
 }
 
 void suppressAfterTransition(uint32_t cooldownMs = 220) {
     g_inputService.suppressUntilRelease(cooldownMs);
 }
 
-void enqueueReaderDisplay(bool pageTurnCandidate = false) {
-    DisplayRequest request;
-    request.x = 0;
-    request.y = 0;
-    request.w = kPaperS3Width;
-    request.h = kPaperS3Height;
-    if (pageTurnCandidate && g_readerText.pageTurnEffectEnabled()) {
-        request.effect = DisplayEffect::VerticalShutter;
+void enqueueReaderAwareRefresh(DisplayEffect effect = DisplayEffect::None, uint32_t timeoutMs = 100) {
+    if (g_readerBook.consumeReadingPageRendered()) {
+        g_displayService.enqueueReaderPageTurn(effect, timeoutMs);
+    } else {
+        g_displayService.enqueueFull(false, timeoutMs);
     }
-    g_displayService.enqueue(request, 100);
 }
 
 void renderState(SystemState state) {
     switch (state) {
         case SystemState::Home:
         case SystemState::Reader:
-            g_readerBook.renderReaderHome();
+            g_uiRenderer.renderReaderHome();
             break;
         case SystemState::ReaderMenu:
             g_readerBook.renderCurrent();
@@ -95,6 +125,27 @@ void renderState(SystemState state) {
         case SystemState::Settings:
             g_uiRenderer.renderSettings();
             break;
+        case SystemState::SettingsLayout:
+            g_uiRenderer.renderSettingsLayout();
+            break;
+        case SystemState::SettingsRefresh:
+            g_uiRenderer.renderSettingsRefresh();
+            break;
+        case SystemState::SettingsWifi:
+            g_uiRenderer.renderSettingsWifi();
+            break;
+        case SystemState::SettingsSystem:
+            g_uiRenderer.renderSettingsSystem();
+            break;
+        case SystemState::TransferWifiAp:
+            g_uiRenderer.renderTransferWifiAp();
+            break;
+        case SystemState::TransferUsb:
+            g_uiRenderer.renderTransferUsb();
+            break;
+        case SystemState::TransferExport:
+            g_uiRenderer.renderTransferExport();
+            break;
         case SystemState::Diagnostics:
         {
             Message blank;
@@ -102,11 +153,9 @@ void renderState(SystemState state) {
             g_uiRenderer.renderDiagnostics(blank, "等待触摸");
             break;
         }
-        case SystemState::LegadoSync:
-            g_uiRenderer.renderLegadoSync("Legado sync service ready");
-            break;
-        case SystemState::ShutdownConfirm:
-            g_uiRenderer.renderShutdownConfirm();
+        case SystemState::Locked:
+            // Handled by enterLockScreen() on entry; no further render needed
+            // until wakeFromLockScreen() is called.
             break;
         default:
             g_uiRenderer.renderHome(state);
@@ -121,7 +170,7 @@ bool StateMachine::begin(uint8_t queueLen) {
         if (!queue_) return false;
     }
     if (!task_) {
-        BaseType_t ok = xTaskCreatePinnedToCore(taskThunk, "vink3-state", 16384, this, 3, &task_, 1);
+        BaseType_t ok = xTaskCreatePinnedToCore(taskThunk, "vink3-state", 8192, this, 3, &task_, 1);
         if (ok != pdPASS) {
             task_ = nullptr;
             return false;
@@ -142,6 +191,37 @@ SystemState StateMachine::state() const {
 
 void StateMachine::taskThunk(void* arg) {
     static_cast<StateMachine*>(arg)->taskLoop();
+}
+
+// Double-tap lock detection (file-level static to survive task loop iterations)
+static TouchPoint lastLockTap_;
+static uint32_t  lastLockTapMs_ = 0;
+static bool      waitingSecondLockTap_ = false;
+
+void StateMachine::enterLockScreen() {
+    if (locked_) return;
+    const auto& cfg = g_configService.get();
+    if (!cfg.lockScreenEnabled) return;
+
+    locked_ = true;
+    state_ = SystemState::Locked;
+    g_uiRenderer.renderLockScreen(cfg.lockScreenImagePath);
+    g_displayService.enqueueFull(true, 100);
+    g_displayService.waitIdle(5000);
+    Serial.println("[vink3][lock] screen locked");
+}
+
+void StateMachine::wakeFromLockScreen() {
+    if (!locked_) return;
+    locked_ = false;
+    lastLockTapMs_ = 0;
+    waitingSecondLockTap_ = false;
+    g_displayService.enqueueFull(true, 100);
+    g_displayService.waitIdle(2000);
+    g_readerBook.renderCurrentPage();
+    g_displayService.enqueueFull(true, 100);
+    g_readerBook.consumeReadingPageRendered();
+    Serial.println("[vink3][lock] screen awakened");
 }
 
 void StateMachine::taskLoop() {
@@ -167,17 +247,31 @@ void StateMachine::handle(const Message& message) {
             break;
 
         case MessageType::Tap:
-        {
-            if (state_ == SystemState::Diagnostics) {
-                const UiAction diagAction = g_uiRenderer.hitTest(state_, message.touch.x, message.touch.y);
-                if (diagAction == UiAction::TabSettings) {
-                    state_ = SystemState::Settings;
-                    renderState(state_);
-                } else {
-                    g_uiRenderer.renderDiagnostics(message, "tap");
+            onActivity();
+            {
+                // Locked state: all taps go to double-tap detector only.
+                if (state_ == SystemState::Locked) {
+                    const int16_t zoneX = (kPaperS3Width * 2) / 3;  // right 1/3
+                    const int16_t zoneY = (kPaperS3Height * 2) / 3; // bottom 1/3
+                    if (message.touch.x >= zoneX && message.touch.y >= zoneY) {
+                        uint32_t now = message.timestampMs;
+                        if (waitingSecondLockTap_ && (now - lastLockTapMs_ <= 500)) {
+                            waitingSecondLockTap_ = false;
+                            lastLockTapMs_ = 0;
+                            if (g_configService.get().lockScreenWakeOnDoubleClick) {
+                                wakeFromLockScreen();
+                            }
+                        } else {
+                            waitingSecondLockTap_ = true;
+                            lastLockTapMs_ = now;
+                        }
+                    }
+                    break;
                 }
+
+            if (state_ == SystemState::Diagnostics) {
+                g_uiRenderer.renderDiagnostics(message, "tap");
                 g_displayService.enqueueFull(false, 100);
-                suppressAfterTransition();
                 break;
             }
             const UiAction action = g_uiRenderer.hitTest(state_, message.touch.x, message.touch.y);
@@ -211,6 +305,272 @@ void StateMachine::handle(const Message& message) {
                     g_displayService.enqueueFull(false, 100);
                     break;
 
+                case UiAction::OpenSettingsLayout:
+                    state_ = SystemState::SettingsLayout;
+                    renderState(state_);
+                    g_displayService.enqueueFull(false, 100);
+                    suppressAfterTransition();
+                    break;
+
+                case UiAction::OpenSettingsRefresh:
+                    state_ = SystemState::SettingsRefresh;
+                    renderState(state_);
+                    g_displayService.enqueueFull(false, 100);
+                    suppressAfterTransition();
+                    break;
+
+                case UiAction::OpenSettingsWifi:
+                    state_ = SystemState::SettingsWifi;
+                    renderState(state_);
+                    g_displayService.enqueueFull(false, 100);
+                    suppressAfterTransition();
+                    break;
+
+                case UiAction::SaveWifiSettings:
+                {
+                    const auto& cfg = g_configService.get();
+                    if (!cfg.wifiSsid.isEmpty()) {
+                        g_wifiService.configureSta(cfg.wifiSsid, cfg.wifiPassword);
+                    }
+                    g_uiRenderer.renderSettingsWifi();
+                    g_displayService.enqueueFull(false, 100);
+                    break;
+                }
+                case UiAction::OpenSettingsSystem:
+                    state_ = SystemState::SettingsSystem;
+                    renderState(state_);
+                    g_displayService.enqueueFull(false, 100);
+                    suppressAfterTransition();
+                    break;
+
+                // ── Transfer sub-page actions ───────────────────────
+                case UiAction::OpenTransferWifiAp:
+                    state_ = SystemState::TransferWifiAp;
+                    renderState(state_);
+                    g_displayService.enqueueFull(false, 100);
+                    suppressAfterTransition();
+                    break;
+
+                case UiAction::OpenTransferUsb:
+                    state_ = SystemState::TransferUsb;
+                    renderState(state_);
+                    g_displayService.enqueueFull(false, 100);
+                    suppressAfterTransition();
+                    break;
+
+
+                case UiAction::OpenTransferExport:
+                    state_ = SystemState::TransferExport;
+                    renderState(state_);
+                    g_displayService.enqueueFull(false, 100);
+                    suppressAfterTransition();
+                    break;
+
+                case UiAction::ToggleWifiAp:
+                    if (g_wifiService.mode() == WifiOpMode::ApWebUi) {
+                        g_wifiService.stop();
+                        g_uiRenderer.renderTransferWifiAp();
+                        g_displayService.enqueueFull(false, 100);
+                    } else {
+                        // Start AP + Web UI: SSID = Vink-PaperS3, no password
+                        g_wifiService.startAp("Vink-PaperS3", String(), true);
+                        g_uiRenderer.renderTransferWifiAp();
+                        g_displayService.enqueueFull(false, 100);
+                    }
+                    break;
+
+                case UiAction::ToggleWebUi:
+                    if (g_wifiService.httpServerRunning()) {
+                        g_wifiService.stopHttpServer();
+                    } else {
+                        g_wifiService.startHttpServer();
+                    }
+                    renderState(state_);
+                    g_displayService.enqueueFull(false, 100);
+                    break;
+
+                case UiAction::CycleWifiMode:
+                    if (state_ == SystemState::TransferWifiAp) {
+                        // Legacy fallback: Off → ApWebUi → Ap → Off.
+                        WifiOpMode cur = g_wifiService.mode();
+                        if (cur == WifiOpMode::Off) {
+                            g_wifiService.startAp("Vink-PaperS3", String(), true);
+                        } else if (cur == WifiOpMode::ApWebUi) {
+                            g_wifiService.stop();
+                            g_wifiService.startAp("Vink-PaperS3", String(), false);
+                        } else {
+                            g_wifiService.stop();
+                        }
+                        g_uiRenderer.renderTransferWifiAp();
+                        g_displayService.enqueueFull(false, 100);
+                    }
+                    break;
+
+                case UiAction::SetWifiOff:
+                    if (state_ == SystemState::TransferWifiAp) {
+                        g_wifiService.stop();
+                        g_uiRenderer.renderTransferWifiAp();
+                        g_displayService.enqueueFull(false, 100);
+                    }
+                    break;
+
+                case UiAction::SetWifiApWebUi:
+                    if (state_ == SystemState::TransferWifiAp) {
+                        g_wifiService.startAp("Vink-PaperS3", String(), true);
+                        g_uiRenderer.renderTransferWifiAp();
+                        g_displayService.enqueueFull(false, 100);
+                    }
+                    break;
+
+                case UiAction::SetWifiSta:
+                    if (state_ == SystemState::TransferWifiAp) {
+                        const auto& cfg = g_configService.get();
+                        if (!cfg.wifiSsid.isEmpty()) {
+                            g_wifiService.stop();
+                            g_wifiService.configureSta(cfg.wifiSsid, cfg.wifiPassword);
+                            g_wifiService.connectSta();
+                        } else {
+                            g_wifiService.stop();
+                        }
+                        g_uiRenderer.renderTransferWifiAp();
+                        g_displayService.enqueueFull(false, 100);
+                    }
+                    break;
+
+                // Cycling actions — modify config and re-render
+                case UiAction::CycleRefreshFrequency:
+                {
+                    auto f = g_configService.refreshFrequency();
+                    g_configService.setRefreshFrequency(RefreshFrequency(
+                        (static_cast<uint8_t>(f) + 1) % 3));
+                    g_configService.save();
+                    renderState(state_);
+                    g_displayService.enqueueFull(false, 100);
+                    break;
+                }
+
+                case UiAction::CycleReaderMiddleRefresh:
+                {
+                    static const uint8_t values[] = { 5, 10, 15, 20, 30 };
+                    const auto& cfg = g_configService.get();
+                    uint8_t next = values[0];
+                    for (size_t i = 0; i < sizeof(values); ++i) {
+                        if (cfg.readerMiddleRefreshEvery < values[i]) { next = values[i]; break; }
+                    }
+                    g_configService.setReaderRefreshThresholds(next, cfg.readerFullRefreshEvery);
+                    g_configService.save();
+                    renderState(state_);
+                    g_displayService.enqueueFull(false, 100);
+                    break;
+                }
+
+                case UiAction::CycleReaderFullRefresh:
+                {
+                    static const uint8_t values[] = { 0, 10, 20, 30, 40, 60 };
+                    const auto& cfg = g_configService.get();
+                    uint8_t next = values[0];
+                    for (size_t i = 0; i < sizeof(values); ++i) {
+                        if (cfg.readerFullRefreshEvery < values[i] &&
+                            (values[i] == 0 || values[i] > cfg.readerMiddleRefreshEvery)) {
+                            next = values[i];
+                            break;
+                        }
+                    }
+                    if (next != 0 && next <= cfg.readerMiddleRefreshEvery) {
+                        for (size_t i = 0; i < sizeof(values); ++i) {
+                            if (values[i] > cfg.readerMiddleRefreshEvery) { next = values[i]; break; }
+                        }
+                    }
+                    g_configService.setReaderRefreshThresholds(cfg.readerMiddleRefreshEvery, next);
+                    g_configService.save();
+                    renderState(state_);
+                    g_displayService.enqueueFull(false, 100);
+                    break;
+                }
+
+                case UiAction::CycleFontSize:
+                {
+                    uint8_t sizes[] = { 18, 24, 30, 36 };
+                    uint8_t cur = g_configService.get().fontSize;
+                    uint8_t next = sizes[0];
+                    for (size_t i = 0; i < sizeof(sizes); i++) {
+                        if (cur < sizes[i]) { next = sizes[i]; break; }
+                    }
+                    g_configService.setFontSize(next);
+                    g_configService.save();
+                    g_readerBook.onLayoutChanged();
+                    g_readerBook.rebuildCurrentChapterAsync();
+                    break;
+                }
+
+                case UiAction::CycleFontFamily:
+                {
+                    char paths[32][128];
+                    char names[32][64];
+                    int count = FontManager::scanFonts(paths, names, 32);
+                    if (count <= 0) break;
+                    uint8_t curIdx = g_configService.get().fontIndex;
+                    uint8_t nextIdx = (curIdx + 1) % count;
+                    g_configService.setFontIndex(nextIdx);
+                    g_configService.save();
+                    if (paths[nextIdx][0]) {
+                        g_readerText.loadFont(paths[nextIdx]);
+                    }
+                    g_readerBook.onLayoutChanged();
+                    g_readerBook.rebuildCurrentChapterAsync();
+                    break;
+                }
+
+                case UiAction::CycleLineSpacing:
+                {
+                    uint8_t spacings[] = { 50, 60, 70, 80 };
+                    uint8_t cur = g_configService.get().lineSpacing;
+                    uint8_t next = spacings[0];
+                    for (size_t i = 0; i < sizeof(spacings); i++) {
+                        if (cur < spacings[i]) { next = spacings[i]; break; }
+                    }
+                    g_configService.setLineSpacing(next);
+                    g_configService.save();
+                    g_readerBook.onLayoutChanged();
+                    g_readerBook.rebuildCurrentChapterAsync();
+                    break;
+                }
+
+                case UiAction::CycleJustify:
+                {
+                    g_configService.setJustify(!g_configService.get().justify);
+                    g_configService.save();
+                    g_readerBook.onLayoutChanged();
+                    g_readerBook.rebuildCurrentChapterAsync();
+                    break;
+                }
+
+                case UiAction::CycleSimplified:
+                {
+                    g_configService.setSimplifiedChinese(!g_configService.get().simplifiedChinese);
+                    g_configService.save();
+                    g_readerBook.onLayoutChanged();
+                    g_readerBook.rebuildCurrentChapterAsync();
+                    break;
+                }
+
+                case UiAction::CycleMarginLeft:
+                {
+                    static const uint8_t kMarginValues[] = { 16, 24, 34, 48, 64 };
+                    uint8_t cur = g_configService.get().marginLeft;
+                    uint8_t next = kMarginValues[0];
+                    for (size_t i = 0; i < sizeof(kMarginValues); i++) {
+                        if (cur < kMarginValues[i]) { next = kMarginValues[i]; break; }
+                    }
+                    g_configService.setMargins(next, next,
+                        g_configService.get().marginTop,
+                        g_configService.get().marginBottom);
+                    g_configService.save();
+                    g_readerBook.onLayoutChanged();
+                    g_readerBook.rebuildCurrentChapterAsync();
+                    break;
+                }
+
                 case UiAction::OpenDiagnostics:
                     state_ = SystemState::Diagnostics;
                     g_uiRenderer.renderDiagnostics(message, "进入诊断");
@@ -219,98 +579,16 @@ void StateMachine::handle(const Message& message) {
                     break;
 
                 case UiAction::RequestShutdown:
-                    state_ = SystemState::ShutdownConfirm;
-                    g_uiRenderer.renderShutdownConfirm();
-                    g_displayService.enqueueFull(true, 100);
-                    suppressAfterTransition();
-                    break;
-
-                case UiAction::ConfirmShutdown:
                     state_ = SystemState::Shutdown;
                     shutdownPaperS3("正在关机");
                     break;
-
-                case UiAction::CancelShutdown:
-                    state_ = SystemState::Settings;
-                    renderState(state_);
-                    g_displayService.enqueueFull(false, 100);
-                    suppressAfterTransition();
-                    break;
-
-                case UiAction::CycleReaderRefreshStrategy:
-                    g_displayService.cycleReaderRefreshStrategy();
-                    state_ = SystemState::Settings;
-                    renderState(state_);
-                    g_displayService.enqueueFull(false, 100);
-                    suppressAfterTransition();
-                    break;
-
-                case UiAction::ToggleReaderAntiAlias:
-                    g_readerText.toggleAntiAlias();
-                    state_ = SystemState::Settings;
-                    renderState(state_);
-                    g_displayService.enqueueFull(false, 100);
-                    suppressAfterTransition();
-                    break;
-
-                case UiAction::CycleReaderLayoutPreset:
-                    g_readerText.cycleLayoutPreset();
-                    g_readerBook.invalidatePaginationForLayoutChange();
-                    state_ = SystemState::Settings;
-                    renderState(state_);
-                    g_displayService.enqueueFull(false, 100);
-                    suppressAfterTransition();
-                    break;
-
-                case UiAction::CycleReaderPageMargin:
-                    g_readerText.cyclePageMargin();
-                    g_readerBook.invalidatePaginationForLayoutChange();
-                    state_ = SystemState::Settings;
-                    renderState(state_);
-                    g_displayService.enqueueFull(false, 100);
-                    suppressAfterTransition();
-                    break;
-
-                case UiAction::CycleReaderLineSpacing:
-                    g_readerText.cycleLineSpacing();
-                    g_readerBook.invalidatePaginationForLayoutChange();
-                    state_ = SystemState::Settings;
-                    renderState(state_);
-                    g_displayService.enqueueFull(false, 100);
-                    suppressAfterTransition();
-                    break;
-
-                case UiAction::ToggleReaderPageTurnEffect:
-                    g_readerText.togglePageTurnEffect();
-                    state_ = SystemState::Settings;
-                    renderState(state_);
-                    g_displayService.enqueueFull(false, 100);
-                    suppressAfterTransition();
-                    break;
-
-                case UiAction::StartLegadoSync:
-                {
-                    // Keep the ReadPaper-like event path: UI hit-test creates an action,
-                    // state posts a service-level sync message, service reports result.
-                    state_ = SystemState::LegadoSync;
-                    g_uiRenderer.renderLegadoSync("Starting Legado sync...");
-                    g_displayService.enqueueFull(false, 100);
-                    Message start;
-                    start.type = MessageType::LegadoSyncStart;
-                    start.timestampMs = millis();
-                    post(start, 20);
-                    break;
-                }
-
                 case UiAction::OpenCurrentBook:
                 {
                     const bool fromLibrary = state_ == SystemState::Library;
                     if (fromLibrary) {
                         if (!g_readerBook.handleLibraryTap(message.touch.x, message.touch.y)) break;
-                        if (g_readerBook.lastLibraryTapOpenedBook()) {
-                            state_ = SystemState::ReaderMenu;
-                            g_readerBook.renderCurrent();
-                        }
+                        state_ = SystemState::ReaderMenu;
+                        g_readerBook.renderCurrent();
                     } else {
                         state_ = SystemState::ReaderMenu;
                         g_readerBook.renderOpenOrHelp();
@@ -322,12 +600,14 @@ void StateMachine::handle(const Message& message) {
 
                 case UiAction::None:
                     if (state_ == SystemState::ReaderMenu && g_readerBook.handleTap(message.touch.x, message.touch.y)) {
-                        enqueueReaderDisplay(true);
+                        // Tap-triggered page turn: get direction from handleTap
+                        enqueueReaderAwareRefresh(
+                            g_readerBook.consumeLastTapNextPage()
+                                ? DisplayEffect::HorizontalShutter
+                                : DisplayEffect::VerticalShutter);
                     } else if (state_ == SystemState::Library && g_readerBook.handleLibraryTap(message.touch.x, message.touch.y)) {
-                        if (g_readerBook.lastLibraryTapOpenedBook()) {
-                            state_ = SystemState::ReaderMenu;
-                            g_readerBook.renderCurrent();
-                        }
+                        state_ = SystemState::ReaderMenu;
+                        g_readerBook.renderCurrent();
                         g_displayService.enqueueFull(false, 100);
                     }
                     break;
@@ -340,13 +620,14 @@ void StateMachine::handle(const Message& message) {
         }
 
         case MessageType::SwipeLeft:
+            onActivity();
             if (state_ == SystemState::Diagnostics) {
                 g_uiRenderer.renderDiagnostics(message, "swipe-left");
                 g_displayService.enqueueFull(false, 100);
                 break;
             }
             if (state_ == SystemState::ReaderMenu) {
-                if (g_readerBook.nextPage()) enqueueReaderDisplay(true);
+                if (g_readerBook.nextPage()) enqueueReaderAwareRefresh(DisplayEffect::HorizontalShutter);  // forward
                 break;
             }
             if (state_ == SystemState::Library) {
@@ -354,20 +635,35 @@ void StateMachine::handle(const Message& message) {
                 else { state_ = SystemState::Transfer; renderState(state_); g_displayService.enqueueFull(false, 100); }
                 break;
             }
-            if (state_ == SystemState::Reader) state_ = SystemState::Library;
+            if (state_ == SystemState::Reader) {
+                // Swipe left → previous tab
+                state_ = SystemState::Library;
+                renderState(state_);
+                g_displayService.enqueueFull(false, 100);
+                break;
+            }
             else if (state_ == SystemState::Transfer) state_ = SystemState::Settings;
+            else if (state_ == SystemState::SettingsLayout ||
+                     state_ == SystemState::SettingsRefresh ||
+                     state_ == SystemState::SettingsWifi ||
+                     state_ == SystemState::SettingsSystem ||
+                     state_ == SystemState::TransferWifiAp ||
+                     state_ == SystemState::TransferUsb ||
+                     state_ == SystemState::TransferExport)
+                state_ = SystemState::Settings;
             renderState(state_);
             g_displayService.enqueueFull(false, 100);
             break;
 
         case MessageType::SwipeRight:
+            onActivity();
             if (state_ == SystemState::Diagnostics) {
                 g_uiRenderer.renderDiagnostics(message, "swipe-right");
                 g_displayService.enqueueFull(false, 100);
                 break;
             }
             if (state_ == SystemState::ReaderMenu) {
-                if (g_readerBook.prevPage()) enqueueReaderDisplay(true);
+                if (g_readerBook.prevPage()) enqueueReaderAwareRefresh(DisplayEffect::VerticalShutter);  // backward
                 break;
             }
             if (state_ == SystemState::Library) {
@@ -375,82 +671,89 @@ void StateMachine::handle(const Message& message) {
                 else { state_ = SystemState::Reader; renderState(state_); g_displayService.enqueueFull(false, 100); }
                 break;
             }
-            if (state_ == SystemState::Settings) state_ = SystemState::Transfer;
+            if (state_ == SystemState::Reader) {
+                // Swipe right → next tab
+                state_ = SystemState::Transfer;
+                renderState(state_);
+                g_displayService.enqueueFull(false, 100);
+                break;
+            }
             else if (state_ == SystemState::Transfer) state_ = SystemState::Library;
             renderState(state_);
             g_displayService.enqueueFull(false, 100);
             break;
 
         case MessageType::SwipeUp:
+            onActivity();
             if (state_ == SystemState::Diagnostics) {
                 g_uiRenderer.renderDiagnostics(message, "swipe-up");
                 g_displayService.enqueueFull(false, 100);
                 break;
             }
             if (state_ == SystemState::ReaderMenu && g_readerBook.nextPage()) {
-                enqueueReaderDisplay(true);
+                enqueueReaderAwareRefresh(DisplayEffect::HorizontalShutter);  // forward
             } else if (state_ == SystemState::Library && g_readerBook.nextLibraryPage()) {
                 g_displayService.enqueueFull(false, 100);
             }
             break;
 
         case MessageType::SwipeDown:
+            onActivity();
             if (state_ == SystemState::Diagnostics) {
                 g_uiRenderer.renderDiagnostics(message, "swipe-down");
                 g_displayService.enqueueFull(false, 100);
                 break;
             }
             if (state_ == SystemState::ReaderMenu && g_readerBook.prevPage()) {
-                enqueueReaderDisplay(true);
+                enqueueReaderAwareRefresh(DisplayEffect::VerticalShutter);  // backward
             } else if (state_ == SystemState::Library && g_readerBook.prevLibraryPage()) {
                 g_displayService.enqueueFull(false, 100);
             }
             break;
-
-        case MessageType::LegadoSyncStart:
-            state_ = SystemState::LegadoSync;
-            g_uiRenderer.renderLegadoSync("Syncing reading progress...");
-            g_displayService.enqueueFull(false, 100);
-            // Placeholder until real HTTP API integration; keep result asynchronous via state message.
-            {
-                Message done;
-                done.type = MessageType::LegadoSyncDone;
-                done.timestampMs = millis();
-                post(done, 20);
-            }
-            break;
-
-        case MessageType::LegadoSyncDone:
-            state_ = SystemState::LegadoSync;
-            g_uiRenderer.renderLegadoSync("Sync complete");
-            g_displayService.enqueueFull(false, 100);
-            break;
-
-        case MessageType::LegadoSyncFailed:
-            state_ = SystemState::LegadoSync;
-            g_uiRenderer.renderLegadoSync("Sync failed");
-            g_displayService.enqueueFull(true, 100);
-            break;
-
         case MessageType::LongPress:
+            onActivity();
             if (state_ == SystemState::Diagnostics) {
                 g_uiRenderer.renderDiagnostics(message, "long-press");
                 g_displayService.enqueueFull(false, 100);
+                break;
+            }
+            if (state_ == SystemState::ReaderMenu) {
+                if (g_readerBook.handleLongPress(message.touch.x, message.touch.y)) {
+                    g_displayService.enqueueFull(false, 100);
+                }
+                break;
+            }
+            if (locked_) {
+                // When locked, all taps are consumed by the double-tap detector.
+                // LongPress carries no additional information here — just break.
+                break;
             }
             break;
 
         case MessageType::PowerButton:
-            state_ = SystemState::Shutdown;
-            shutdownPaperS3("正在关机");
+            if (locked_) {
+                wakeFromLockScreen();
+            } else {
+                state_ = SystemState::Shutdown;
+                shutdownPaperS3("正在关机");
+            }
+            break;
+
+        case MessageType::LockScreen:
+            enterLockScreen();
+            break;
+
+        case MessageType::WakeFromLockScreen:
+            wakeFromLockScreen();
             break;
 
         case MessageType::SleepTimeout:
-            // v0.3 does not auto-sleep yet; keep the message explicit so future
-            // timeout logic cannot silently enter an unvalidated sleep path.
-            Serial.println("[vink3][power] SleepTimeout ignored until real-device wake validation");
+            if (state_ == SystemState::Boot || state_ == SystemState::Shutdown) break;
+            enterSleep("自动休眠");
             break;
 
         case MessageType::TouchDown:
+            onActivity();
             if (state_ == SystemState::Diagnostics) {
                 g_uiRenderer.renderDiagnostics(message, "down");
                 g_displayService.enqueueFull(false, 100);

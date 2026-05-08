@@ -11,9 +11,18 @@ enum class SystemState : uint8_t {
     ReaderMenu,
     Transfer,
     Settings,
+    // Settings sub-pages
+    SettingsLayout,     // 阅读排版：字体/字号/行距/边距/两端对齐
+    SettingsRefresh,    // 显示刷新：极速/均衡/清晰
+    SettingsWifi,        // WiFi 配置
+    SettingsSystem,      // 系统信息 / 关于
+    // ── Transfer sub-pages ───────────────────────────────────────
+    TransferWifiAp,        // WiFi 热点模式
+    TransferUsb,           // USB MSC 确认
+    TransferExport,        // 维护 / 备份
+    // ── Diagnostics ──────────────────────────────────────────────
     Diagnostics,
-    LegadoSync,
-    ShutdownConfirm,
+    Locked,        // 锁屏状态（双击右下角触发，电源键/双击唤醒）
     Sleeping,
     Shutdown,
 };
@@ -34,11 +43,10 @@ enum class MessageType : uint8_t {
     OpenBook,
     PageNext,
     PagePrev,
-    LegadoSyncStart,
-    LegadoSyncDone,
-    LegadoSyncFailed,
     SleepTimeout,
     PowerButton,
+    LockScreen,
+    WakeFromLockScreen,
 };
 
 struct TouchPoint {
@@ -58,6 +66,8 @@ struct Message {
     // hardware diagnostics before Vink hit-testing or clamping.
     TouchPoint rawTouch{};
     int32_t value = 0;
+    // Generic extra payload for service→state messages (e.g. book count).
+    uint32_t scratch = 0;
 };
 
 } // namespace vink3
