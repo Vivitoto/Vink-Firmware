@@ -5,6 +5,21 @@
   "description": "面向 M5Stack PaperS3 的 Vink 电子书阅读固件。",
   "releases": [
     {
+      "version": "v0.4.7",
+      "name": "Vink-PaperS3 v0.4.7",
+      "summary": "IT8951 硬件翻页、UI 全面美化、多级目录自动识别、段落间距归零。",
+      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.7",
+      "changelog": "## Vink-PaperS3 v0.4.7\n\n### 翻页动画\n- 软件逐条渲染替换为 IT8951 原生 DU4 单次扫动（~120ms），无条带无残影。\n- 翻页方向通过 setRotation 翻转扫描方向 bit 控制，不涉及坐标重映射。\n\n### UI 全面美化\n- 新 6 色调色板，充分利用 PaperS3 灰阶层次。\n- Tab 页签画布居中布局，选中态浅灰填充 + 粗黑下划线。\n- 卡片左侧 accent 竖线增加视觉深度，正文自动换行防溢出。\n- 设置组改为动态高度（数组驱动），按钮位置自适应计算。\n- 操作备注自动换行截断，不再溢出屏幕。\n- 书架空态增加书脊图标，外框改为浅灰。\n\n### 多级目录识别\n- extractMarkers 提取行内所有 第·字 标记，支持中文/阿拉伯/全角数字混合。\n- 全局推断：从标记在行内的出现顺序自动推断关键词层级（不限具体字）。\n- isCjkKeyword 黑名单过滤 个/次/遍/只/条/件/张/步/层/段 等正文计数器。\n- 目录页按层级缩进展示：卷级顶格，章级缩 2 字。\n- TOC 缓存魔数 VCT4→VCT5，旧缓存自动失效重建。\n\n### 阅读排版\n- kParagraphGaps 全部归零，段落间不再有额外间距，每页固定行数。\n- 空白行合并已在排版优化紧凑预设内。\n\n### 开机基线\n- 未修改 main.cpp、Config.h、VinkRuntime.cpp、StateMachine.cpp。\n- 纯 UI/渲染/检测层改动，不影响启动和硬件初始化路径。",
+      "assets": {
+        "full": {
+          "name": "Vink-PaperS3-v0.4.7-full-16MB.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.7/Vink-PaperS3-v0.4.7-full-16MB.bin",
+          "size": 16777216,
+          "flashOffset": 0
+        }
+      }
+    },
+    {
       "version": "v0.4.6",
       "name": "Vink-PaperS3 v0.4.6",
       "summary": "优化大书目录识别速度、修正翻页动画方向与连贯性，新增阅读页 UI 字体页眉/页尾进度条，并修复正文最后一行可能缺字的问题。",
@@ -134,111 +149,6 @@
         "full": {
           "name": "Vink-PaperS3-v0.3.16-full-16MB.bin",
           "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.3.16/Vink-PaperS3-v0.3.16-full-16MB.bin",
-          "size": 16777216,
-          "flashOffset": 0
-        }
-      }
-    },
-    {
-      "version": "v0.3.8-rc-subdir-books",
-      "name": "Vink-PaperS3 v0.3.8-rc-subdir-books 书架子目录修正版",
-      "summary": "以用户确认可开机的 v0.3.8-rc A+B+D 为安全基线，仅修正固件内部版本号显示，并让书架递归识别 /books 下多级子目录里的 TXT 文件；目录、进度和分页缓存继续保存在源书籍同一目录。",
-      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.3.8-rc-subdir-books",
-      "changelog": "## Vink-PaperS3 v0.3.8-rc-subdir-books 书架子目录修正版\n\n### 安全基线\n- 以已真机确认能正常开机的 `v0.3.8-rc` 为基线，不引入 v0.3.9+ 的启动链路改动。\n- 修正 `kVinkPaperS3FirmwareVersion`，避免设置/关于页仍显示 `v0.3.7-rc`。\n\n### 书架修复\n- 书架扫描从只读取 `/books` 第一层，改为递归扫描 `/books` 下多级子目录。\n- 示例：`/books/斗罗大陆/斗罗大陆.txt` 现在会进入书架列表。\n- 书籍相关 sidecar 文件继续和源 TXT 保持在同一目录：`斗罗大陆.vink-toc`、`斗罗大陆.vink-progress`、`斗罗大陆.vink-pages`。\n- 增加递归深度上限和路径长度保护，避免异常目录拖垮扫描。\n\n### 验证状态\n- 本地已验证：source smoke、PlatformIO build、buildfs、full 16MB merge。\n- 需要真机验证：基于 v0.3.8 的启动稳定性、子目录书籍识别、开书后 sidecar 是否生成在同一层级。",
-      "assets": {
-        "full": {
-          "name": "Vink-PaperS3-v0.3.8-rc-subdir-books-full-16MB.bin",
-          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.3.8-rc-subdir-books/Vink-PaperS3-v0.3.8-rc-subdir-books-full-16MB.bin",
-          "size": 16777216,
-          "flashOffset": 0
-        }
-      }
-    },
-    {
-      "version": "v0.3.8-rc",
-      "name": "Vink-PaperS3 v0.3.8-rc A+B+D 三合一优化版",
-      "summary": "三合一优化：epd_text LUT 改善文字刷新质量、线性 kRemap 消除激进压缩导致的 Bayer 节结、ReaderTextRenderer 全部走 pixelColorForNibble 统一 AA 路径。",
-      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.3.8-rc",
-      "changelog": "## Vink-PaperS3 v0.3.8-rc A+B+D 三合一优化版\n\n### 三项优化\n- **A. epd_text LUT**：普通 UI push 改用 epd_text (kNormalRefresh) 而非 epd_quality，改善文字/UI 刷新质量。\n- **B. 线性 kRemap**：CjkTextRenderer + ReaderTextRenderer 的 kRemap 表改为完全线性（无激进压缩），消除激进压缩导致的 Bayer dithering 节结/锯齿。\n- **D. Reader 统一 AA 路径**：ReaderTextRenderer 不再对 nibble 分级硬编码颜色，全部走 pixelColorForNibble 统一映射。\n\n### 改动\n- DisplayService::chooseRefreshMode：普通 push 返回 kNormalRefresh (epd_text)；质量请求仍用 epd_quality。\n- VinkRuntime 启动探针后同样用 epd_text。\n- CjkTextRenderer::pixelColorForNibble：kRemap 注释更新为线性版本。\n- ReaderTextRenderer::pixelColorForNibble：kRemap 注释更新为线性版本；drawReadPaperGlyph 不再硬编码颜色分段，全部走 pixelColorForNibble。\n\n### 验证状态\n- 本地已验证：source smoke、PlatformIO build、buildfs、full 16MB merge。\n- 需要真机验证：文字边缘锯齿是否改善、epd_text 刷新质量、Reader 渲染路径是否正常。",
-      "assets": {
-        "full": {
-          "name": "Vink-PaperS3-v0.3.8-rc-abc-full-16MB.bin",
-          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.3.8-rc/Vink-PaperS3-v0.3.8-rc-abc-full-16MB.bin",
-          "size": 16777216,
-          "flashOffset": 0
-        }
-      }
-    },
-    {
-      "version": "v0.3.7-rc",
-      "name": "Vink-PaperS3 v0.3.7-rc 抗锯齿灰度修复 & 统一 24px RC",
-      "summary": "基于真机反馈保留 24px UI 简体字体与现有卡片布局，修复：英文大小写 descender baseline 对齐、中文同一行盒、Reader 提示页标点 yOffset；增强抗锯齿灰度 gamma 补偿映射，使笔画边缘在电子纸上清晰锐利。",
-      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.3.7-rc",
-      "changelog": "## Vink-PaperS3 v0.3.7-rc 抗锯齿灰度修复 & 统一 24px RC\n\n### 目的\n- 用户确认 24px 字号和卡片布局无误，继续修复字体渲染细节。\n- 英文大小写 descender 位置、中文行盒对齐、Reader 提示页标点需要修复。\n- 抗锯齿灰阶在电子纸上发虚，需要 gamma 补偿使笔画清晰。\n\n### 改动\n- 保留 24px UI 简体字体与原卡片布局。\n- 英文大小写混排按统一 baseline；`g/p/y/j/q` 等 descender 正常下探到 baseline 下方。\n- 中文标签、右侧值与英文混排共享同一 UI line-box。\n- Reader 书架提示页英文标点（`.` `o` `v` `,`）使用 ReadPaper 字库自带 `yOffset`，不再被居中抬高。\n- 两处渲染器的 4bpp 灰度抗锯齿像素通过 gamma 补偿映射表转换：最外层 AA 边缘（nibble 1）保持极淡灰度（0xEFFF），内层到核心笔画（nibble 2→15）平滑加深到纯黑，消除旧代码所有边缘变成同一中间灰度的发虚感。\n- 按钮文字在按钮几何中心精确居中。\n- 不再使用 16px 小字（SPIFFS 灰阶字体），避免刷不出来的问题。\n\n### 官方依据与验证边界\n- 官方依据：PaperS3 为 960×540 / 16 级灰度 EPD。\n- 经验判断 / 需要真机验证：gamma 补偿后笔画边缘在电子纸上的实际清晰度。\n\n### 验证状态\n- 本地已验证：source smoke、PlatformIO build、buildfs、full 16MB merge。\n- 需要真机验证：英文 descender、中文行盒对齐、标点位置、抗锯齿边缘清晰度。",
-      "assets": {
-        "full": {
-          "name": "Vink-PaperS3-v0.3.7-rc-aa-unified-24px-full-16MB.bin",
-          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.3.7-rc/Vink-PaperS3-v0.3.7-rc-aa-unified-24px-full-16MB.bin",
-          "size": 16777216,
-          "flashOffset": 0
-        }
-      }
-    },
-    {
-      "version": "v0.3.6-rc",
-      "name": "Vink-PaperS3 v0.3.6-rc 竖屏接管诊断 RC",
-      "summary": "修正 v0.3.5 真机反馈的横屏问题：按官方触摸示例回到 rotation 0 / 540×960 竖屏；保留官方启动探针，随后进入 ASCII 竖屏诊断页验证 Vink Canvas 接管和 raw 触摸坐标。",
-      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.3.6-rc",
-      "changelog": "## Vink-PaperS3 v0.3.6-rc 竖屏接管诊断 RC\n\n### 目的\n- 用户真机确认 v0.3.5-rc 官方启动探针有显示，且触摸能点中。\n- 同时反馈显示变横屏、中文字没有显示出来。\n- 因此本版不再查 bootloader/合包，而是修正显示基准并隔离字体路径。\n\n### 改动\n- 显示/触摸基准改回官方 PaperS3 触摸示例：`M5.begin()` + `M5.Display.setRotation(0)` + `M5.update()` + `M5.Touch.getDetail()` raw 坐标。\n- Vink 逻辑画布恢复竖屏 `540×960`。\n- 保留 direct `M5.Display` 官方启动探针，但文字改为 `M5.begin + rotation 0`。\n- `BootComplete` 后先进入诊断页，不进入阅读器主页。\n- 诊断页使用英文 ASCII / M5Canvas 内置字体绘制，暂时绕开中文 CJK 字体路径，避免“字没显示”影响底层判断。\n- 诊断页显示 display 尺寸、rotation、USB/CHG/BAT、raw/norm 触摸坐标和 3×3 命中网格。\n\n### 验证状态\n- 本地已验证：编译、buildfs、full 16MB merge、local smoke。\n- 需要真机验证：是否竖屏显示 `VINK DIAGNOSTIC / OFFICIAL PORTRAIT`；触摸后 raw/norm 和黑点是否变化且位置正确。",
-      "assets": {
-        "full": {
-          "name": "Vink-PaperS3-v0.3.6-rc-portrait-diagnostic-full-16MB.bin",
-          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.3.6-rc/Vink-PaperS3-v0.3.6-rc-portrait-diagnostic-full-16MB.bin",
-          "size": 16777216,
-          "flashOffset": 0
-        }
-      }
-    },
-    {
-      "version": "v0.3.5-rc",
-      "name": "Vink-PaperS3 v0.3.5-rc 官方底层回归 RC",
-      "summary": "针对真机反馈连开机显示都没有反应，撤掉非官方底层假设：启动严格回归 M5Stack 官方 UserDemo 路径 M5.begin() + Display.setRotation(1) + epd_quality 直接首屏，触摸按官方 M5.update/getDetail raw 坐标读取，不做坐标推断/旋转搜索。",
-      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.3.5-rc",
-      "changelog": "## Vink-PaperS3 v0.3.5-rc 官方底层回归 RC\n\n### 目的\n- v0.3.3-rc 真机反馈：烧录后按电源键连开机/启动显示都没有反应。\n- 本版不再继续修补上层交互，先回归官方底层启动、显示、触摸路径。\n\n### 官方底层回归\n- 启动改回 M5Stack UserDemo 方式：`M5.begin()` 默认路径。\n- 显示改回官方 UserDemo 基线：`M5.Display.setRotation(1)`。\n- 首屏直接用 `M5.Display` + `epd_quality` 画白底启动探针文字，先验证真机开机后 EPD 必须有画面。\n- 底层显示尺寸改为官方 UserDemo 的 960×540。\n- 触摸输入按官方示例：循环 `M5.update()`，读取 `M5.Touch.getDetail()` / `isPressed()`，raw 坐标直接使用，不做 540×960 推断、缩放、旋转或 coordinate-mode 猜测。\n- 显示刷新暂时优先 `epd_quality`，不使用自定义 fast/text 切换作为底层默认。\n\n### 验证状态\n- 本地已验证：编译、buildfs、full 16MB merge。\n- 需要真机验证：烧录后是否立即出现 official boot 探针文字；触摸诊断 raw 坐标是否按官方路径变化。",
-      "assets": {
-        "full": {
-          "name": "Vink-PaperS3-v0.3.5-rc-official-baseline-full-16MB.bin",
-          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.3.5-rc/Vink-PaperS3-v0.3.5-rc-official-baseline-full-16MB.bin",
-          "size": 16777216,
-          "flashOffset": 0
-        }
-      }
-    },
-    {
-      "version": "v0.3.4-rc",
-      "name": "Vink-PaperS3 v0.3.4-rc 电源键热修 RC",
-      "summary": "针对 v0.3.3-rc 真机反馈“按电源键没有反应”做电源键热修：不再把 GPIO36 当作 PaperS3 侧边电源键读取，改为只走 M5Unified BtnPWR；单次稳定按下即请求关机，同时保留长按兜底，并在设置页增加触摸关机入口。",
-      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.3.4-rc",
-      "changelog": "## Vink-PaperS3 v0.3.4-rc 电源键热修 RC\n\n### 电源键热修\n- 针对 v0.3.3-rc 真机反馈：按侧边电源键没有反应。\n- 不再把 GPIO36 当作 PaperS3 侧边电源键读取；GPIO36 只保留为 legacy M5Paper touch-int 审计备注。\n- 电源键输入改为仅使用 M5Unified `BtnPWR`，并关闭默认 debounce/hold 阈值干扰。\n- 启动后等待按键释放再 arm，但等待时间从 3s 降到 1.2s。\n- 系统内单次稳定按下/松开即请求关机，不再使用无视觉反馈的双击窗口。\n- 保留 1.2s 长按兜底。\n- deep-sleep fallback 不再 arm 未验证的 GPIO36 wake source。\n\n### 触摸兜底\n- 设置页“系统 / 电源”行增加触摸关机入口：如果物理侧键仍因硬件/库限制无法读到，可以从设置页点电源关机。\n\n### 验证状态\n- 本地已验证：source smoke、PlatformIO build/buildfs/full merge。\n- 需要真机验证：侧边电源键是否能触发关机页、设置页电源触摸关机、关机后是否断电/不重启。",
-      "assets": {
-        "full": {
-          "name": "Vink-PaperS3-v0.3.4-rc-powerkey-hotfix-full-16MB.bin",
-          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.3.4-rc/Vink-PaperS3-v0.3.4-rc-powerkey-hotfix-full-16MB.bin",
-          "size": 16777216,
-          "flashOffset": 0
-        }
-      }
-    },
-    {
-      "version": "v0.3.3-rc",
-      "name": "Vink-PaperS3 v0.3.3-rc 官方触控/UI/电源键 RC",
-      "summary": "基于官方 PaperS3 文档继续核对触控、UI 显示与电源键交互：触摸坐标模式改为持久化判定并支持过渡/唤醒抑制，阅读页补齐大区域三分区翻页，阅读管理页 Tab 样式与 Shell 统一，书架行命中不再误进阅读菜单，电源键按官方双击关机并保留长按兜底。",
-      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.3.3-rc",
-      "changelog": "## Vink-PaperS3 v0.3.3-rc 官方触控/UI/电源键 RC\n\n### 触控\n- raw→normalized 不再逐点猜坐标系，改为持久化 touch coordinate mode，避免物理 960×540 左半屏被误当成 540×960 逻辑坐标。\n- 新增过渡/显示刷新期间的触摸抑制，必须等手指释放后才重新接受点击，减少唤醒或翻页后的 stale tap。\n- Tap 增加移动容差，移动过大但不足以构成 swipe 的手势会取消，不再误当点击。\n- 诊断页显示 active touch mode、raw/norm、count、rotation、display/physical 尺寸。\n\n### UI 显示\n- 阅读管理页四 Tab 改为与 Shell 一致的描边+下划线选中样式，不再使用黑底白字选中 Tab。\n- 书架 hit-test 收窄：只有 ReaderBookService 确认命中可见书籍行后才进入阅读菜单。\n- 阅读正文支持大区域三分区点击：左三分之一上一页，右三分之一下一页，中间进入书籍菜单；保留 swipe。\n- DisplayService 在 quality refresh 后恢复 4bpp grayscale color depth，保持 PaperS3 shell/reader 路径一致。\n\n### 电源键\n- 侧边电源键按官方交互：开机后等待启动按键释放，再接受后续双击关机。\n- 保留长按兜底，但不再用 80ms 短按直接关机。\n- 关机路径先保存阅读进度、刷新关机页、按 factory 风格 sleep/wait/powerOff，GPIO44 PMIC pulse 仅作兜底。\n\n### 验证状态\n- 本地已验证：PlatformIO build、buildfs、full 16MB merge、local smoke。\n- 需要真机验证：GT911 坐标方向、九宫格命中、阅读三分区点击、双击关机、电源切断/不重启、EPD 实际刷新。",
-      "assets": {
-        "full": {
-          "name": "Vink-PaperS3-v0.3.3-rc-official-input-ui-power-full-16MB.bin",
-          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.3.3-rc/Vink-PaperS3-v0.3.3-rc-official-input-ui-power-full-16MB.bin",
           "size": 16777216,
           "flashOffset": 0
         }
