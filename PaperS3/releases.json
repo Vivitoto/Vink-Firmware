@@ -5,30 +5,15 @@
   "description": "面向 M5Stack PaperS3 的 Vink 电子书阅读固件。",
   "releases": [
     {
-      "version": "v0.4.3",
-      "name": "Vink-PaperS3 v0.4.3",
-      "summary": "改用流式分页提升目录/跨章节打开速度，章节级恢复避免排版变更错页，并补齐 Web UI 缓存维护、上传到 /books 与设备端 WiFi/Web UI 提示。",
-      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.3",
-      "changelog": "## Vink-PaperS3 v0.4.3\n\n### 阅读分页策略\n- 阅读器改为流式分页：进入章节时只测量当前屏，目录跳转和跨章节打开不再等待整章分页。\n- 不再读取或写入持久 `.vink-pages` 分页缓存，避免旧排版缓存导致错页。\n- 阅读进度调整为章节级恢复；修改字号、边距、行距、段距等排版设置后，会按当前章节起点用新设置立即重排。\n- 正文页脚在未知总页数时显示“第 N 页”，不再用不准确的章节总页数。\n\n### Web UI 与缓存维护\n- Web UI 书架页保留缓存状态查看，并支持单本、批量、无主目录/分页缓存清理。\n- 缓存清理只删除 `.vink-toc` / `.vink-pages`，保留 `.vink-progress` 阅读记录。\n- Web UI 支持把 TXT 直接上传到 `/books`，并保留完整配置备份。\n\n### 设备端提示\n- 传输/WiFi 页面显示更明确的 SSID 与 `http://<设备IP>` Web UI 访问提示。\n- 去掉截图、书架导出、阅读进度导出等不需要的入口。\n\n### 验证状态\n- 本地 smoke、diff check、PlatformIO build、SPIFFS build、full 16MB merge 均通过。\n- 需要真机验证：大书目录跳转速度、跨章节翻页速度、改排版后的当前章节重排、Web UI 缓存维护按钮。\n",
+      "version": "v0.4.4",
+      "name": "Vink-PaperS3 v0.4.4",
+      "summary": "基于 v0.4.2 可开机基线重做：加入流式分页、跨章上一页按需定位、触摸响应修复、翻页动画，以及手动启动的 WiFi WebUI 文件传输与完整阅读配置页。",
+      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.4",
+      "changelog": "## Vink-PaperS3 v0.4.4\n\n### 可开机基线重做\n- 以已验证可开机的 v0.4.2 启动链路为基线重做，不引入旧 v0.4.3 的 runtime/core/ConfigService 启动链路。\n- 保持 M5Unified 初始化、分区表、SD 懒初始化策略不变，新增功能不参与 boot。\n\n### 阅读体验\n- 长章节改为流式分页：进入章节只测当前页，翻页时再测下一页，避免整章同步分页卡顿。\n- 从章节第一页向前翻页时，按需在内存中分段定位上一章末页；不处理整本书，不写持久分页缓存，并周期性让出 CPU 降低 watchdog 风险。\n- 不再读取或写入 `.vink-pages` 分页缓存，旧缓存只可清理，不作为阅读路径依赖。\n- 页脚未知总页数时显示“第 N 页”。\n- 修复快速连续触摸容易被抑制导致“不跟手”的问题。\n- 合入阅读页翻页动画：下一页左到右、上一页右到左；菜单/文件页切换不触发动画。\n\n### WiFi 文件传输 WebUI\n- 传输页新增手动启动/关闭 `Vink-PaperS3` 热点，WebUI 只在用户主动启动热点后运行。\n- WebUI 保留文件浏览器和配置页：文件页可浏览 SD、创建目录、上传文件、下载、重命名、删除。\n- 移除 WebUI 书架页；上传 TXT 可直接放到任意目录，设备端书架按 SD 文件夹读取。\n- 配置页写入设备本机 NVS 阅读/显示设置，包括字体大小、行间距、段间距、首行缩进、上下左右边距、两端对齐、排版模式、刷新策略、中间刷新页数、GC16 全刷页数、抗锯齿、下划线、翻页动画和 WiFi STA 凭据。自动休眠、锁屏、双击唤醒等安全基线尚未实现的系统项仅占位展示，不保存、不影响启动链路。\n- WebUI 所有 SD 操作通过固件已有 SD 懒初始化入口，不绕过本机初始化策略。\n\n### 边界保证\n- 不自动启动 WiFi，不自动启动 HTTP server，不在 boot 注册 WebUI route。\n- 不新增独立 ConfigService；WebUI 配置写入当前固件本机 NVS 设置源。\n\n### 验证状态\n- 本地 `git diff --check`、PlatformIO build、SPIFFS build、full 16MB merge 通过。\n- 需要真机验证：冷启动、连续触摸、翻页动画、手动启动热点、WebUI 上传 TXT、设备端书架读取上传文件。\n",
       "assets": {
         "full": {
-          "name": "Vink-PaperS3-v0.4.3-full-16MB.bin",
-          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.3/Vink-PaperS3-v0.4.3-full-16MB.bin",
-          "size": 16777216,
-          "flashOffset": 0
-        }
-      }
-    },
-    {
-      "version": "v0.4.2",
-      "name": "Vink-PaperS3 v0.4.2",
-      "summary": "根据真机视频对比调校阅读显示：锐化抗锯齿、降低翻页过渡闪动，并在设置页补充页边距与行间距入口。",
-      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.2",
-      "changelog": "## Vink-PaperS3 v0.4.2\n\n### 真机显示调校\n- 根据 Vink v0.4.1 与参考阅读器翻页视频对比，调整正文抗锯齿策略。\n- 字形核心像素保持黑色，只在少量角落像素做轻灰过渡，避免 v0.4.1 边缘灰雾过重导致文字发糊。\n- 均衡刷新策略改为优先使用 text LUT，减少翻页时的整页抖动感，同时保留周期性完整清理。\n- 翻页效果不再强制走 quality 全刷，而是走更克制的 text 刷新路径，降低视觉闪动和过渡能量。\n\n### 排版设置入口\n- 设置页新增 `页边距` 和 `行间距` 两个直接可调项。\n- 调整页边距/行间距后会失效当前分页缓存，并按当前阅读位置重建分页，目录缓存保持不变。\n- 设置页保留 `排版优化`、`抗锯齿`、`刷新策略` 和 `翻页效果` 状态。\n\n### 验证状态\n- 本地 smoke、diff check、PlatformIO build、SPIFFS build、full 16MB merge 均通过。\n- 需要真机验证：文字清晰度、翻页残影、页边距/行间距切换后的分页恢复。\n",
-      "assets": {
-        "full": {
-          "name": "Vink-PaperS3-v0.4.2-full-16MB.bin",
-          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.2/Vink-PaperS3-v0.4.2-full-16MB.bin",
+          "name": "Vink-PaperS3-v0.4.4-full-16MB.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.4/Vink-PaperS3-v0.4.4-full-16MB.bin",
           "size": 16777216,
           "flashOffset": 0
         }

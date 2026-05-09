@@ -1,14 +1,11 @@
 #include "VinkRuntime.h"
-#include "../config/ConfigService.h"
 #include "../display/DisplayService.h"
-#include "../sync/WifiService.h"
 #include "../input/InputService.h"
 #include "../reader/ReaderBookService.h"
 #include "../reader/ReaderTextRenderer.h"
 #include "../state/StateMachine.h"
+#include "../sync/LegadoService.h"
 #include "../ui/VinkUiRenderer.h"
-#include "../../FontManager.h"
-#include "../webui/WebUiService.h"
 #include <SPIFFS.h>
 #include <SD.h>
 #include "esp_sleep.h"
@@ -41,22 +38,10 @@ void applyOfficialPaperS3DisplaySetup() {
     gPaperS3ActiveDisplayRotation = kPaperS3DisplayRotation;
 }
 
-void drawOfficialBootProbe() {
-    // A+B+D: use epd_text LUT for boot probe — crisper text rendering
-    M5.Display.setEpdMode(epd_mode_t::epd_text);
-    M5.Display.setTextDatum(middle_center);
-    M5.Display.setTextColor(TFT_BLACK, TFT_WHITE);
-    M5.Display.fillScreen(TFT_WHITE);
-    delay(200);
-    M5.Display.drawString("Vink PaperS3 official boot", M5.Display.width() / 2, M5.Display.height() / 2 - 28);
-    M5.Display.drawString("M5.begin + rotation 0", M5.Display.width() / 2, M5.Display.height() / 2 + 18);
-    M5.Display.waitDisplay();
-    delay(800);
-}
 } // namespace
 
 bool VinkRuntime::begin() {
-    Serial.printf("[vink3][runtime] starting %s from Vink reference core baseline\n", kVinkPaperS3FirmwareVersion);
+    Serial.printf("[vink3][runtime] starting %s from ReadPaper V1.7.6 baseline\n", kVinkPaperS3FirmwareVersion);
     if (!beginHardware()) return false;
     if (!beginCanvas()) return false;
     if (!beginServices()) return false;
@@ -69,7 +54,7 @@ bool VinkRuntime::beginHardware() {
 
     Serial.begin(115200);
     delay(200);
-    Serial.printf("\n[Vink %s] Vink baseline %s @ %s\n", kVinkPaperS3FirmwareVersion, kVinkPaperS3CoreReferenceVersion, kVinkPaperS3CoreReferenceCommit);
+    Serial.printf("\n[Vink %s] ReadPaper baseline %s @ %s\n", kVinkPaperS3FirmwareVersion, kReadPaperUpstreamVersion, kReadPaperUpstreamCommit);
     Serial.printf("[vink3][boot] wake cause=%d psram size=%u free=%u flash=%u\n",
                   static_cast<int>(esp_sleep_get_wakeup_cause()),
                   ESP.getPsramSize(), ESP.getFreePsram(), ESP.getFlashChipSize());
@@ -83,13 +68,10 @@ bool VinkRuntime::beginHardware() {
     auto cfg = M5.config();
     // Official M5PaperS3-UserDemo uses the default M5.begin() path. Keep this
     // path strict and visible; no fallback-board override, no clear_display
-    // override, no Vink service-style startup masking.
+    // override, no ReadPaper-style startup masking.
     (void)cfg;
     M5.begin();
     delay(50);
-    // Disable M5Unified default hold detection so InputService owns power-button logic exclusively.
-    M5.BtnPWR.setDebounceThresh(0);
-    M5.BtnPWR.setHoldThresh(0);
     configureOfficialPaperS3Gpios();
 
     M5.Display.setEpdMode(kQualityRefresh);
@@ -98,7 +80,6 @@ bool VinkRuntime::beginHardware() {
     Serial.printf("[vink3][display] official touch rotation=%u expected=%dx%d actual=%dx%d\n",
                   gPaperS3ActiveDisplayRotation, kPaperS3Width, kPaperS3Height,
                   M5.Display.width(), M5.Display.height());
-    drawOfficialBootProbe();
 
     if (!SPIFFS.begin(false)) {
         Serial.println("[vink3][boot] SPIFFS mount failed; continuing without formatting");
@@ -123,27 +104,21 @@ bool VinkRuntime::beginCanvas() {
 }
 
 bool VinkRuntime::beginServices() {
-    g_configService.begin();
-    // Keep boot SD-free. ReaderBookService intentionally initializes SD lazily;
-    // scanning/loading SD fonts here can wedge PaperS3 during startup with some
-    // cards inserted, leaving the boot probe repeatedly refreshed by reset loops.
-    // ReaderTextRenderer::begin() below loads the bundled Vink PROGMEM font;
-    // SD fonts remain available from the layout/settings path after boot.
-    Serial.println("[vink3][runtime] boot font scan skipped; using default reader font");
-    g_webUi.begin(&g_configService);
     if (!g_uiRenderer.begin(&canvas_)) return false;
     if (!g_readerText.begin(&canvas_)) return false;
     if (!g_readerBook.begin()) return false;
     if (!g_displayService.begin(&canvas_)) return false;
     if (!g_stateMachine.begin()) return false;
     if (!g_inputService.begin(&g_stateMachine)) return false;
-    if (!g_wifiService.begin()) return false;
+    if (!g_legadoService.begin(&g_stateMachine)) return false;
     return true;
 }
 
 void VinkRuntime::drawBoot() {
     g_uiRenderer.renderBoot();
     g_displayService.enqueueFull(true, 100);
+    g_displayService.waitIdle(3000);
+    delay(600);
 
     Message bootDone;
     bootDone.type = MessageType::BootComplete;
@@ -152,7 +127,7 @@ void VinkRuntime::drawBoot() {
 }
 
 void VinkRuntime::loop() {
-    // Vink's main task becomes a lightweight supervisor after services are
+    // ReadPaper's main task becomes a lightweight supervisor after services are
     // started. Keep this loop intentionally quiet; state/input/display tasks own work.
     const uint32_t now = millis();
     if (now - lastHeartbeatLogMs_ > 60000) {
@@ -162,19 +137,6 @@ void VinkRuntime::loop() {
                       static_cast<unsigned long>(g_displayService.pushCount()),
                       ESP.getFreeHeap(), ESP.getFreePsram());
     }
-
-    // Auto-sleep: check idle timeout every loop tick.
-    const auto& cfg = g_configService.get();
-    if (cfg.autoSleepEnabled && cfg.autoSleepMinutes > 0) {
-        const uint32_t idleMs = now - g_stateMachine.lastActivityMs();
-        if (idleMs >= static_cast<uint32_t>(cfg.autoSleepMinutes) * 60000) {
-            Message msg;
-            msg.type = MessageType::SleepTimeout;
-            msg.timestampMs = now;
-            g_stateMachine.post(msg, 0);
-        }
-    }
-
     delay(1000);
 }
 

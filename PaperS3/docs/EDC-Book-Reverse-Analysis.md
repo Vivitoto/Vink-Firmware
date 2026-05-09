@@ -8,20 +8,6 @@
 
 ---
 
-## 0. 集成边界（2026-05-08 校正）
-
-本报告分析对象是 **EDC Book / 梦西游 / mengxiyou 的 16MB 二进制固件**，不是 M5ReadPaper / ReadPaper 源码。
-
-后续 Vink 集成必须严格区分三类来源：
-
-1. **Vink 当前代码**：唯一的实现主体，继续在本仓库内演进。
-2. **M5ReadPaper / ReadPaper 源码**：只能作为 PaperS3 通用工程参考，例如显示刷新、触摸、SD、电源、文本分页等 known-good 思路；它不是 EDCBook 源码，也不应被整体移植成 Vink 内核。
-3. **EDCBook / 梦西游二进制逆向证据**：作为目标 UX、布局、功能规格来源，包括阅读界面、Web UI、字体分区、多编码、封面/锁屏、书签和设置行为。
-
-如果拿不到真正的 EDCBook 源码，正确路线是：把二进制逆向得到的行为整理成 clean-room 需求与测试，然后用 Vink 原生架构实现；不要把 M5ReadPaper 当作 Dream/EDCBook 代码替代品。
-
----
-
 ## 1. 固件结构
 
 ### 分区表

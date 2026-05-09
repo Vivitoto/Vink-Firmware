@@ -2,6 +2,7 @@
 #include "GBKTable.h"
 #include "Config.h"
 #include "vink3/text/GbkUnicodeTable.h"
+#include <cstring>
 
 // ===== 编码检测 =====
 
@@ -156,7 +157,7 @@ uint16_t TextCodec::gbkToUnicode(uint8_t first, uint8_t second) {
     uint16_t unicode = vink3::gbkToUnicode((static_cast<uint16_t>(first) << 8) | second);
     if (unicode != 0) return unicode;
 
-    // Legacy compact GB2312 table fallback. The full Vink-owned table above
+    // Legacy compact GB2312 table fallback. The full ReadPaper-derived table above
     // covers novel text such as 庆余年 (澹/朕/眸/嫔/嗯 etc.); keep this as a safety net.
     if (first < GBK_ZONE_START || first >= GBK_ZONE_START + GBK_ZONE_COUNT) {
         return 0;
@@ -198,11 +199,10 @@ String TextCodec::convertToUTF8(const char* inputPath) {
     char tempPath[128];
     snprintf(tempPath, sizeof(tempPath), "%s/%s_utf8.tmp", PROGRESS_DIR, name);
     
-    // Always rebuild the UTF-8 cache from the current source file. Reusing an
-    // old temp file can show stale text after the original GBK book changes.
+    // 如果已存在，直接返回
     if (SD.exists(tempPath)) {
-        Serial.printf("[Codec] Removing stale temp file: %s\n", tempPath);
-        SD.remove(tempPath);
+        Serial.printf("[Codec] Temp file exists: %s\n", tempPath);
+        return String(tempPath);
     }
     
     File inFile = SD.open(inputPath, FILE_READ);
@@ -221,8 +221,16 @@ String TextCodec::convertToUTF8(const char* inputPath) {
     uint32_t totalOut = 0;
     uint32_t lastPrint = 0;
     
+    uint8_t buf[1024];
+    uint8_t outBuf[4096];
+    size_t outLen = 0;
+    auto flushOut = [&]() {
+        if (outLen == 0) return;
+        outFile.write(outBuf, outLen);
+        outLen = 0;
+    };
+
     while (inFile.available()) {
-        uint8_t buf[256];
         int len = inFile.read(buf, sizeof(buf));
         if (len <= 0) break;
         
@@ -230,17 +238,22 @@ String TextCodec::convertToUTF8(const char* inputPath) {
             uint8_t utf8Buf[4];
             int n = converter.feedByte(buf[i], utf8Buf);
             if (n > 0) {
-                outFile.write(utf8Buf, n);
+                if (outLen + static_cast<size_t>(n) > sizeof(outBuf)) flushOut();
+                memcpy(outBuf + outLen, utf8Buf, static_cast<size_t>(n));
+                outLen += static_cast<size_t>(n);
                 totalOut += n;
             }
         }
         
         totalIn += len;
         if (totalIn - lastPrint > 50000) {
+            flushOut();
             Serial.printf("[Codec] Converted %d bytes...\n", totalIn);
             lastPrint = totalIn;
+            yield();
         }
     }
+    flushOut();
     
     inFile.close();
     outFile.close();

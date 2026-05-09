@@ -1,46 +1,26 @@
 #include "VinkUiRenderer.h"
-#include "../VinkPaperS3Core.h"
-#include "../config/ConfigService.h"
+#include "../ReadPaper176.h"
+#include "../display/DisplayService.h"
+#include "../reader/ReaderTextRenderer.h"
 #include "../sync/WifiService.h"
 #include "../text/CjkTextRenderer.h"
-#include "../../FontManager.h"
 
 namespace vink3 {
 
 VinkUiRenderer g_uiRenderer;
 
 namespace {
-// ── Layout constants ──────────────────────────────────────────────────────────
-constexpr int16_t kMargin      = 24;
-constexpr int16_t kStatusH     = 62;
-constexpr int16_t kTabsY       = 76;
-constexpr int16_t kTabsH        = 60;
-constexpr int16_t kContentY    = 154;
-constexpr int16_t kTabW        = 120;
-constexpr int16_t kTabGap      = 8;
-constexpr int16_t kTabX0       = 18;
-
-// Settings card / row geometry
-constexpr int16_t kCardX       = 28;
-constexpr int16_t kCardW       = 484;
-constexpr int16_t kCardRound   = 18;
-constexpr int16_t kGroupH      = 186;   // 2-row group height
-constexpr int16_t kGroupGap    = 12;
-constexpr int16_t kRowX        = 56;
-constexpr int16_t kRowH        = 60;
-constexpr int16_t kRowDividerY = 118;   // relative to group top
-constexpr int16_t kValueRight  = 448;
-constexpr int16_t kArrowX      = 474;
-
-constexpr uint16_t kGrayLight  = 0xEF7D; // ~#EFEFEF
-constexpr uint16_t kGrayMid   = 0xD69A;  // ~#D6D6D6
-constexpr uint16_t kGrayText  = 0x8410;  // ~#888888
-
-// Settings main page group Y positions
-constexpr int16_t kGrpY_Reading  = kContentY;             // 154
-constexpr int16_t kGrpY_Display   = kGrpY_Reading + kGroupH + kGroupGap;   // 352
-constexpr int16_t kGrpY_Connect   = kGrpY_Display + kGroupH + kGroupGap;  // 550
-constexpr int16_t kGrpY_System    = kGrpY_Connect + kGroupH + kGroupGap;   // 748
+constexpr int16_t kMargin = 24;
+constexpr int16_t kStatusH = 62;
+constexpr int16_t kTabsY = 76;
+constexpr int16_t kTabsH = 60;
+constexpr int16_t kContentY = 154;
+constexpr int16_t kTabW = 120;
+constexpr int16_t kTabGap = 8;
+constexpr int16_t kTabX0 = 18;
+constexpr uint16_t kGrayLight = 0xEF7D; // ~#EFEFEF
+constexpr uint16_t kGrayMid = 0xD69A;   // ~#D6D6D6
+constexpr uint16_t kGrayText = 0x8410;  // ~#888888
 
 struct TabDef {
     SystemState state;
@@ -49,13 +29,11 @@ struct TabDef {
 };
 
 constexpr TabDef kTabs[] = {
-    {SystemState::Reader,     UiAction::TabReader,     "阅读"},
-    {SystemState::Library,    UiAction::TabLibrary,    "书架"},
-    {SystemState::Transfer,   UiAction::TabTransfer,   "传输"},
-    {SystemState::Settings,   UiAction::TabSettings,   "设置"},
+    {SystemState::Reader, UiAction::TabReader, "阅读"},
+    {SystemState::Library, UiAction::TabLibrary, "书架"},
+    {SystemState::Transfer, UiAction::TabTransfer, "同步"},
+    {SystemState::Settings, UiAction::TabSettings, "设置"},
 };
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
 
 bool inRect(int16_t x, int16_t y, int16_t rx, int16_t ry, int16_t rw, int16_t rh) {
     return x >= rx && x < rx + rw && y >= ry && y < ry + rh;
@@ -65,7 +43,7 @@ void formatStatusTime(char* out, size_t outSize) {
     if (!out || outSize == 0) return;
     m5::rtc_time_t rtc;
     if (M5.Rtc.isEnabled() && M5.Rtc.getTime(&rtc) &&
-        rtc.hours < 24 && rtc.minutes < 60) {
+        rtc.hours >= 0 && rtc.hours < 24 && rtc.minutes >= 0 && rtc.minutes < 60) {
         snprintf(out, outSize, "%02d:%02d", rtc.hours, rtc.minutes);
         return;
     }
@@ -73,6 +51,7 @@ void formatStatusTime(char* out, size_t outSize) {
 }
 
 float readOfficialBatteryVoltage() {
+    // Matches M5PaperS3-UserDemo factory firmware: ADC raw * 3.5 / 4096 * 2.
     const int raw = analogRead(static_cast<int>(kBatteryAdcPin));
     if (raw <= 0) return 0.0f;
     return static_cast<float>(raw) * 3.5f / 4096.0f * 2.0f;
@@ -83,80 +62,29 @@ bool isOfficialUsbConnected() {
 }
 
 bool isOfficialChargeStateActive() {
+    // Factory firmware names GPIO4 PIN_CHG_STATE: 0 charging, 1 full/not charging.
     return digitalRead(static_cast<int>(kChargeStatePin)) == LOW;
+}
+
+const char* touchCoordModeLabel() {
+    return "official-raw";
 }
 
 void formatBatteryPercent(char* out, size_t outSize) {
     if (!out || outSize == 0) return;
     int level = M5.Power.getBatteryLevel();
     if (level > 0 && level <= 100) {
-        snprintf(out, outSize, "%d%%", level);
+        snprintf(out, outSize, "%s%d%%", isOfficialUsbConnected() ? "USB " : "", level);
         return;
     }
-    snprintf(out, outSize, "--%%");
-}
-
-void formatBatteryPercentSimple(char* out, size_t outSize) {
-    // Simple percentage only (no USB prefix, no voltage fallback)
-    if (!out || outSize == 0) return;
-    int level = M5.Power.getBatteryLevel();
-    if (level > 0 && level <= 100) {
-        snprintf(out, outSize, "%d%%", level);
-    } else {
-        snprintf(out, outSize, "--%%");
+    const float voltage = readOfficialBatteryVoltage();
+    if (voltage > 0.1f) {
+        snprintf(out, outSize, "%s%.2fV", isOfficialUsbConnected() ? "USB " : "", voltage);
+        return;
     }
+    snprintf(out, outSize, "%s--%%", isOfficialUsbConnected() ? "USB " : "");
 }
-
-} // anonymous namespace
-
-// ── VinkUiRenderer inline helpers (need canvas_) ─────────────────────────────
-
-void VinkUiRenderer::formatTimeStr(char* out, size_t outSize) {
-    m5::rtc_time_t rtc;
-    if (M5.Rtc.isEnabled() && M5.Rtc.getTime(&rtc) &&
-        rtc.hours < 24 && rtc.minutes < 60) {
-        snprintf(out, outSize, "%02d:%02d", rtc.hours, rtc.minutes);
-    } else {
-        snprintf(out, outSize, "--:--");
-    }
-}
-
-void VinkUiRenderer::formatBatterySimple(char* out, size_t outSize) {
-    if (!out || outSize == 0) return;
-    int level = M5.Power.getBatteryLevel();
-    if (level > 0 && level <= 100) {
-        snprintf(out, outSize, "%d%%", level);
-    } else {
-        snprintf(out, outSize, "--%%");
-    }
-}
-
-void VinkUiRenderer::drawSettingsRowRaw(int16_t rowTopY, const char* label, const char* value) {
-    // Keep label/value/arrow on 同一水平线; all derive from the row center.
-    const int16_t cy = rowTopY + kRowH / 2;
-    const int16_t lineH = 24 + 6;
-    const int16_t textY = cy - lineH / 2;
-    canvas_->setTextColor(TFT_BLACK, TFT_WHITE);
-    g_cjkText.drawText(kRowX, textY, label ? label : "", TFT_BLACK);
-    if (value && value[0]) {
-        g_cjkText.drawRight(kValueRight, textY, value, kGrayText);
-    }
-    canvas_->drawLine(kArrowX, cy - 9, kArrowX + 9, cy, TFT_BLACK);
-    canvas_->drawLine(kArrowX + 9, cy, kArrowX, cy + 9, TFT_BLACK);
-}
-
-void VinkUiRenderer::drawCyclingRow(int16_t rowTopY, const char* label, const char* value) {
-    const int16_t cy = rowTopY + kRowH / 2;
-    const int16_t lineH = 24 + 6;
-    const int16_t textY = cy - lineH / 2;
-    canvas_->setTextColor(TFT_BLACK, TFT_WHITE);
-    g_cjkText.drawText(kRowX, textY, label ? label : "", TFT_BLACK);
-    if (value && value[0]) {
-        g_cjkText.drawRight(kValueRight, textY, value, kGrayText);
-    }
-}
-
-// ── Public renderer API ───────────────────────────────────────────────────────
+} // namespace
 
 bool VinkUiRenderer::begin(M5Canvas* canvas) {
     if (!canvas) return false;
@@ -180,6 +108,9 @@ void VinkUiRenderer::drawStatusBar(const char* title) {
     formatStatusTime(timeText, sizeof(timeText));
     formatBatteryPercent(batteryText, sizeof(batteryText));
 
+    // Status bar corners are reserved for live device state: system time on the
+    // left, battery percentage on the right. Page title stays centered so it no
+    // longer competes with the notification/status content.
     g_cjkText.drawText(kMargin, 20, timeText, kGrayText);
     g_cjkText.drawCentered(112, 20, 316, 26, title ? title : "Vink", TFT_BLACK);
     g_cjkText.drawRight(kPaperS3Width - kMargin, 20, batteryText, kGrayText);
@@ -193,6 +124,9 @@ void VinkUiRenderer::drawTabs(SystemState active) {
         canvas_->fillRoundRect(x, kTabsY, kTabW, kTabsH, 16, TFT_WHITE);
         canvas_->drawRoundRect(x, kTabsY, kTabW, kTabsH, 16, TFT_BLACK);
         if (selected) {
+            // Avoid filled black tabs: on real PaperS3 the white CJK label can
+            // look swallowed after partial refresh/photo compression. Use a
+            // strong outline + underline so the text always remains black.
             canvas_->drawRoundRect(x + 2, kTabsY + 2, kTabW - 4, kTabsH - 4, 14, TFT_BLACK);
             canvas_->fillRoundRect(x + 28, kTabsY + kTabsH - 9, kTabW - 56, 4, 2, TFT_BLACK);
         }
@@ -203,6 +137,9 @@ void VinkUiRenderer::drawTabs(SystemState active) {
 }
 
 void VinkUiRenderer::drawCard(int16_t x, int16_t y, int16_t w, int16_t h, const char* title, const char* body) {
+    // Keep Vink's shell visually calm: white cards, black frame, consistent
+    // 22px inner padding. Avoid alternating gray blocks that make PaperS3 look
+    // like misaligned boxes after partial refreshes.
     canvas_->fillRoundRect(x, y, w, h, 18, TFT_WHITE);
     canvas_->drawRoundRect(x, y, w, h, 18, TFT_BLACK);
     g_cjkText.drawText(x + 22, y + 18, title ? title : "", TFT_BLACK);
@@ -218,41 +155,63 @@ void VinkUiRenderer::drawButton(int16_t x, int16_t y, int16_t w, int16_t h, cons
 }
 
 void VinkUiRenderer::drawSettingsRow(int16_t y, const char* label, const char* value) {
-    drawSettingsRowRaw(y, label, value);
+    static constexpr int16_t kRowX = 56;
+    static constexpr int16_t kValueRight = 448;
+    static constexpr int16_t kArrowX = 474;
+    static constexpr int16_t kRowH = 60;
+    const int16_t cy = y + kRowH / 2;
+    const int16_t lineH = static_cast<int16_t>(g_cjkText.fontSize()) + 6;
+    const int16_t textY = cy - lineH / 2;
+
+    // Row label, right value and arrow all derive from the same row center.
+    // Do not tune these as separate baselines; that is what made settings rows
+    // look stepped on PaperS3. Keep label/value/arrow on 同一水平线.
+    g_cjkText.drawText(kRowX, textY, label ? label : "", TFT_BLACK);
+    if (value && value[0]) {
+        g_cjkText.drawRight(kValueRight, textY, value, kGrayText);
+    }
+    canvas_->drawLine(kArrowX, cy - 9, kArrowX + 9, cy, TFT_BLACK);
+    canvas_->drawLine(kArrowX + 9, cy, kArrowX, cy + 9, TFT_BLACK);
 }
 
-void VinkUiRenderer::drawSettingsGroup(int16_t y, const char* title,
-                                        const char* row1, const char* row1Value,
-                                        const char* row2, const char* row2Value) {
-    canvas_->fillRoundRect(kCardX, y, kCardW, kGroupH, kCardRound, TFT_WHITE);
-    canvas_->drawRoundRect(kCardX, y, kCardW, kGroupH, kCardRound, TFT_BLACK);
+void VinkUiRenderer::drawSettingsGroup(int16_t y, const char* title, const char* row1, const char* row1Value, const char* row2, const char* row2Value) {
+    // Experience-based, needs PaperS3 confirmation: 24px Simplified Chinese UI
+    // font needs generous line boxes on e-paper; the old compact rows made the
+    // settings page look squeezed. Use 60px rows and taller groups.
+    canvas_->fillRoundRect(28, y, 484, 186, 18, TFT_WHITE);
+    canvas_->drawRoundRect(28, y, 484, 186, 18, TFT_BLACK);
     g_cjkText.drawText(56, y + 16, title ? title : "", kGrayText);
-    drawSettingsRowRaw(y + 58, row1, row1Value);
-    canvas_->drawFastHLine(56, y + kRowDividerY, 424, kGrayMid);
-    drawSettingsRowRaw(y + 118, row2, row2Value);
+    drawSettingsRow(y + 58, row1, row1Value);
+    canvas_->drawFastHLine(56, y + 118, 424, kGrayMid);
+    drawSettingsRow(y + 118, row2, row2Value);
 }
 
-void VinkUiRenderer::drawFooterHint(const char* hint) {
-    g_cjkText.drawCentered(0, kPaperS3Height - 42, kPaperS3Width, 28, hint ? hint : "点击标签或卡片", kGrayText);
-}
-
-// ── Boot ───────────────────────────────────────────────────────────────────────
 
 void VinkUiRenderer::renderBoot() {
     if (!canvas_) return;
     clear();
-    canvas_->setTextColor(TFT_BLACK, TFT_WHITE);
-    canvas_->setTextDatum(middle_center);
-    canvas_->setTextSize(3);
-    canvas_->drawString("VINK CANVAS PROBE", kPaperS3Width / 2, 210);
-    canvas_->setTextSize(2);
-    canvas_->drawString("after official M5.Display probe", kPaperS3Width / 2, 260);
-    canvas_->drawString("960x540 rotation=1", kPaperS3Width / 2, 300);
-    canvas_->drawRect(16, 16, kPaperS3Width - 32, kPaperS3Height - 32, TFT_BLACK);
-    canvas_->drawFastHLine(16, kPaperS3Height / 2, kPaperS3Width - 32, TFT_BLACK);
-    canvas_->drawFastVLine(kPaperS3Width / 2, 16, kPaperS3Height - 32, TFT_BLACK);
-    canvas_->setTextDatum(top_left);
-    canvas_->setTextSize(1);
+    drawStatusBar("启动");
+
+    const int16_t cx = kPaperS3Width / 2;
+    const int16_t top = 280;
+    const int16_t bottom = 460;
+    const int16_t left = cx - 58;
+    const int16_t right = cx + 58;
+
+    // Simple hourglass loading mark. Keep it vector-only so the boot page has
+    // no SD/SPIFFS dependency and can later be replaced by a user image safely.
+    canvas_->drawRoundRect(cx - 82, top - 54, 164, 258, 28, TFT_BLACK);
+    canvas_->drawLine(left, top, right, top, TFT_BLACK);
+    canvas_->drawLine(left, bottom, right, bottom, TFT_BLACK);
+    canvas_->drawLine(left, top, right, bottom, TFT_BLACK);
+    canvas_->drawLine(right, top, left, bottom, TFT_BLACK);
+    canvas_->fillTriangle(left + 18, top + 18, right - 18, top + 18, cx, top + 82, kGrayMid);
+    canvas_->fillTriangle(left + 18, bottom - 18, right - 18, bottom - 18, cx, bottom - 82, kGrayMid);
+    canvas_->drawFastHLine(cx - 22, top + 100, 44, TFT_BLACK);
+
+    g_cjkText.drawCentered(0, 548, kPaperS3Width, 52, "Vink 加载中", TFT_BLACK);
+    g_cjkText.drawCentered(0, 610, kPaperS3Width, 30, "正在准备书架与阅读器", kGrayText);
+    g_cjkText.drawCentered(0, kPaperS3Height - 92, kPaperS3Width, 28, kVinkPaperS3FirmwareVersion, kGrayText);
 }
 
 void VinkUiRenderer::renderHome(SystemState state) {
@@ -260,23 +219,36 @@ void VinkUiRenderer::renderHome(SystemState state) {
     (void)state;
 }
 
-// ── Reader Home ───────────────────────────────────────────────────────────────
-
-void VinkUiRenderer::renderReaderHome() {
+void VinkUiRenderer::renderReaderHome(const char* bookTitle, const char* bookPath,
+                                      const char* progressText, bool hasLastBook) {
     if (!canvas_) return;
     clear();
     drawStatusBar("Vink");
     drawTabs(SystemState::Reader);
-    drawCard(28, kContentY, 484, 184, "当前书籍", "TXT 书籍入口");
-    drawButton(56, 286, 180, 48, "打开");
-    drawButton(304, 286, 180, 48, "书架");
-    drawCard(28, 374, 224, 126, "目录", "识别章节 / 跳转");
-    drawCard(288, 374, 224, 126, "书签", "标注 / 回看");
-    drawCard(28, 524, 484, 176, "正文设置", "字体 · 字号 · 刷新 · 简体中文");
-    // drawFooterHint("点卡片进入，滑动切换");
-}
 
-// ── Library ───────────────────────────────────────────────────────────────────
+    canvas_->fillRoundRect(28, kContentY, 484, 184, 18, TFT_WHITE);
+    canvas_->drawRoundRect(28, kContentY, 484, 184, 18, TFT_BLACK);
+    g_cjkText.drawText(56, kContentY + 18, hasLastBook ? "最近阅读" : "当前书籍", TFT_BLACK);
+    if (hasLastBook) {
+        char titleLine[160];
+        char pathLine[160];
+        char progressLine[96];
+        g_cjkText.fitTextToWidth(bookTitle && bookTitle[0] ? bookTitle : "TXT", titleLine, sizeof(titleLine), 420);
+        g_cjkText.fitTextToWidth(bookPath && bookPath[0] ? bookPath : "", pathLine, sizeof(pathLine), 420);
+        g_cjkText.fitTextToWidth(progressText && progressText[0] ? progressText : "上次进度：未开始", progressLine, sizeof(progressLine), 420);
+        g_cjkText.drawText(56, kContentY + 56, titleLine, TFT_BLACK);
+        g_cjkText.drawText(56, kContentY + 90, progressLine, kGrayText);
+        g_cjkText.drawText(56, kContentY + 124, pathLine, kGrayText);
+    } else {
+        g_cjkText.drawText(56, kContentY + 62, "还没有最近阅读记录", kGrayText);
+        g_cjkText.drawText(56, kContentY + 100, "先从书架选择一本 TXT", kGrayText);
+    }
+    drawButton(56, 286, 180, 48, hasLastBook ? "继续" : "打开");
+    drawButton(304, 286, 180, 48, "书架");
+    drawCard(28, 374, 224, 126, "目录", "章节 / 跳页");
+    drawCard(288, 374, 224, 126, "书签", "标注 / 截图");
+    drawCard(28, 524, 484, 176, "正文设置", "字体 · 字号 · 刷新 · 简体中文");
+}
 
 void VinkUiRenderer::renderLibrary() {
     if (!canvas_) return;
@@ -292,22 +264,80 @@ void VinkUiRenderer::renderLibrary() {
             g_cjkText.drawCentered(x, y, 130, 118, "书籍", TFT_BLACK);
         }
     }
-    drawCard(28, 648, 484, 132, "书架来源", "SD / 最近阅读 / 本地目录识别");
-    // drawFooterHint("选书、目录导航、最近记录和远程书架");
+    drawCard(28, 648, 484, 132, "书架来源", "SD / 最近阅读 / Legado 远程书架");
 }
 
-// ── Transfer ──────────────────────────────────────────────────────────────────
-
-static const char* labelForWifiMode(WifiOpMode m) {
-    switch (m) {
-        case WifiOpMode::Off:    return "关闭";
-        case WifiOpMode::Sta:    return "STA 模式";
-        case WifiOpMode::Ap:     return "AP 热点";
-        case WifiOpMode::ApWebUi: return "AP + Web UI";
+void VinkUiRenderer::renderUiListPage(SystemState active, const char* title, const char* summary,
+                                      const char* const* rows, int rowCount, int16_t rowY, int16_t rowH,
+                                      uint16_t page, uint16_t totalPages, int activeRow) {
+    if (!canvas_) return;
+    clear();
+    drawStatusBar(title ? title : "Vink");
+    drawTabs(active);
+    if (summary && summary[0]) {
+        g_cjkText.drawText(34, 132, summary, kGrayText);
     }
-    return "未知";
+
+    const int16_t x = 28;
+    const int16_t w = 484;
+    const bool plainRows = active == SystemState::Reader;
+    for (int i = 0; rows && i < rowCount; ++i) {
+        const int16_t y = rowY + i * rowH;
+        const bool isActive = i == activeRow;
+        if (!plainRows) {
+            canvas_->fillRoundRect(x, y, w, rowH - 8, 14, TFT_WHITE);
+            canvas_->drawRoundRect(x, y, w, rowH - 8, 14, TFT_BLACK);
+        } else if (i > 0) {
+            canvas_->drawFastHLine(x + 18, y - 3, w - 36, kGrayMid);
+        }
+        char line[160];
+        g_cjkText.fitTextToWidth(rows[i] ? rows[i] : "", line, sizeof(line), w - 36);
+        const int16_t textX = x + 18;
+        const int16_t textY = y + (plainRows ? 12 : 18);
+        g_cjkText.drawText(textX, textY, line, TFT_BLACK);
+        if (isActive) {
+            // Current TOC item: match the tab style with a clean underline only.
+            // No extra row frame; frames made the directory page look dirty.
+            int16_t underlineW = min<int16_t>(g_cjkText.textWidth(line), w - 36);
+            if (underlineW < 64) underlineW = 64;
+            canvas_->fillRoundRect(textX, y + rowH - 10, underlineW, 3, 2, TFT_BLACK);
+        }
+    }
+
+    char footer[48];
+    snprintf(footer, sizeof(footer), "%u / %u", static_cast<unsigned>(page), static_cast<unsigned>(totalPages));
+    g_cjkText.drawRight(kPaperS3Width - 34, kPaperS3Height - 38, footer, kGrayText);
 }
 
+void VinkUiRenderer::renderUiActionPage(SystemState active, const char* title,
+                                        const char* const* infoLines, int infoCount,
+                                        const char* const* actions, int actionCount) {
+    if (!canvas_) return;
+    clear();
+    drawStatusBar(title ? title : "操作");
+    drawTabs(active);
+
+    int16_t y = 154;
+    for (int i = 0; infoLines && i < infoCount && y < 520; ++i) {
+        char line[160];
+        g_cjkText.fitTextToWidth(infoLines[i] ? infoLines[i] : "", line, sizeof(line), kPaperS3Width - 68);
+        g_cjkText.drawText(34, y, line, i == 0 ? TFT_BLACK : kGrayText);
+        y += 34;
+    }
+
+    static constexpr int16_t kButtonX = 70;
+    static constexpr int16_t kButtonW = 400;
+    static constexpr int16_t kButtonH = 52;
+    static constexpr int16_t kButtonY[] = {498, 570, 642, 714, 786, 858};
+    const int drawCount = min(actionCount, static_cast<int>(sizeof(kButtonY) / sizeof(kButtonY[0])));
+    for (int i = 0; actions && i < drawCount; ++i) {
+        const int16_t by = kButtonY[i];
+        const bool primary = i == 0;
+        canvas_->fillRoundRect(kButtonX, by, kButtonW, kButtonH, 18, primary ? TFT_BLACK : TFT_WHITE);
+        canvas_->drawRoundRect(kButtonX, by, kButtonW, kButtonH, 18, TFT_BLACK);
+        g_cjkText.drawCentered(kButtonX, by, kButtonW, kButtonH, actions[i] ? actions[i] : "", primary ? TFT_WHITE : TFT_BLACK);
+    }
+}
 
 void VinkUiRenderer::renderTransfer() {
     if (!canvas_) return;
@@ -315,188 +345,22 @@ void VinkUiRenderer::renderTransfer() {
     drawStatusBar("传输");
     drawTabs(SystemState::Transfer);
 
-    // WiFi/Web UI card: local TXT transfer and file management only.
-    {
-        const char* wifiLabel = labelForWifiMode(g_wifiService.mode());
-        canvas_->fillRoundRect(28, kContentY, 484, 172, kCardRound, TFT_WHITE);
-        canvas_->drawRoundRect(28, kContentY, 484, 172, kCardRound, TFT_BLACK);
-        g_cjkText.drawText(56, kContentY + 16, "WiFi 传书", TFT_BLACK);
-        g_cjkText.drawText(56, kContentY + 50, "本地 TXT 上传到 SD 卡 /books", kGrayText);
-        g_cjkText.drawText(56, kContentY + 84, wifiLabel, kGrayText);
-        if (g_wifiService.isApActive() || g_wifiService.mode() == WifiOpMode::Sta) {
-            static char ssidBuf[64];
-            static char urlBuf[64];
-            snprintf(ssidBuf, sizeof(ssidBuf), "SSID: %s", g_wifiService.getActiveSsid().isEmpty() ? "当前网络" : g_wifiService.getActiveSsid().c_str());
-            snprintf(urlBuf, sizeof(urlBuf), "浏览器打开 http://%s", g_wifiService.getLocalIp().c_str());
-            g_cjkText.drawText(56, kContentY + 112, ssidBuf, kGrayText);
-            g_cjkText.drawText(56, kContentY + 140, urlBuf, kGrayText);
-        } else {
-            g_cjkText.drawText(56, kContentY + 118, "点右侧启动热点，再用手机浏览器传书", kGrayText);
-        }
+    const bool running = g_wifiService.httpServerRunning();
+    char ipLine[96];
+    if (running) {
+        snprintf(ipLine, sizeof(ipLine), "SSID: %s\n访问: http://%s",
+                 g_wifiService.getActiveSsid(),
+                 g_wifiService.getLocalIp().toString().c_str());
+    } else {
+        snprintf(ipLine, sizeof(ipLine), "点击启动热点后，用手机连接 Vink-PaperS3");
     }
 
-    drawButton(56, 334, 180, 48, "WiFi 设置");
-    drawButton(304, 334, 180, 48, "启动热点");
+    drawCard(28, kContentY, 484, 220, "WiFi 文件传输", ipLine);
+    drawButton(56, 332, 180, 52, running ? "关闭热点" : "启动热点");
+    drawButton(304, 332, 180, 52, "刷新状态");
 
-    // USB MSC card
-    {
-        canvas_->fillRoundRect(28, 392, 224, 120, kCardRound, TFT_WHITE);
-        canvas_->drawRoundRect(28, 392, 224, 120, kCardRound, TFT_BLACK);
-        g_cjkText.drawText(56, 392 + 16, "USB 存储", TFT_BLACK);
-        g_cjkText.drawText(56, 392 + 50, "SD 卡 USB 模式", kGrayText);
-        g_cjkText.drawText(56, 392 + 82, "需确认后接管", kGrayText);
-    }
-
-    // Export card
-    {
-        canvas_->fillRoundRect(288, 392, 224, 120, kCardRound, TFT_WHITE);
-        canvas_->drawRoundRect(288, 392, 224, 120, kCardRound, TFT_BLACK);
-        g_cjkText.drawText(316, 392 + 16, "维护备份", TFT_BLACK);
-        g_cjkText.drawText(316, 392 + 50, "配置 / 缓存", kGrayText);
-        g_cjkText.drawText(316, 392 + 82, "本地备份", kGrayText);
-    }
-}
-
-// ── Transfer: WiFi AP ────────────────────────────────────────
-// ── Transfer: WiFi AP ────────────────────────────────────────────────────────
-
-void VinkUiRenderer::renderTransferWifiAp() {
-    if (!canvas_) return;
-    clear();
-    drawStatusBar("WiFi 传书");
-    drawTabs(SystemState::Transfer);
-
-    // Current mode card
-    {
-        canvas_->fillRoundRect(kCardX, kGrpY_Reading, kCardW, kGroupH, kCardRound, TFT_WHITE);
-        canvas_->drawRoundRect(kCardX, kGrpY_Reading, kCardW, kGroupH, kCardRound, TFT_BLACK);
-        g_cjkText.drawText(56, kGrpY_Reading + 16, "当前模式", kGrayText);
-        drawCyclingRow(kGrpY_Reading + 58, "WiFi", labelForWifiMode(g_wifiService.mode()));
-        canvas_->drawFastHLine(56, kGrpY_Reading + kRowDividerY, 424, kGrayMid);
-        const String ip = g_wifiService.getLocalIp();
-        const String ssid = g_wifiService.getActiveSsid();
-        drawCyclingRow(kGrpY_Reading + 118, "访问地址", ip.isEmpty() ? "启动 AP + Web UI" : ("http://" + ip).c_str());
-        if (!ssid.isEmpty()) {
-            static char ssidLine[72];
-            snprintf(ssidLine, sizeof(ssidLine), "连接 WiFi/热点：%s", ssid.c_str());
-            g_cjkText.drawText(56, kGrpY_Reading + 150, ssidLine, kGrayText);
-        } else {
-            g_cjkText.drawText(56, kGrpY_Reading + 150, "手机连接热点后打开上方地址", kGrayText);
-        }
-    }
-
-    // Mode selector card — three options
-    {
-        constexpr int16_t optH = 58;
-        const char* opts[3] = { "关闭 WiFi", "AP + Web UI", "STA 连接路由器" };
-        for (int i = 0; i < 3; ++i) {
-            const int16_t optY = kGrpY_Display + i * (optH + 4);
-            canvas_->fillRoundRect(kCardX, optY, kCardW, optH, 12, TFT_WHITE);
-            canvas_->drawRoundRect(kCardX, optY, kCardW, optH, 12, TFT_BLACK);
-            g_cjkText.drawText(56, optY + 16, opts[i], TFT_BLACK);
-        }
-    }
-
-    drawButton(56, kGrpY_Connect + 20, 180, 48, "← 返回");
-    drawButton(304, kGrpY_Connect + 20, 180, 48, "启动热点");
-    // drawFooterHint("AP 模式：设备变身热点，手机直连传书");
-}
-
-// ── Transfer: USB MSC ───────────────────────────────────────────────────────
-
-void VinkUiRenderer::renderTransferUsb() {
-    if (!canvas_) return;
-    clear();
-    drawStatusBar("USB 存储模式");
-    drawTabs(SystemState::Transfer);
-
-    // Warning / info card
-    canvas_->fillRoundRect(kCardX, kGrpY_Reading, kCardW, kGroupH, kCardRound, TFT_WHITE);
-    canvas_->drawRoundRect(kCardX, kGrpY_Reading, kCardW, kGroupH, kCardRound, TFT_BLACK);
-    g_cjkText.drawText(56, kGrpY_Reading + 16, "说明", kGrayText);
-    g_cjkText.drawText(56, kGrpY_Reading + 58,
-        "切换到 USB 存储后，SD 卡将以磁盘模式挂载到电脑，", kGrayText);
-    g_cjkText.drawText(56, kGrpY_Reading + 84,
-        "阅读器功能在此期间暂停。断开 USB 连接后恢复。", kGrayText);
-    canvas_->drawFastHLine(56, kGrpY_Reading + kRowDividerY, 424, kGrayMid);
-    g_cjkText.drawText(56, kGrpY_Reading + 118, "⚠ 进入此模式会中断当前阅读", kGrayText);
-
-
-    // Confirm button
-    canvas_->fillRoundRect(56, kGrpY_Display + 20, 384, 64, 24, TFT_BLACK);
-    g_cjkText.drawCentered(56, kGrpY_Display + 20, 384, 64, "确认进入 USB 存储模式", TFT_WHITE);
-
-
-    drawButton(56, kGrpY_Connect + 20, 180, 48, "← 返回");
-    // drawFooterHint("确认后设备将重启为 USB 磁盘模式");
-}
-
-// WebDAV UI removed — kept as empty stub to avoid breaking the header declaration
-// and any future revival of this feature.
-void VinkUiRenderer::renderTransferWebDav() {
-    // intentionally empty: feature was removed as dead code
-}
-
-void VinkUiRenderer::renderTransferExport() {
-    if (!canvas_) return;
-    clear();
-    drawStatusBar("维护与备份");
-    drawTabs(SystemState::Transfer);
-
-
-    // Export options. The actual downloads are exposed through Web UI so the
-    // device does not need to render file-save dialogs on e-paper.
-    {
-        constexpr int16_t optH = 58;
-        const char* opts[4] = {
-            "Web UI：下载完整配置",
-            "Web UI：清理单本目录/分页缓存",
-            "Web UI：清理无主目录/分页缓存",
-            "Web UI：批量清理目录/分页缓存"
-        };
-        for (int i = 0; i < 4; ++i) {
-            const int16_t optY = kGrpY_Reading + i * (optH + 4);
-            canvas_->fillRoundRect(kCardX, optY, kCardW, optH, 12, TFT_WHITE);
-            canvas_->drawRoundRect(kCardX, optY, kCardW, optH, 12, TFT_BLACK);
-            g_cjkText.drawText(56, optY + 16, opts[i], TFT_BLACK);
-        }
-    }
-
-    // Info
-    drawCard(kCardX, kGrpY_Connect, kCardW, kGroupH,
-        "使用方法",
-        "传输页启动 AP+Web UI 后，在浏览器打开设备 IP，进入「书架」或「备份」页操作");
-
-    drawButton(56, kGrpY_System, 180, 48, "← 返回");
-}
-
-// ── Settings main ─────────────────────────────────────────────────────────────
-
-static const char* labelForRefresh(RefreshFrequency f) {
-    switch (f) {
-        case RefreshFrequency::FREQ_LOW:    return "极速";
-        case RefreshFrequency::FREQ_MEDIUM: return "均衡";
-        case RefreshFrequency::FREQ_HIGH:   return "清晰";
-    }
-    return "均衡";
-}
-
-static const char* labelForFontSize(uint8_t s) {
-    static char buf[8];
-    snprintf(buf, sizeof(buf), "%dpx", s);
-    return buf;
-}
-
-static const char* labelForLineSpacing(uint8_t ls) {
-    static char buf[8];
-    snprintf(buf, sizeof(buf), "%d%%", ls);
-    return buf;
-}
-
-static const char* labelForAutoSleep(uint8_t mins) {
-    static char buf[12];
-    snprintf(buf, sizeof(buf), "%d分钟", mins);
-    return buf;
+    drawCard(28, 430, 484, 170, "WebUI 功能", "文件浏览器 / 上传 TXT / 新建目录 / 重命名 / 删除");
+    drawCard(28, 634, 484, 176, "使用方式", "把 TXT 上传到任意 SD 目录；设备书架会直接读取文件夹，不在网页里维护书架。");
 }
 
 void VinkUiRenderer::renderSettings() {
@@ -504,258 +368,24 @@ void VinkUiRenderer::renderSettings() {
     clear();
     drawStatusBar("设置");
     drawTabs(SystemState::Settings);
-
-    const auto& cfg = g_configService.get();
-
-    // 阅读 group: 正文字体 / 字号与行距
-    drawSettingsGroup(kGrpY_Reading, "阅读",
-        "正文字体", "霞鹜文楷",
-        "字号与行距", labelForFontSize(cfg.fontSize));
-
-    // 显示 group: 刷新策略 / 触摸校准
-    drawSettingsGroup(kGrpY_Display, "显示",
-        "刷新策略", labelForRefresh(cfg.refreshFrequency),
-        "触摸校准", "诊断");
-
-    // 连接 group: WiFi / 本地传书
-    drawSettingsGroup(kGrpY_Connect, "连接",
-        "WiFi", cfg.wifiSsid.isEmpty() ? "未配置" : cfg.wifiSsid.c_str(),
-        "本地传书", "传输页");
-
-    // 系统 group: 电源 / 关于
-    drawSettingsGroup(kGrpY_System, "系统",
-        "自动休眠", cfg.autoSleepEnabled ? labelForAutoSleep(cfg.autoSleepMinutes) : "关闭",
-        "关于", kVinkPaperS3FirmwareVersion);
-
-    // drawFooterHint("点击卡片进入详细设置");
+    drawSettingsGroup(kContentY, "排版", "页边距", g_readerText.pageMarginLabel(), "行间距", g_readerText.lineSpacingLabel());
+    drawSettingsGroup(352, "阅读", "排版优化", g_readerText.layoutPresetLabel(), "抗锯齿", g_readerText.antiAliasLabel());
+    drawSettingsGroup(550, "显示", "刷新策略", g_displayService.readerRefreshStrategyLabel(), "翻页效果", g_readerText.pageTurnEffectLabel());
+    drawSettingsGroup(748, "系统", "电源", "点按关机", "关于", kVinkPaperS3FirmwareVersion);
 }
-
-// ── Settings: Layout ─────────────────────────────────────────────────────────
-
-void VinkUiRenderer::renderSettingsLayout() {
-    if (!canvas_) return;
-    clear();
-    drawStatusBar("阅读排版");
-    drawTabs(SystemState::Settings);
-
-    const auto& cfg = g_configService.get();
-
-    // Group 1: font size + line spacing
-    canvas_->fillRoundRect(kCardX, kGrpY_Reading, kCardW, kGroupH, kCardRound, TFT_WHITE);
-    canvas_->drawRoundRect(kCardX, kGrpY_Reading, kCardW, kGroupH, kCardRound, TFT_BLACK);
-    g_cjkText.drawText(56, kGrpY_Reading + 16, "字号与行距", kGrayText);
-    drawCyclingRow(kGrpY_Reading + 58, "字号", labelForFontSize(cfg.fontSize));
-    canvas_->drawFastHLine(56, kGrpY_Reading + kRowDividerY, 424, kGrayMid);
-    drawCyclingRow(kGrpY_Reading + 118, "行距", labelForLineSpacing(cfg.lineSpacing));
-
-    // Group 2: margins + justify
-    canvas_->fillRoundRect(kCardX, kGrpY_Display, kCardW, kGroupH, kCardRound, TFT_WHITE);
-    canvas_->drawRoundRect(kCardX, kGrpY_Display, kCardW, kGroupH, kCardRound, TFT_BLACK);
-    g_cjkText.drawText(56, kGrpY_Display + 16, "边距与对齐", kGrayText);
-    {
-        static char buf[16];
-        snprintf(buf, sizeof(buf), "左右各%dpx", cfg.marginLeft);
-        drawCyclingRow(kGrpY_Display + 58, "页边距", buf);
-    }
-    canvas_->drawFastHLine(56, kGrpY_Display + kRowDividerY, 424, kGrayMid);
-    drawCyclingRow(kGrpY_Display + 118, "两端对齐", cfg.justify ? "开" : "关");
-
-    // Group 3: 简繁 + back
-    canvas_->fillRoundRect(kCardX, kGrpY_Connect, kCardW, kGroupH, kCardRound, TFT_WHITE);
-    canvas_->drawRoundRect(kCardX, kGrpY_Connect, kCardW, kGroupH, kCardRound, TFT_BLACK);
-    g_cjkText.drawText(56, kGrpY_Connect + 16, "文字选项", kGrayText);
-    drawCyclingRow(kGrpY_Connect + 58, "简体中文", cfg.simplifiedChinese ? "开启" : "关闭");
-    canvas_->drawFastHLine(56, kGrpY_Connect + kRowDividerY, 424, kGrayMid);
-    drawCyclingRow(kGrpY_Connect + 118, "返回", "← 设置");
-
-    // Group 4: font family (SD / SPIFFS fonts)
-    static char kFontNames[32][64] = {{0}};
-    static char kFontPaths[32][128] = {{0}};
-    static int sFontCount = -1;
-    if (sFontCount < 0) {
-        sFontCount = FontManager::scanFonts(kFontPaths, kFontNames, 32);
-        if (sFontCount <= 0) {
-            strlcpy(kFontNames[0], "无可用字体", 64);
-            sFontCount = 1;
-        }
-    }
-    const char* curFontName = (cfg.fontIndex < (uint8_t)sFontCount)
-        ? kFontNames[cfg.fontIndex] : kFontNames[0];
-    canvas_->fillRoundRect(kCardX, kGrpY_System, kCardW, kGroupH, kCardRound, TFT_WHITE);
-    canvas_->drawRoundRect(kCardX, kGrpY_System, kCardW, kGroupH, kCardRound, TFT_BLACK);
-    g_cjkText.drawText(56, kGrpY_System + 16, "阅读字体", kGrayText);
-    drawCyclingRow(kGrpY_System + 58, "字体", curFontName);
-    canvas_->drawFastHLine(56, kGrpY_System + kRowDividerY, 424, kGrayMid);
-    drawCyclingRow(kGrpY_System + 118, "返回", "← 设置");
-
-    // Bottom hint
-    // drawFooterHint("点击数值切换；左右滑动返回");
-}
-
-// ── Settings: Refresh ─────────────────────────────────────────────────────────
-
-void VinkUiRenderer::renderSettingsRefresh() {
-    if (!canvas_) return;
-    clear();
-    drawStatusBar("刷新策略");
-    drawTabs(SystemState::Settings);
-
-    const auto& cfg = g_configService.get();
-
-    // Three strategy cards
-    const char* strategies[3] = { "极速", "均衡", "清晰" };
-    RefreshFrequency freqs[3] = {
-        RefreshFrequency::FREQ_LOW,
-        RefreshFrequency::FREQ_MEDIUM,
-        RefreshFrequency::FREQ_HIGH
-    };
-    RefreshStrategy profiles[3] = {
-        RefreshStrategy::FromFrequency(freqs[0]),
-        RefreshStrategy::FromFrequency(freqs[1]),
-        RefreshStrategy::FromFrequency(freqs[2])
-    };
-    char hints[3][64];
-    for (int i = 0; i < 3; ++i) {
-        if (profiles[i].fullRefreshEvery > 0) {
-            snprintf(hints[i], sizeof(hints[i]), "DU4 翻页 · 中刷%d页 · 全刷%d页",
-                     profiles[i].middleRefreshEvery,
-                     profiles[i].fullRefreshEvery);
-        } else {
-            snprintf(hints[i], sizeof(hints[i]), "DU4 翻页 · 中刷%d页 · 章节全刷",
-                     profiles[i].middleRefreshEvery);
-        }
-    }
-
-    for (int i = 0; i < 3; ++i) {
-        const int16_t cardY = kGrpY_Reading + i * (kGroupH / 2 + 8);
-        const bool active = (cfg.refreshFrequency == freqs[i]);
-        canvas_->fillRoundRect(kCardX, cardY, kCardW, kGroupH / 2, kCardRound, TFT_WHITE);
-        canvas_->drawRoundRect(kCardX, cardY, kCardW, kGroupH / 2, kCardRound, TFT_BLACK);
-        if (active) {
-            canvas_->drawRoundRect(kCardX + 3, cardY + 3, kCardW - 6, kGroupH / 2 - 6, kCardRound - 2, TFT_BLACK);
-        }
-        g_cjkText.drawText(56, cardY + 12, strategies[i], active ? TFT_BLACK : kGrayText);
-        g_cjkText.drawText(56, cardY + 44, hints[i], kGrayText);
-    }
-
-    canvas_->fillRoundRect(kCardX, kGrpY_Connect, kCardW, kGroupH, kCardRound, TFT_WHITE);
-    canvas_->drawRoundRect(kCardX, kGrpY_Connect, kCardW, kGroupH, kCardRound, TFT_BLACK);
-    g_cjkText.drawText(56, kGrpY_Connect + 16, "阅读翻页", kGrayText);
-    char middleBuf[16];
-    char fullBuf[16];
-    snprintf(middleBuf, sizeof(middleBuf), "%d页", cfg.readerMiddleRefreshEvery);
-    if (cfg.readerFullRefreshEvery > 0) snprintf(fullBuf, sizeof(fullBuf), "%d页", cfg.readerFullRefreshEvery);
-    else strlcpy(fullBuf, "从不", sizeof(fullBuf));
-    drawCyclingRow(kGrpY_Connect + 58, "中间刷新", middleBuf);
-    canvas_->drawFastHLine(56, kGrpY_Connect + kRowDividerY, 424, kGrayMid);
-    drawCyclingRow(kGrpY_Connect + 118, "GC16 全刷", fullBuf);
-
-    // drawFooterHint("选择刷新策略；滑动返回");
-}
-
-// ── Settings: WiFi ─────────────────────────────────────────────────────────────
-
-void VinkUiRenderer::renderSettingsWifi() {
-    if (!canvas_) return;
-    clear();
-    drawStatusBar("WiFi 配置");
-    drawTabs(SystemState::Settings);
-
-    const auto& cfg = g_configService.get();
-
-    // Current status card
-    canvas_->fillRoundRect(kCardX, kGrpY_Reading, kCardW, kGroupH, kCardRound, TFT_WHITE);
-    canvas_->drawRoundRect(kCardX, kGrpY_Reading, kCardW, kGroupH, kCardRound, TFT_BLACK);
-    g_cjkText.drawText(56, kGrpY_Reading + 16, "当前 WiFi", kGrayText);
-    {
-        static char buf[64];
-        if (cfg.wifiSsid.isEmpty()) {
-            snprintf(buf, sizeof(buf), "未配置");
-        } else {
-            snprintf(buf, sizeof(buf), "%s", cfg.wifiSsid.c_str());
-        }
-        drawCyclingRow(kGrpY_Reading + 58, "SSID", cfg.wifiSsid.isEmpty() ? "未配置" : cfg.wifiSsid.c_str());
-        canvas_->drawFastHLine(56, kGrpY_Reading + kRowDividerY, 424, kGrayMid);
-        drawCyclingRow(kGrpY_Reading + 118, "密码", cfg.wifiPassword.isEmpty() ? "无" : "已设置");
-    }
-
-    // Info card
-    drawCard(kCardX, kGrpY_Display, kCardW, kGroupH,
-        "说明",
-        "SSID/密码可在 Web UI 或从 SD 卡配置文件写入，当前版本暂不支持屏幕内输入");
-
-    // Back button
-    drawButton(56, kGrpY_Connect + 30, 180, 48, "← 返回");
-    drawButton(304, kGrpY_Connect + 30, 180, 48, "保存");
-    // drawFooterHint("WiFi 配置建议在 Transfer → WiFi → 启动热点后，通过 Web UI 设置");
-}
-
-// ── Settings: System / About ──────────────────────────────────────────────────
-
-void VinkUiRenderer::renderSettingsSystem() {
-    if (!canvas_) return;
-    clear();
-    drawStatusBar("系统信息");
-    drawTabs(SystemState::Settings);
-
-    auto stats = g_configService.storageStats();
-
-    // Version card
-    canvas_->fillRoundRect(kCardX, kGrpY_Reading, kCardW, kGroupH, kCardRound, TFT_WHITE);
-    canvas_->drawRoundRect(kCardX, kGrpY_Reading, kCardW, kGroupH, kCardRound, TFT_BLACK);
-    g_cjkText.drawText(56, kGrpY_Reading + 16, "版本", kGrayText);
-    drawCyclingRow(kGrpY_Reading + 58, "固件", kVinkPaperS3FirmwareVersion);
-    canvas_->drawFastHLine(56, kGrpY_Reading + kRowDividerY, 424, kGrayMid);
-    drawCyclingRow(kGrpY_Reading + 118, "阅读内核", kVinkPaperS3CoreReferenceVersion);
-
-    // Storage card
-    canvas_->fillRoundRect(kCardX, kGrpY_Display, kCardW, kGroupH, kCardRound, TFT_WHITE);
-    canvas_->drawRoundRect(kCardX, kGrpY_Display, kCardW, kGroupH, kCardRound, TFT_BLACK);
-    g_cjkText.drawText(56, kGrpY_Display + 16, "存储", kGrayText);
-    {
-        static char buf[32];
-        snprintf(buf, sizeof(buf), "%u / %u KB",
-            stats.usedBytes / 1024, stats.totalBytes / 1024);
-        drawCyclingRow(kGrpY_Display + 58, "SPIFFS", buf);
-    }
-    canvas_->drawFastHLine(56, kGrpY_Display + kRowDividerY, 424, kGrayMid);
-    {
-        static char buf[16];
-        uint32_t s = stats.uptimeSeconds;
-        snprintf(buf, sizeof(buf), "%02d:%02d:%02d", s / 3600, (s % 3600) / 60, s % 60);
-        drawCyclingRow(kGrpY_Display + 118, "运行时长", buf);
-    }
-
-    // Auto-sleep card
-    const auto& cfg = g_configService.get();
-    canvas_->fillRoundRect(kCardX, kGrpY_Connect, kCardW, kGroupH, kCardRound, TFT_WHITE);
-    canvas_->drawRoundRect(kCardX, kGrpY_Connect, kCardW, kGroupH, kCardRound, TFT_BLACK);
-    g_cjkText.drawText(56, kGrpY_Connect + 16, "自动休眠", kGrayText);
-    drawCyclingRow(kGrpY_Connect + 58, "状态",
-        cfg.autoSleepEnabled ? "开启" : "关闭");
-    canvas_->drawFastHLine(56, kGrpY_Connect + kRowDividerY, 424, kGrayMid);
-    drawCyclingRow(kGrpY_Connect + 118, "时间",
-        cfg.autoSleepEnabled ? labelForAutoSleep(cfg.autoSleepMinutes) : "—");
-
-    // Back
-    drawButton(56, kGrpY_System, 180, 48, "← 返回");
-    drawButton(304, kGrpY_System, 180, 48, "保存");
-    // drawFooterHint("运行时长和存储占用实时刷新");
-}
-
-// ── Diagnostics ───────────────────────────────────────────────────────────────
 
 void VinkUiRenderer::renderDiagnostics(const Message& lastTouch, const char* eventName) {
     if (!canvas_) return;
     clear();
 
     char line[128];
-    // Use built-in ASCII drawing here only for diagnostic/boot visibility checks.
     canvas_->setTextColor(TFT_BLACK, TFT_WHITE);
     canvas_->setTextDatum(top_left);
     canvas_->setTextSize(2);
     canvas_->drawString("VINK DIAGNOSTIC", 24, 22);
     canvas_->drawString("OFFICIAL PORTRAIT", 24, 52);
+    canvas_->drawRoundRect(408, 20, 96, 44, 14, TFT_BLACK);
+    g_cjkText.drawCentered(408, 20, 96, 44, "返回", TFT_BLACK);
     canvas_->setTextSize(1);
     canvas_->drawString("rotation 0 / 540x960 / raw touch", 28, 88);
     canvas_->drawFastHLine(24, 114, kPaperS3Width - 48, TFT_BLACK);
@@ -764,15 +394,11 @@ void VinkUiRenderer::renderDiagnostics(const Message& lastTouch, const char* eve
     canvas_->setTextSize(2);
     canvas_->drawString("DISPLAY", 48, 158);
     canvas_->setTextSize(1);
-    snprintf(line, sizeof(line), "rotation=%u logical=%dx%d",
-              gPaperS3ActiveDisplayRotation, kPaperS3Width, kPaperS3Height);
+    snprintf(line, sizeof(line), "rotation=%u logical=%dx%d", gPaperS3ActiveDisplayRotation, kPaperS3Width, kPaperS3Height);
     canvas_->drawString(line, 48, 198);
     snprintf(line, sizeof(line), "M5.Display=%dx%d", M5.Display.width(), M5.Display.height());
     canvas_->drawString(line, 48, 226);
-    snprintf(line, sizeof(line), "USB:%s CHG:%s BAT:%.2fV",
-             isOfficialUsbConnected() ? "IN" : "--",
-             isOfficialChargeStateActive() ? "ON" : "--",
-             readOfficialBatteryVoltage());
+    snprintf(line, sizeof(line), "USB:%s CHG:%s BAT:%.2fV", isOfficialUsbConnected() ? "IN" : "--", isOfficialChargeStateActive() ? "ON" : "--", readOfficialBatteryVoltage());
     canvas_->drawString(line, 48, 254);
     canvas_->drawString("If visible: Vink canvas takeover works", 48, 282);
 
@@ -780,14 +406,11 @@ void VinkUiRenderer::renderDiagnostics(const Message& lastTouch, const char* eve
     canvas_->setTextSize(2);
     canvas_->drawString("TOUCH RAW", 48, 364);
     canvas_->setTextSize(1);
-    snprintf(line, sizeof(line), "event: %s  count:%ld",
-             eventName ? eventName : "wait", static_cast<long>(lastTouch.value));
+    snprintf(line, sizeof(line), "event: %s  count:%ld", eventName ? eventName : "wait", static_cast<long>(lastTouch.value));
     canvas_->drawString(line, 48, 404);
-    snprintf(line, sizeof(line), "raw: %d, %d",
-             lastTouch.rawTouch.x, lastTouch.rawTouch.y);
+    snprintf(line, sizeof(line), "raw: %d, %d", lastTouch.rawTouch.x, lastTouch.rawTouch.y);
     canvas_->drawString(line, 48, 436);
-    snprintf(line, sizeof(line), "norm: %d, %d",
-             lastTouch.touch.x, lastTouch.touch.y);
+    snprintf(line, sizeof(line), "norm: %d, %d", lastTouch.touch.x, lastTouch.touch.y);
     canvas_->drawString(line, 48, 468);
     canvas_->drawString("Touch: dot should match your finger", 48, 496);
 
@@ -815,43 +438,25 @@ void VinkUiRenderer::renderDiagnostics(const Message& lastTouch, const char* eve
         canvas_->fillCircle(px, py, 10, TFT_BLACK);
         canvas_->drawCircle(px, py, 20, TFT_BLACK);
     }
+
     canvas_->setTextSize(1);
 }
 
-// ── Shutdown / lock screen ────────────────────────────────────────────────────
-
-void VinkUiRenderer::renderLockScreen(const String& imagePath) {
-    canvas_->fillScreen(0x7BEF);  // e-paper mid-gray background
-    if (!imagePath.isEmpty()) {
-        File f = SD.open(imagePath.c_str(), FILE_READ);
-        if (f) {
-            size_t len = f.size();
-            std::unique_ptr<uint8_t[]> buf(new uint8_t[len]);
-            if (buf) {
-                size_t got = f.read(buf.get(), len);
-                f.close();
-                if (got == len) {
-                    if (imagePath.endsWith(".png") || imagePath.endsWith(".PNG")) {
-                        canvas_->drawPng(buf.get(), len);
-                    } else {
-                        canvas_->drawJpg(buf.get(), len);
-                    }
-                    Serial.printf("[vink3][lock] lock image loaded from MEM: %s (%u bytes)\n",
-                                  imagePath.c_str(), static_cast<unsigned>(len));
-                } else {
-                    Serial.printf("[vink3][lock] short read lock image: %s\n", imagePath.c_str());
-                    canvas_->fillScreen(0x7BEF);
-                }
-            } else {
-                f.close();
-                Serial.printf("[vink3][lock] OOM for lock image: %s\n", imagePath.c_str());
-                canvas_->fillScreen(0x7BEF);
-            }
-        } else {
-            Serial.printf("[vink3][lock] could not open lock image: %s\n", imagePath.c_str());
-            canvas_->fillScreen(0x7BEF);
-        }
-    }
+void VinkUiRenderer::renderShutdownConfirm() {
+    if (!canvas_) return;
+    clear();
+    drawStatusBar("关机确认");
+    drawTabs(SystemState::Settings);
+    canvas_->fillRoundRect(36, 218, 468, 420, 24, TFT_WHITE);
+    canvas_->drawRoundRect(36, 218, 468, 420, 24, TFT_BLACK);
+    g_cjkText.drawCentered(60, 270, 420, 44, "确认关闭电源？", TFT_BLACK);
+    g_cjkText.drawCentered(70, 344, 400, 30, "会先保存当前阅读进度", kGrayText);
+    g_cjkText.drawCentered(70, 386, 400, 30, "然后调用 M5.Power.powerOff()", kGrayText);
+    g_cjkText.drawCentered(70, 428, 400, 30, "侧边键双击仍保留硬件关机", kGrayText);
+    drawButton(64, 530, 180, 56, "取消");
+    canvas_->fillRoundRect(296, 530, 180, 56, 18, TFT_BLACK);
+    canvas_->drawRoundRect(296, 530, 180, 56, 18, TFT_BLACK);
+    g_cjkText.drawCentered(296, 530, 180, 56, "确认关机", TFT_WHITE);
 }
 
 void VinkUiRenderer::renderShutdown(const char* reason) {
@@ -862,12 +467,22 @@ void VinkUiRenderer::renderShutdown(const char* reason) {
     canvas_->drawRoundRect(54, 300, 432, 300, 24, TFT_BLACK);
     g_cjkText.drawCentered(54, 350, 432, 48, reason ? reason : "正在关机", TFT_BLACK);
     g_cjkText.drawCentered(72, 430, 396, 32, "正在保存进度并关闭电源", kGrayText);
-    g_cjkText.drawCentered(72, 482, 396, 32, "请松开侧边电源键", kGrayText);
-    g_cjkText.drawCentered(0, 690, kPaperS3Width, 28, "单按侧边键关机；若侧键无效，可从设置页点电源", kGrayText);
+    g_cjkText.drawCentered(72, 482, 396, 32, "官方侧键：双击硬件关机", kGrayText);
+    g_cjkText.drawCentered(0, 690, kPaperS3Width, 28, "固件内关机请从设置页点电源", kGrayText);
 }
 
-
-// ── Hit test ──────────────────────────────────────────────────────────────────
+void VinkUiRenderer::renderPowerOffReady() {
+    if (!canvas_) return;
+    clear();
+    drawStatusBar("已关机");
+    canvas_->fillRoundRect(44, 246, 452, 390, 28, TFT_WHITE);
+    canvas_->drawRoundRect(44, 246, 452, 390, 28, TFT_BLACK);
+    g_cjkText.drawCentered(64, 306, 412, 52, "Vink 已关机", TFT_BLACK);
+    g_cjkText.drawCentered(76, 398, 388, 32, "阅读进度已保存", kGrayText);
+    g_cjkText.drawCentered(76, 448, 388, 32, "屏幕会保留此页面", kGrayText);
+    g_cjkText.drawCentered(76, 498, 388, 32, "单击侧边键开机", kGrayText);
+    g_cjkText.drawCentered(0, 710, kPaperS3Width, 28, "后续可替换为 SD 卡关机图片", kGrayText);
+}
 
 UiAction VinkUiRenderer::hitTestTabs(int16_t x, int16_t y) const {
     if (y < kTabsY || y >= kTabsY + kTabsH) return UiAction::None;
@@ -885,174 +500,40 @@ UiAction VinkUiRenderer::hitTest(SystemState state, int16_t x, int16_t y) const 
     switch (state) {
         case SystemState::Reader:
         case SystemState::Home:
-            // Buttons sit inside the current-book card; test visible buttons before the surrounding card.
+            // Buttons sit inside the current-book card; test them before the
+            // surrounding card so the visible "书架" button does not open book.
             if (inRect(x, y, 304, 286, 180, 48)) return UiAction::OpenLibrary;
             if (inRect(x, y, 56, 286, 180, 48)) return UiAction::OpenCurrentBook;
             if (inRect(x, y, 28, kContentY, 484, 184)) return UiAction::OpenCurrentBook;
             break;
-
         case SystemState::Library:
+            // Library rows are owned by ReaderBookService, whose visible/touch
+            // geometry starts below the shell summary. Avoid broad hit-testing
+            // here; StateMachine transitions only if the reader service accepts
+            // the row tap.
             break;
-
         case SystemState::Transfer:
-            // WiFi/Web UI card and primary button → WiFi transfer sub-page.
-            if (inRect(x, y, 28, kContentY, 484, 172)) return UiAction::OpenTransferWifiAp;
-            if (inRect(x, y, 56, 334, 180, 48)) return UiAction::OpenTransferWifiAp;
-            if (inRect(x, y, 304, 334, 180, 48)) return UiAction::ToggleWifiAp;
-            // USB MSC card → USB confirm sub-page
-            if (inRect(x, y, 28, 392, 224, 120)) return UiAction::OpenTransferUsb;
-            // Export card → export sub-page
-            if (inRect(x, y, 288, 392, 224, 120)) return UiAction::OpenTransferExport;
+            if (inRect(x, y, 56, 332, 180, 52)) return UiAction::ToggleWifiAp;
+            if (inRect(x, y, 304, 332, 180, 52)) return UiAction::OpenTransfer;
             break;
-
-        // ── Transfer sub-pages ─────────────────────────────────────
-        case SystemState::TransferWifiAp:
-            // Back button
-            if (inRect(x, y, 56, kGrpY_Connect + 20, 180, 48)) return UiAction::TabTransfer;
-            // Start hotspot button
-            if (inRect(x, y, 304, kGrpY_Connect + 20, 180, 48)) return UiAction::ToggleWifiAp;
-            // Three mode option cards
-            {
-                constexpr int16_t optH = 58;
-                for (int i = 0; i < 3; ++i) {
-                    const int16_t optY = kGrpY_Display + i * (optH + 4);
-                    if (inRect(x, y, kCardX, optY, kCardW, optH)) {
-                        if (i == 0) return UiAction::SetWifiOff;
-                        if (i == 1) return UiAction::SetWifiApWebUi;
-                        return UiAction::SetWifiSta;
-                    }
-                }
-            }
-            break;
-
-        case SystemState::TransferUsb:
-            // Confirm area (large black button)
-            if (inRect(x, y, 56, kGrpY_Display + 20, 384, 64)) return UiAction::OpenTransferUsb;
-            // Back button
-            if (inRect(x, y, 56, kGrpY_Connect + 20, 180, 48)) return UiAction::TabTransfer;
-            break;
-
-        case SystemState::TransferExport:
-            // Export actions are performed from Web UI; tapping rows keeps this help page visible.
-            {
-                constexpr int16_t optH = 58;
-                for (int i = 0; i < 4; ++i) {
-                    const int16_t optY = kGrpY_Reading + i * (optH + 4);
-                    if (inRect(x, y, kCardX, optY, kCardW, optH)) {
-                        return UiAction::OpenTransferExport;
-                    }
-                }
-            }
-            if (inRect(x, y, 56, kGrpY_System, 180, 48)) return UiAction::TabTransfer;
-            break;
-
-        // ── Settings main page ────────────────────────────────────
         case SystemState::Settings:
-            // Back nav row (电源/关于 area, below last group)
-            if (inRect(x, y, 56, kGrpY_System + 118, 424, kRowH)) return UiAction::OpenSettingsSystem;
-            // "关于" row
-            if (inRect(x, y, kRowX, kGrpY_System + 118, kValueRight - kRowX + 60, kRowH)) {
-                return UiAction::OpenSettingsSystem;
-            }
-            // System: 电源 row
-            if (inRect(x, y, kRowX, kGrpY_System + 58, kValueRight - kRowX + 60, kRowH)) {
-                return UiAction::RequestShutdown;
-            }
-            // Connection group rows
-            if (inRect(x, y, kRowX, kGrpY_Connect + 58, kValueRight - kRowX + 60, kRowH)) {
-                return UiAction::OpenSettingsWifi;
-            }
-            if (inRect(x, y, kRowX, kGrpY_Connect + 118, kValueRight - kRowX + 60, kRowH)) {
-                return UiAction::TabTransfer;
-            }
-            // Display group rows
-            if (inRect(x, y, kRowX, kGrpY_Display + 58, kValueRight - kRowX + 60, kRowH)) {
-                return UiAction::OpenSettingsRefresh;
-            }
-            if (inRect(x, y, kRowX, kGrpY_Display + 118, kValueRight - kRowX + 60, kRowH)) {
-                return UiAction::OpenDiagnostics;
-            }
-            // Reading group rows
-            if (inRect(x, y, kRowX, kGrpY_Reading + 58, kValueRight - kRowX + 60, kRowH)) {
-                return UiAction::OpenSettingsLayout;
-            }
-            if (inRect(x, y, kRowX, kGrpY_Reading + 118, kValueRight - kRowX + 60, kRowH)) {
-                return UiAction::OpenSettingsLayout;
-            }
+            if (inRect(x, y, 56, 212, 424, 60)) return UiAction::CycleReaderPageMargin;
+            if (inRect(x, y, 56, 272, 424, 60)) return UiAction::CycleReaderLineSpacing;
+            if (inRect(x, y, 56, 410, 424, 60)) return UiAction::CycleReaderLayoutPreset;
+            if (inRect(x, y, 56, 470, 424, 60)) return UiAction::ToggleReaderAntiAlias;
+            if (inRect(x, y, 56, 608, 424, 60)) return UiAction::CycleReaderRefreshStrategy;
+            if (inRect(x, y, 56, 668, 424, 60)) return UiAction::ToggleReaderPageTurnEffect;
+            if (inRect(x, y, 56, 806, 424, 60)) return UiAction::RequestShutdown;
+            if (y >= kContentY) return UiAction::OpenSettings;
             break;
-
-        // ── Settings sub-pages ─────────────────────────────────────
-        case SystemState::SettingsLayout:
-            // Font size row (cycling)
-            if (inRect(x, y, kRowX, kGrpY_Reading + 58, kValueRight - kRowX + 40, kRowH)) {
-                return UiAction::CycleFontSize;
-            }
-            // Line spacing row (cycling)
-            if (inRect(x, y, kRowX, kGrpY_Reading + 118, kValueRight - kRowX + 40, kRowH)) {
-                return UiAction::CycleLineSpacing;
-            }
-            // Margins row (cycles left/right together)
-            if (inRect(x, y, kRowX, kGrpY_Display + 58, kValueRight - kRowX + 40, kRowH)) {
-                return UiAction::CycleMarginLeft;
-            }
-            // Justify row (cycling)
-            if (inRect(x, y, kRowX, kGrpY_Display + 118, kValueRight - kRowX + 40, kRowH)) {
-                return UiAction::CycleJustify;
-            }
-            // Simplified Chinese (cycling)
-            if (inRect(x, y, kRowX, kGrpY_Connect + 58, kValueRight - kRowX + 40, kRowH)) {
-                return UiAction::CycleSimplified;
-            }
-            // Back row (group 3)
-            if (inRect(x, y, kRowX, kGrpY_Connect + 118, kValueRight - kRowX + 40, kRowH)) {
-                return UiAction::TabSettings;
-            }
-            // Font family row (group 4)
-            if (inRect(x, y, kRowX, kGrpY_System + 58, kValueRight - kRowX + 40, kRowH)) {
-                return UiAction::CycleFontFamily;
-            }
-            // Back row (group 4)
-            if (inRect(x, y, kRowX, kGrpY_System + 118, kValueRight - kRowX + 40, kRowH)) {
-                return UiAction::TabSettings;
-            }
+        case SystemState::ShutdownConfirm:
+            if (inRect(x, y, 64, 530, 180, 56)) return UiAction::CancelShutdown;
+            if (inRect(x, y, 296, 530, 180, 56)) return UiAction::ConfirmShutdown;
             break;
-
-        case SystemState::SettingsRefresh:
-            // Three strategy cards
-            for (int i = 0; i < 3; ++i) {
-                const int16_t cardY = kGrpY_Reading + i * (kGroupH / 2 + 8);
-                if (inRect(x, y, kCardX, cardY, kCardW, kGroupH / 2)) {
-                    return UiAction::CycleRefreshFrequency;  // cycle handled in state machine
-                }
-            }
-            if (inRect(x, y, kRowX, kGrpY_Connect + 58, kValueRight - kRowX + 40, kRowH)) {
-                return UiAction::CycleReaderMiddleRefresh;
-            }
-            if (inRect(x, y, kRowX, kGrpY_Connect + 118, kValueRight - kRowX + 40, kRowH)) {
-                return UiAction::CycleReaderFullRefresh;
-            }
-            break;
-
-        case SystemState::SettingsWifi:
-            if (inRect(x, y, 56, kGrpY_Connect + 30, 180, 48)) return UiAction::TabSettings;
-            if (inRect(x, y, 304, kGrpY_Connect + 30, 180, 48)) return UiAction::SaveWifiSettings;
-            break;
-
-
-        case SystemState::SettingsSystem:
-            // Auto-sleep status cycling
-            if (inRect(x, y, kRowX, kGrpY_Connect + 58, kValueRight - kRowX + 40, kRowH)) {
-                return UiAction::OpenSettingsSystem; // future: toggle auto-sleep
-            }
-            if (inRect(x, y, 56, kGrpY_System, 180, 48)) return UiAction::TabSettings;
-            if (inRect(x, y, 304, kGrpY_System, 180, 48)) return UiAction::OpenSettingsSystem; // save
-            break;
-
         case SystemState::Diagnostics:
+            if (inRect(x, y, 408, 20, 96, 44)) return UiAction::TabSettings;
             if (y >= 316) return UiAction::OpenDiagnostics;
             break;
-
-
         default:
             break;
     }

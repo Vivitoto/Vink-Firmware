@@ -1,7 +1,7 @@
 #pragma once
 #include <Arduino.h>
 #include <M5Unified.h>
-#include "../VinkPaperS3Core.h"
+#include "../ReadPaper176.h"
 
 namespace vink3 {
 
@@ -12,12 +12,18 @@ enum class DisplayEffect : uint8_t {
     Rect = 3,
 };
 
-// Vink reference core style display message: flags + effect + rectangle.
+enum class ReaderRefreshStrategy : uint8_t {
+    Speed = 0,
+    Balanced = 1,
+    Clear = 2,
+};
+
+// ReadPaper 1.7.6 style display message: flags + effect + rectangle.
 struct DisplayRequest {
-    bool transparent = false; // Vink display flags[0]
-    bool invert = false;      // Vink display flags[1]
-    bool quality = false;     // Vink display flags[2]
-    bool reserved = false;    // Vink display flags[3]
+    bool transparent = false; // ReadPaper flags[0]
+    bool invert = false;      // ReadPaper flags[1]
+    bool quality = false;     // ReadPaper flags[2]
+    bool reserved = false;    // ReadPaper flags[3]
     bool readerPageTurn = false;
     DisplayEffect effect = DisplayEffect::None;
     int16_t x = 0;
@@ -32,21 +38,21 @@ public:
     bool enqueue(const DisplayRequest& request, uint32_t timeoutMs = 20);
     bool enqueueFull(bool quality = false, uint32_t timeoutMs = 20);
     bool enqueueReaderPageTurn(DisplayEffect effect = DisplayEffect::None, uint32_t timeoutMs = 20);
-    bool enqueueReaderPageTurn(uint32_t timeoutMs);  // backward-compatible overload
     bool waitIdle(uint32_t timeoutMs = 3000) const;
     bool isBusy() const;
     uint32_t pushCount() const;
     void resetPushCount();
     uint32_t readerPageTurnCount() const;
     void resetReaderPageTurnCount();
-    void markReaderChapterTransition();
     void forceNextReaderFullRefresh();
-    void setReaderPageTurnDirection(bool forward);  // true=forward/next(left→right), false=backward/prev(right→left)
-
-    // Shutter animation: pushes vertical strips progressively for page-turn visual effect.
-    // HorizontalShutter: left→right wipe (next page / forward)
-    // VerticalShutter:   right→left wipe (prev page / backward)
-    void pushShutterAnimation(M5Canvas* canvas, DisplayEffect effect);
+    void cycleReaderRefreshStrategy();
+    void setReaderRefreshStrategy(ReaderRefreshStrategy strategy);
+    void setReaderRefreshIntervals(uint8_t middleEvery, uint8_t fullEvery);
+    bool saveLocalSettings() const;
+    ReaderRefreshStrategy readerRefreshStrategy() const { return readerRefreshStrategy_; }
+    uint8_t readerMiddleRefreshEvery() const { return readerMiddleRefreshEvery_; }
+    uint8_t readerFullRefreshEvery() const { return readerFullRefreshEvery_; }
+    const char* readerRefreshStrategyLabel() const;
 
 private:
     static void taskThunk(void* arg);
@@ -56,8 +62,9 @@ private:
     bool enqueueCanvasCloneBlocking(M5Canvas* clone);
     M5Canvas* dequeueCanvasClone();
     epd_mode_t chooseRefreshMode(const DisplayRequest& request);
-    epd_mode_t chooseUiRefreshMode(const DisplayRequest& request);
+    void loadLocalSettings();
     epd_mode_t chooseReaderRefreshMode(const DisplayRequest& request);
+    void pushShutterAnimation(M5Canvas* canvas, DisplayEffect effect);
 
     M5Canvas* canvas_ = nullptr;
     QueueHandle_t queue_ = nullptr;
@@ -67,10 +74,12 @@ private:
     volatile uint32_t pushCount_ = 0;
     volatile uint32_t readerPageTurnCount_ = 0;
     volatile bool forceNextReaderFullRefresh_ = false;
-    volatile bool lastPageTurnForward_ = true;  // true=forward page turn
     // PaperS3 official/examples and reference firmware favor fast EPD updates for
     // interactive UI, with periodic quality refreshes to clean ghosting.
     bool fastRefresh_ = true;
+    ReaderRefreshStrategy readerRefreshStrategy_ = ReaderRefreshStrategy::Balanced;
+    uint8_t readerMiddleRefreshEvery_ = 0;
+    uint8_t readerFullRefreshEvery_ = 0;
 };
 
 extern DisplayService g_displayService;

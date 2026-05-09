@@ -7,56 +7,26 @@ namespace vink3 {
 
 enum class UiAction : uint8_t {
     None,
-
-    // ── Tab navigation ─────────────────────────────────────────────
     TabReader,
     TabLibrary,
     TabTransfer,
     TabSettings,
-
-    // ── Top-level open actions ───────────────────────────────────
     OpenCurrentBook,
     OpenLibrary,
     OpenTransfer,
     OpenSettings,
     OpenDiagnostics,
     RequestShutdown,
-    LockScreen,
-    WakeFromLockScreen,
-    BackHome,
-
-    // ── Settings sub-pages ───────────────────────────────────────
-    OpenSettingsLayout,
-    OpenSettingsRefresh,
-    OpenSettingsWifi,
-    OpenSettingsSystem,
-
-    // ── In-page value cycling ────────────────────────────────────
-    CycleRefreshFrequency,
-    CycleReaderMiddleRefresh,
-    CycleReaderFullRefresh,
-    CycleFontSize,
-    CycleFontFamily,
-    CycleLineSpacing,
-    CycleSimplified,
-    CycleJustify,
-    CycleMarginLeft,
-
-    // ── Settings save / toggle ───────────────────────────────────
-    SaveWifiSettings,
-
-    // ── Transfer / sync sub-pages ────────────────────────────────
-    OpenTransferWifiAp,
-    OpenTransferUsb,
-    OpenTransferExport,
-
-    // ── WiFi mode actions ───────────────────────────────────────
-    CycleWifiMode,
-    SetWifiOff,
-    SetWifiApWebUi,
-    SetWifiSta,
+    ConfirmShutdown,
+    CancelShutdown,
+    CycleReaderRefreshStrategy,
+    ToggleReaderAntiAlias,
+    CycleReaderLayoutPreset,
+    CycleReaderPageMargin,
+    CycleReaderLineSpacing,
+    ToggleReaderPageTurnEffect,
     ToggleWifiAp,
-    ToggleWebUi,
+    BackHome,
 };
 
 class VinkUiRenderer {
@@ -64,25 +34,21 @@ public:
     bool begin(M5Canvas* canvas);
     void renderBoot();
     void renderHome(SystemState state);
-    void renderReaderHome();
+    void renderReaderHome(const char* bookTitle = nullptr, const char* bookPath = nullptr,
+                          const char* progressText = nullptr, bool hasLastBook = false);
     void renderLibrary();
+    void renderUiListPage(SystemState active, const char* title, const char* summary,
+                          const char* const* rows, int rowCount, int16_t rowY, int16_t rowH,
+                          uint16_t page, uint16_t totalPages, int activeRow = -1);
+    void renderUiActionPage(SystemState active, const char* title,
+                            const char* const* infoLines, int infoCount,
+                            const char* const* actions, int actionCount);
     void renderTransfer();
     void renderSettings();
-    void renderSettingsLayout();
-    void renderSettingsRefresh();
-    void renderSettingsWifi();
-    void renderSettingsSystem();
-    void renderTransferWifiAp();
-    void renderTransferUsb();
-    void renderTransferWebDav();
-    void renderTransferExport();
     void renderDiagnostics(const Message& lastTouch, const char* eventName);
+    void renderShutdownConfirm();
     void renderShutdown(const char* reason);
-    void renderLockScreen(const String& imagePath);
-
-    // Shared time/battery formatters for use by other services (e.g. reader overlay)
-    static void formatTimeStr(char* out, size_t outSize);
-    static void formatBatterySimple(char* out, size_t outSize);
+    void renderPowerOffReady();
 
     UiAction hitTest(SystemState state, int16_t x, int16_t y) const;
 
@@ -94,9 +60,6 @@ private:
     void drawButton(int16_t x, int16_t y, int16_t w, int16_t h, const char* label);
     void drawSettingsGroup(int16_t y, const char* title, const char* row1, const char* row1Value, const char* row2, const char* row2Value);
     void drawSettingsRow(int16_t y, const char* label, const char* value);
-    void drawFooterHint(const char* hint);
-    void drawSettingsRowRaw(int16_t rowTopY, const char* label, const char* value);
-    void drawCyclingRow(int16_t rowTopY, const char* label, const char* value);
     UiAction hitTestTabs(int16_t x, int16_t y) const;
 
     M5Canvas* canvas_ = nullptr;

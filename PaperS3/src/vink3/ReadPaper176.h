@@ -5,14 +5,13 @@
 
 namespace vink3 {
 
-static constexpr const char* kVinkPaperS3FirmwareVersion = "v0.4.3";
+static constexpr const char* kVinkPaperS3FirmwareVersion = "v0.4.4";
 
-// Vink-owned PaperS3 core profile. Early v0.3 work was validated against a
-// mature external PaperS3 firmware baseline; keep details in reference docs so
-// product code, logs, and UI stay Vink-branded.
-static constexpr const char* kVinkPaperS3CoreReferenceRepo = "external PaperS3 reference firmware";
-static constexpr const char* kVinkPaperS3CoreReferenceCommit = "e910d29";
-static constexpr const char* kVinkPaperS3CoreReferenceVersion = "V1.7.6-compatible";
+// Upstream baseline used for the v0.3.0 rewrite.
+// Source: https://github.com/shinemoon/M5ReadPaper main @ e910d29 (data/version: V1.7.6)
+static constexpr const char* kReadPaperUpstreamRepo = "shinemoon/M5ReadPaper";
+static constexpr const char* kReadPaperUpstreamCommit = "e910d29";
+static constexpr const char* kReadPaperUpstreamVersion = "V1.7.6";
 
 // Official M5Stack PaperS3 hardware profile.
 // Source: http://docs.m5stack.com/zh_CN/core/PaperS3
@@ -59,14 +58,7 @@ static constexpr uint32_t kDisplayFullRefreshNormalThreshold = 24;
 
 static constexpr epd_mode_t kQualityRefresh = epd_mode_t::epd_quality;
 static constexpr epd_mode_t kMiddleRefresh = epd_mode_t::epd_fast;
-static constexpr epd_mode_t kNormalRefresh = epd_mode_t::epd_fastest;
-static constexpr epd_mode_t kTextRefresh = epd_mode_t::epd_text;
-static constexpr epd_mode_t kLowRefresh = kNormalRefresh;
-
-// ── Colour constants (e-paper safe palette) ──────────────────────────────────
-// Background / canvas clear colour for the 4-bit greyscale panel.
-// 0x7BEF is Vink's neutral mid-grey: it sits cleanly on unheated e-ink without
-// excessive ghosting.
-static constexpr uint16_t COLOR_BG = 0x7BEF;
+static constexpr epd_mode_t kNormalRefresh = epd_mode_t::epd_text;
+static constexpr epd_mode_t kLowRefresh = epd_mode_t::epd_fastest;
 
 } // namespace vink3
