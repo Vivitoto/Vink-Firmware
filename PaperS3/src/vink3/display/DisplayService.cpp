@@ -246,32 +246,30 @@ void DisplayService::setReaderRefreshIntervals(uint8_t middleEvery, uint8_t full
 
 const char* DisplayService::readerRefreshStrategyLabel() const {
     switch (readerRefreshStrategy_) {
-        case ReaderRefreshStrategy::Speed: return "极速";
-        case ReaderRefreshStrategy::Balanced: return "均衡";
+        case ReaderRefreshStrategy::Speed: return "高速";
+        case ReaderRefreshStrategy::Balanced: return "标准";
         case ReaderRefreshStrategy::Clear: return "清晰";
     }
-    return "均衡";
+    return "标准";
 }
 
 // Strip-wipe page-turn animation. Keep this isolated in DisplayService so it
-// does not touch boot/runtime initialization. HorizontalShutter is forward
-// (left -> right); VerticalShutter is backward (right -> left).
+// does not touch boot/runtime initialization. HorizontalShutter wipes left to
+// right; VerticalShutter wipes right to left. StateMachine maps next/previous
+// page onto these directions to match the EDCBook-style visual metaphor.
 void DisplayService::pushShutterAnimation(M5Canvas* canvas, DisplayEffect effect) {
     if (!canvas) return;
 
-    constexpr uint16_t kMaxProgressionSteps = 24;
-    constexpr uint16_t kAlignPx = 16;
-    constexpr uint32_t kStripDelayMs = 10;
+    constexpr uint16_t kStripW = 56;
+    constexpr uint16_t kStepW = 32;
+    constexpr uint32_t kStripDelayMs = 0;
     constexpr epd_mode_t kShutterMode = epd_mode_t::epd_fast;
 
     const uint16_t width = canvas->width();
     const uint16_t height = canvas->height();
     if (width == 0 || height == 0) return;
 
-    const uint16_t alignedStep = std::max<uint16_t>(
-        kAlignPx,
-        ((width + (kMaxProgressionSteps * kAlignPx) - 1) / (kMaxProgressionSteps * kAlignPx)) * kAlignPx);
-    const uint16_t maxStripW = alignedStep;
+    const uint16_t maxStripW = std::min<uint16_t>(kStripW, width);
 
     M5Canvas strip(&M5.Display);
     strip.setPsram(true);
@@ -316,17 +314,19 @@ void DisplayService::pushShutterAnimation(M5Canvas* canvas, DisplayEffect effect
     M5.Display.setEpdMode(kShutterMode);
 
     if (effect == DisplayEffect::HorizontalShutter) {
-        for (uint16_t x = 0; x < width; x += alignedStep) {
-            const uint16_t w = std::min<uint16_t>(alignedStep, width - x);
+        for (uint16_t x = 0; x < width; x += kStepW) {
+            // Overlap adjacent updates so partial-refresh strip boundaries do
+            // not leave pale/dark vertical seams on the e-paper panel.
+            const uint16_t w = std::min<uint16_t>(maxStripW, width - x);
             copyStrip(x, w);
             strip.pushSprite(&M5.Display, x, 0);
-            if (x + alignedStep < width) delay(kStripDelayMs);
+            if (x + kStepW < width) delay(kStripDelayMs);
         }
     } else {
         int32_t x = static_cast<int32_t>(width);
         while (x > 0) {
-            const uint16_t w = static_cast<uint16_t>(std::min<int32_t>(alignedStep, x));
-            x -= w;
+            x = std::max<int32_t>(0, x - kStepW);
+            const uint16_t w = std::min<uint16_t>(maxStripW, width - static_cast<uint16_t>(x));
             copyStrip(static_cast<uint16_t>(x), w);
             strip.pushSprite(&M5.Display, x, 0);
             if (x > 0) delay(kStripDelayMs);
@@ -342,16 +342,16 @@ epd_mode_t DisplayService::chooseReaderRefreshMode(const DisplayRequest& request
     epd_mode_t normalMode = kNormalRefresh;
     switch (readerRefreshStrategy_) {
         case ReaderRefreshStrategy::Speed:
-            fullEvery = 20;
+            fullEvery = 0;
             normalMode = kLowRefresh;
             break;
         case ReaderRefreshStrategy::Clear:
-            fullEvery = 5;
+            fullEvery = 20;
             normalMode = kNormalRefresh;
             break;
         case ReaderRefreshStrategy::Balanced:
         default:
-            fullEvery = 10;
+            fullEvery = 0;
             normalMode = kNormalRefresh;
             break;
     }

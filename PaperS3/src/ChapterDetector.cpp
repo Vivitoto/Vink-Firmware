@@ -130,6 +130,50 @@ int ChapterDetector::detect(File& file, ChapterDetectResult* results, int maxRes
     return count;
 }
 
+
+bool ChapterDetector::looksLikeCandidateLine(const char* line, int lineLen) const {
+    if (!line || lineLen <= 0) return false;
+    const uint8_t b0 = static_cast<uint8_t>(line[0]);
+    const uint8_t b1 = lineLen > 1 ? static_cast<uint8_t>(line[1]) : 0;
+    const uint8_t b2 = lineLen > 2 ? static_cast<uint8_t>(line[2]) : 0;
+
+    // ASCII/English headings: 1., 001、, Chapter 1, CH 1, wrappers.
+    if ((line[0] >= '0' && line[0] <= '9') || line[0] == '[' || line[0] == '(' ||
+        line[0] == 'C' || line[0] == 'c') return true;
+
+    if (lineLen >= 3) {
+        // 第 / 正 / 【
+        if ((b0 == 0xE7 && b1 == 0xAC && b2 == 0xAC) ||
+            (b0 == 0xE6 && b1 == 0xAD && b2 == 0xA3) ||
+            (b0 == 0xE3 && b1 == 0x80 && b2 == 0x90)) return true;
+
+        // Common special mark headings: ★ ☆ ※ ◆ ■ ▲ ● ◇ ○
+        if ((b0 == 0xE2 && b1 == 0x98 && (b2 == 0x85 || b2 == 0x86)) ||
+            (b0 == 0xE2 && b1 == 0x80 && b2 == 0xBB) ||
+            (b0 == 0xE2 && b1 == 0x97 && (b2 == 0x86 || b2 == 0x8F || b2 == 0x87 || b2 == 0x8B)) ||
+            (b0 == 0xE2 && b1 == 0x96 && (b2 == 0xA0 || b2 == 0xB2))) return true;
+
+        // Volume prefix: 卷 / 册 / 部 / 篇, or Chinese-number prefix used by 一卷/二部.
+        if ((b0 == 0xE5 && ((b1 == 0x8D && b2 == 0xB7) || (b1 == 0x86 && b2 == 0x8C))) ||
+            (b0 == 0xE9 && b1 == 0x83 && b2 == 0xA8) ||
+            (b0 == 0xE7 && b1 == 0xAF && b2 == 0x87)) return true;
+        if ((b0 == 0xE9 && b1 == 0x9B && b2 == 0xB6) || // 零
+            (b0 == 0xE3 && b1 == 0x80 && b2 == 0x87) ||                 // 〇
+            (b0 == 0xE4 && ((b1 == 0xB8 && (b2 == 0x80 || b2 == 0x83 || b2 == 0x89)) || // 一/七/三
+                            (b1 == 0xBA && b2 == 0x8C) || // 二
+                            (b1 == 0xB9 && b2 == 0x9D))) || // 九
+            (b0 == 0xE4 && b1 == 0xB8 && b2 == 0xA4) || // 两
+            (b0 == 0xE5 && ((b1 == 0x8D && (b2 == 0x81 || b2 == 0x83)) || // 十/千
+                            (b1 == 0x9B && b2 == 0x9B) || // 四
+                            (b1 == 0x85 && (b2 == 0xAD || b2 == 0xAB)))) || // 六/八
+            (b0 == 0xE4 && b1 == 0xBA && b2 == 0x94) || // 五
+            (b0 == 0xE7 && b1 == 0x99 && b2 == 0xBE) || // 百
+            (b0 == 0xE4 && b1 == 0xB8 && b2 == 0x87)) return true; // 万
+    }
+
+    return false;
+}
+
 bool ChapterDetector::matchLine(const char* line, int lineLen, ChapterDetectResult& out) {
     auto trimHeading = [](const char*& p, int& n) {
         bool changed = true;
@@ -182,8 +226,12 @@ bool ChapterDetector::matchLine(const char* line, int lineLen, ChapterDetectResu
         if (n > 0) { line = p; lineLen = n; }
     }
 
-    // 截断过长的行（标题通常不超过50字）
+    // 截断过长的行（标题通常不超过50字）。 Then run a cheap first-byte
+    // prefilter so normal prose lines do not pay for Chinese-number parsing,
+    // String construction, and every matcher. This is the hot path for first
+    // TOC generation on large TXT files.
     if (lineLen <= 0 || lineLen > 200) return false;
+    if (!looksLikeCandidateLine(line, lineLen)) return false;
 
     // 尝试各种匹配器
     if (matchChineseChapter(line, lineLen, out)) return true;
@@ -674,9 +722,14 @@ int ChapterDetector::readLine(File& file, char* buf, int maxLen) {
     // fake short line and accidentally become a TOC entry. readBytesUntil()
     // batches SD reads and is much faster than byte-by-byte File::read().
     if (len >= maxLen - 1) {
+        // Discard overlong physical lines in buffered chunks instead of
+        // byte-by-byte File::read(); long wrapped web paragraphs otherwise
+        // dominate first TOC generation time.
+        char discard[128];
         while (file.available()) {
-            char c = file.read();
-            if (c == '\n') break;
+            int n = file.readBytesUntil('\n', discard, sizeof(discard));
+            if (n < static_cast<int>(sizeof(discard)) - 1) break;
+            yield();
         }
     }
     buf[len] = '\0';

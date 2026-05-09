@@ -134,7 +134,7 @@ public:
     ReaderRenderOptions currentOptions() const;
 
     void renderPlaceholderPage();
-    void renderTextPage(const char* title, const char* body, uint16_t page, uint16_t totalPages, const ReaderRenderOptions& options = ReaderRenderOptions{});
+    void renderTextPage(const char* title, const char* body, uint16_t page, uint16_t totalPages, const ReaderRenderOptions& options = ReaderRenderOptions{}, uint16_t progressPermille = 0);
     void renderListPage(const char* title, const char* summary, const char* const* rows, int rowCount, int16_t rowY, int16_t rowH, uint16_t page, uint16_t totalPages, int activeTab = 0, const ReaderRenderOptions& options = ReaderRenderOptions{});
     void renderActionPage(const char* title, const char* const* infoLines, int infoCount, const char* const* actions, int actionCount, int activeTab = 0, const ReaderRenderOptions& options = ReaderRenderOptions{});
     size_t measurePageBytes(const char* text, size_t len, const ReaderRenderOptions& options = ReaderRenderOptions{}) const;
@@ -162,8 +162,11 @@ private:
     uint16_t pixelColorForNibble(uint8_t nibble, uint16_t color) const;
     void drawText(int16_t x, int16_t y, const char* text, uint16_t color = TFT_BLACK, int16_t letterGap = 0);
     void drawJustifiedText(int16_t x, int16_t y, const char* text, int16_t targetWidth, uint16_t color, int16_t letterGap = 0);
+    void drawReadingChrome(const char* title, uint16_t progressPermille, const ReaderRenderOptions& options, uint16_t color);
+    void formatReaderTime(char* out, size_t outSize) const;
     uint16_t utf8CharCount(const char* text) const;
     void drawShellTabs(int activeTab, const ReaderRenderOptions& options);
+    size_t nextLineEnd(const char* text, size_t len, size_t start, int16_t maxWidth, int16_t initialWidth, const ReaderRenderOptions& options, bool& hardBreak) const;
     size_t findWrapBreak(const char* text, size_t start, int16_t maxWidth, int16_t letterGap = 0) const;
     size_t skipLeadingSourceIndent(const char* text, size_t pos, size_t len) const;
     bool isParagraphStart(const char* text, size_t pos, bool chunkStartsAtParagraph) const;
@@ -177,13 +180,13 @@ private:
     ReaderSettings settings_;
     uint8_t layoutPreset_ = 1;
     uint8_t fontSizeSetting_ = 24;
-    uint8_t webLineSpacing_ = 60;
+    uint8_t webLineSpacing_ = 50;
     uint8_t webParagraphSpacing_ = 50;
     uint8_t webIndentFirstLine_ = 2;
     uint8_t webMarginLeft_ = 24;
     uint8_t webMarginRight_ = 24;
-    uint8_t webMarginTop_ = 78;
-    uint8_t webMarginBottom_ = 34;
+    uint8_t webMarginTop_ = 68;
+    uint8_t webMarginBottom_ = 48;
     bool webJustify_ = false;
     void applyLayoutPresetToSettings();
     void loadLocalSettings();

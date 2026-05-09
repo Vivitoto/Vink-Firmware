@@ -1200,11 +1200,11 @@ void ReaderBookService::renderReaderMenuPage() {
     const char* chapterTitle = (currentTocIndex_ >= 0 && currentTocIndex_ < tocCount_) ? toc_[currentTocIndex_].title.c_str() : "未进入章节";
     snprintf(lineTitle, sizeof(lineTitle), "书籍：%s", title_);
     snprintf(lineChapter, sizeof(lineChapter), "章节：%s", chapterTitle);
-    snprintf(lineRefresh, sizeof(lineRefresh), "刷新策略：%s", g_displayService.readerRefreshStrategyLabel());
+    snprintf(lineRefresh, sizeof(lineRefresh), "翻页刷新：%s", g_displayService.readerRefreshStrategyLabel());
     snprintf(lineAa, sizeof(lineAa), "抗锯齿：%s", g_readerText.antiAliasLabel());
-    snprintf(lineRender, sizeof(lineRender), "下划线：%s · 翻页效果：%s", g_readerText.underlineLabel(), g_readerText.pageTurnEffectLabel());
+    snprintf(lineRender, sizeof(lineRender), "下划线：%s · 翻页动画：%s", g_readerText.underlineLabel(), g_readerText.pageTurnEffectLabel());
     const char* info[] = {lineTitle, lineChapter, lineRefresh, lineAa, lineRender, "左上角可回书籍入口；小范围改动会重建分页"};
-    const char* actions[] = {"继续阅读", "刷新策略", "抗锯齿", "排版优化", "下划线", "翻页效果"};
+    const char* actions[] = {"继续阅读", "翻页刷新", "抗锯齿", "排版优化", "下划线", "翻页动画"};
     g_uiRenderer.renderUiActionPage(SystemState::Reader, "阅读菜单", info, 6, actions, 6);
 }
 
@@ -1653,7 +1653,10 @@ bool ReaderBookService::renderCurrentReadingPage() {
     trimUtf8Tail(body, static_cast<size_t>(n));
     char header[160];
     strlcpy(header, toc_[currentTocIndex_].title.c_str(), sizeof(header));
-    g_readerText.renderTextPage(header, body, currentPage_ + 1, 0, currentRenderOptionsForOffset(start, chapterContentStart(currentTocIndex_)));
+    const uint16_t progressPermille = activeTextSize_ > 0
+        ? static_cast<uint16_t>(min<uint32_t>(1000, (static_cast<uint64_t>(start) * 1000ULL) / activeTextSize_))
+        : static_cast<uint16_t>(tocCount_ > 0 ? (static_cast<uint32_t>(currentTocIndex_) * 1000UL) / tocCount_ : 0);
+    g_readerText.renderTextPage(header, body, currentPage_ + 1, 0, currentRenderOptionsForOffset(start, chapterContentStart(currentTocIndex_)), progressPermille);
     lastRenderWasReadingPage_ = true;
     saveProgress();
     // Do not pre-paginate synchronously from the UI/state task. On large books
@@ -1703,7 +1706,10 @@ bool ReaderBookService::renderChapterPreview(int index) {
 
     char header[160];
     strlcpy(header, toc_[index].title.c_str(), sizeof(header));
-    g_readerText.renderTextPage(header, content, 1, 1, currentRenderOptionsForOffset(start, chapterContentStart(index)));
+    const uint16_t progressPermille = activeTextSize_ > 0
+        ? static_cast<uint16_t>(min<uint32_t>(1000, (static_cast<uint64_t>(start) * 1000ULL) / activeTextSize_))
+        : static_cast<uint16_t>(tocCount_ > 0 ? (static_cast<uint32_t>(index) * 1000UL) / tocCount_ : 0);
+    g_readerText.renderTextPage(header, content, 1, 1, currentRenderOptionsForOffset(start, chapterContentStart(index)), progressPermille);
     return true;
 }
 

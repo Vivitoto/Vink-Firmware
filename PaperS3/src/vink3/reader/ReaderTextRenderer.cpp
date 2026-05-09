@@ -2,11 +2,15 @@
 #include "../../Config.h"
 #include "../ReadPaper176.h"
 #include "../text/ReadPaperFullFont.h"
+#include "../text/CjkTextRenderer.h"
 #include <Preferences.h>
 
 namespace {
 constexpr uint32_t kReadPaperHeaderSize = 134;
 constexpr uint32_t kReadPaperEntrySize = 20;
+constexpr int16_t kReaderHeaderDividerY = 58;
+constexpr int16_t kReaderBodyTopMin = 68;
+constexpr int16_t kReaderFooterReserve = 48;
 }
 
 namespace vink3 {
@@ -151,6 +155,11 @@ void ReaderTextRenderer::loadLocalSettings() {
     webMarginRight_ = prefs.getUChar("mright", webMarginRight_);
     webMarginTop_ = prefs.getUChar("mtop", webMarginTop_);
     webMarginBottom_ = prefs.getUChar("mbot", webMarginBottom_);
+    // v0.4.6 adds compact reader chrome; migrate old defaults in RAM only so
+    // existing devices use the reclaimed text area without touching NVS at boot.
+    if (webLineSpacing_ == 60) webLineSpacing_ = 50;
+    if (webMarginTop_ == 78) webMarginTop_ = kReaderBodyTopMin;
+    if (webMarginBottom_ == 34) webMarginBottom_ = 48;
     webJustify_ = prefs.getBool("justify", webJustify_);
     prefs.end();
 
@@ -337,8 +346,8 @@ ReaderRenderOptions ReaderTextRenderer::currentOptions() const {
 
     opt.marginLeft = webMarginLeft_;
     opt.marginRight = webMarginRight_;
-    opt.marginTop = webMarginTop_;
-    opt.marginBottom = webMarginBottom_;
+    opt.marginTop = max<int16_t>(webMarginTop_, kReaderBodyTopMin);
+    opt.marginBottom = max<int16_t>(webMarginBottom_, kReaderFooterReserve);
     opt.lineGap = max<int16_t>(0, (static_cast<int16_t>(fontSize()) * webLineSpacing_) / 100);
     opt.paragraphGap = (opt.lineGap * webParagraphSpacing_) / 100;
     opt.indentFirstLine = webIndentFirstLine_ > 0;
@@ -413,7 +422,10 @@ bool ReaderTextRenderer::findReadPaperGlyph(uint32_t unicode, ReadPaperGlyph& ou
 uint8_t ReaderTextRenderer::charAdvance(uint32_t unicode) const {
     if (readPaperFullReady_) {
         ReadPaperGlyph glyph;
-        if (findReadPaperGlyph(unicode, glyph) && glyph.width > 0) return glyph.width;
+        if (findReadPaperGlyph(unicode, glyph) && glyph.width > 0) {
+            const int16_t visualRight = max<int16_t>(0, glyph.xOffset) + glyph.bitmapW;
+            return static_cast<uint8_t>(min<int16_t>(255, max<int16_t>(glyph.width, visualRight)));
+        }
         return unicode < 128 ? 8 : fontSize();
     }
     if (!font_.isLoaded()) return unicode < 128 ? 8 : 24;
@@ -687,25 +699,44 @@ size_t ReaderTextRenderer::skipLeadingSourceIndent(const char* text, size_t pos,
     return pos;
 }
 
-size_t ReaderTextRenderer::findWrapBreak(const char* text, size_t start, int16_t maxWidth, int16_t letterGap) const {
+size_t ReaderTextRenderer::nextLineEnd(const char* text, size_t len, size_t start, int16_t maxWidth, int16_t initialWidth, const ReaderRenderOptions& options, bool& hardBreak) const {
     const uint8_t* bytes = reinterpret_cast<const uint8_t*>(text);
-    const size_t len = strlen(text);
     size_t pos = start;
     size_t lastGood = start;
-    int16_t width = 0;
+    int16_t width = initialWidth;
+    hardBreak = false;
+
     while (pos < len) {
-        size_t before = pos;
-        uint32_t ch = decodeUtf8(bytes, pos, len);
-        if (ch == '\n') return before;
-        int16_t adv = static_cast<int16_t>(charAdvance(ch)) + letterGap;
+        const size_t before = pos;
+        const uint32_t ch = decodeUtf8(bytes, pos, len);
+        if (ch == '\n' || ch == '\r') {
+            hardBreak = true;
+            return before;
+        }
+
+        const int16_t adv = static_cast<int16_t>(charAdvance(ch)) + options.letterGap;
         if (width + adv > maxWidth) {
-            if (isForbiddenLineStart(ch) && lastGood > start) return pos;
+            // Keep measurePageBytes() and renderTextPage() byte-perfect. If the
+            // measured page consumes more bytes than the renderer draws, the
+            // last few characters of a page disappear when moving to next page.
+            if (options.breakLineOpt && isForbiddenLineStart(ch) && lastGood > start) {
+                return pos;
+            }
             return lastGood > start ? lastGood : before;
         }
         width += adv;
         lastGood = pos;
     }
     return len;
+}
+
+size_t ReaderTextRenderer::findWrapBreak(const char* text, size_t start, int16_t maxWidth, int16_t letterGap) const {
+    if (!text) return start;
+    ReaderRenderOptions opt;
+    opt.letterGap = letterGap;
+    opt.breakLineOpt = false;
+    bool hardBreak = false;
+    return nextLineEnd(text, strlen(text), start, maxWidth, 0, opt, hardBreak);
 }
 
 size_t ReaderTextRenderer::measurePageBytes(const char* text, size_t len, const ReaderRenderOptions& options) const {
@@ -727,28 +758,8 @@ size_t ReaderTextRenderer::measurePageBytes(const char* text, size_t len, const 
         const bool paragraphStart = options.indentFirstLine && isParagraphStart(text, pos, options.startsAtParagraph);
         if (paragraphStart) pos = skipLeadingSourceIndent(text, pos, len);
         const size_t lineStart = pos;
-        size_t lastGood = pos;
-        int16_t width = paragraphStart ? options.firstLineIndentPx : 0;
         bool hardBreak = false;
-        while (pos < len) {
-            const size_t before = pos;
-            uint32_t ch = decodeUtf8(bytes, pos, len);
-            if (ch == '\n' || ch == '\r') {
-                pos = before;
-                hardBreak = true;
-                break;
-            }
-            const int16_t adv = static_cast<int16_t>(charAdvance(ch)) + options.letterGap;
-            if (width + adv > maxWidth) {
-                if (options.breakLineOpt && isForbiddenLineStart(ch) && lastGood > lineStart) {
-                    lastGood = pos;
-                }
-                pos = lastGood > lineStart ? lastGood : pos;
-                break;
-            }
-            width += adv;
-            lastGood = pos;
-        }
+        pos = nextLineEnd(text, len, lineStart, maxWidth, paragraphStart ? options.firstLineIndentPx : 0, options, hardBreak);
         if (pos <= lineStart) {
             size_t force = lineStart;
             decodeUtf8(bytes, force, len);
@@ -825,15 +836,60 @@ void ReaderTextRenderer::drawJustifiedText(int16_t x, int16_t y, const char* tex
     }
 }
 
-void ReaderTextRenderer::renderTextPage(const char* title, const char* body, uint16_t page, uint16_t totalPages, const ReaderRenderOptions& options) {
+void ReaderTextRenderer::formatReaderTime(char* out, size_t outSize) const {
+    if (!out || outSize == 0) return;
+    m5::rtc_time_t rtc;
+    M5.Rtc.getTime(&rtc);
+    snprintf(out, outSize, "%02u:%02u", rtc.hours, rtc.minutes);
+}
+
+void ReaderTextRenderer::drawReadingChrome(const char* title, uint16_t progressPermille, const ReaderRenderOptions& options, uint16_t color) {
+    const uint16_t mid = options.dark ? 0xC618 : 0x8410;
+    const int16_t left = options.marginLeft;
+    const int16_t right = kPaperS3Width - options.marginRight;
+
+    if (g_cjkText.ready()) {
+        char timeText[12];
+        char titleText[96];
+        char pctText[12];
+        formatReaderTime(timeText, sizeof(timeText));
+        const int16_t timeW = g_cjkText.textWidth(timeText);
+        g_cjkText.fitTextToWidth(title ? title : "未命名书籍", titleText, sizeof(titleText), right - left - timeW - 16);
+        g_cjkText.drawText(left, 18, titleText, mid);
+        g_cjkText.drawRight(right, 18, timeText, mid);
+
+        const uint16_t permille = min<uint16_t>(progressPermille, 1000);
+        snprintf(pctText, sizeof(pctText), "%u.%u%%", permille / 10, permille % 10);
+        const int16_t pctW = g_cjkText.textWidth(pctText);
+        const int16_t barX = left;
+        const int16_t barY = kPaperS3Height - 26;
+        const int16_t barW = max<int16_t>(20, right - left - pctW - 14);
+        constexpr int16_t barH = 5;
+        canvas_->drawRoundRect(barX, barY, barW, barH, 2, mid);
+        const int16_t fillW = static_cast<int16_t>((static_cast<uint32_t>(barW - 2) * permille) / 1000);
+        if (fillW > 0) canvas_->fillRoundRect(barX + 1, barY + 1, fillW, barH - 2, 1, mid);
+        g_cjkText.drawRight(right, kPaperS3Height - 38, pctText, mid);
+    } else {
+        char pctText[12];
+        const uint16_t permille = min<uint16_t>(progressPermille, 1000);
+        snprintf(pctText, sizeof(pctText), "%u.%u%%", permille / 10, permille % 10);
+        drawText(left, 18, title ? title : "未命名书籍", mid);
+        drawText(right - textWidth(pctText), kPaperS3Height - 38, pctText, mid);
+    }
+
+    canvas_->drawFastHLine(left, kReaderHeaderDividerY, right - left, mid);
+}
+
+void ReaderTextRenderer::renderTextPage(const char* title, const char* body, uint16_t page, uint16_t totalPages, const ReaderRenderOptions& options, uint16_t progressPermille) {
+    (void)page;
+    (void)totalPages;
     if (!canvas_) return;
     if (!ready()) loadDefaultFont();
     canvas_->fillSprite(options.dark ? TFT_BLACK : TFT_WHITE);
     const uint16_t fg = options.dark ? TFT_WHITE : TFT_BLACK;
     const uint16_t mid = options.dark ? 0xC618 : 0x8410;
 
-    drawText(options.marginLeft, 28, title ? title : "未命名书籍", mid);
-    canvas_->drawFastHLine(options.marginLeft, 64, kPaperS3Width - options.marginLeft - options.marginRight, mid);
+    drawReadingChrome(title, progressPermille, options, fg);
 
     const char* text = body ? body : "";
     size_t pos = 0;
@@ -851,9 +907,9 @@ void ReaderTextRenderer::renderTextPage(const char* title, const char* body, uin
         const bool paragraphStart = options.indentFirstLine && isParagraphStart(text, pos, options.startsAtParagraph);
         if (paragraphStart) pos = skipLeadingSourceIndent(text, pos, len);
         const int16_t indent = paragraphStart ? options.firstLineIndentPx : 0;
-        size_t end = findWrapBreak(text, pos, maxWidth - indent, options.letterGap);
+        bool hardBreak = false;
+        size_t end = nextLineEnd(text, len, pos, maxWidth, indent, options, hardBreak);
         if (end <= pos) break;
-        const bool hardBreak = text[end] == '\n' || text[end] == '\r';
         char line[256];
         size_t n = end - pos;
         if (n >= sizeof(line)) n = sizeof(line) - 1;
@@ -872,10 +928,6 @@ void ReaderTextRenderer::renderTextPage(const char* title, const char* body, uin
         if (hardBreak && options.paragraphGap > 0) y += options.paragraphGap;
     }
 
-    char footer[48];
-    if (totalPages == 0) snprintf(footer, sizeof(footer), "第 %u 页", static_cast<unsigned>(page));
-    else snprintf(footer, sizeof(footer), "%u / %u", static_cast<unsigned>(page), static_cast<unsigned>(totalPages));
-    drawText(kPaperS3Width - options.marginRight - textWidth(footer), kPaperS3Height - 34, footer, mid);
 }
 
 void ReaderTextRenderer::renderListPage(const char* title, const char* summary, const char* const* rows, int rowCount, int16_t rowY, int16_t rowH, uint16_t page, uint16_t totalPages, int activeTab, const ReaderRenderOptions& options) {

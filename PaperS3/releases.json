@@ -5,6 +5,21 @@
   "description": "面向 M5Stack PaperS3 的 Vink 电子书阅读固件。",
   "releases": [
     {
+      "version": "v0.4.6",
+      "name": "Vink-PaperS3 v0.4.6",
+      "summary": "优化大书目录识别速度、修正翻页动画方向与连贯性，新增阅读页 UI 字体页眉/页尾进度条，并修复正文最后一行可能缺字的问题。",
+      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.6",
+      "changelog": "## Vink-PaperS3 v0.4.6\n\n### 阅读体验优化\n- 优化大书目录识别速度：普通正文行先做轻量预筛，超长正文行分块丢弃，减少首次目录生成卡顿。\n- 修正翻页动画方向：向前/向后翻页的动画方向与实际翻页方向保持一致。\n- 提升翻页动画速度并保持连贯：改为窄步进重叠刷新，去掉额外等待，避免大块条带跳动。\n- 减少局部刷新条带边界和左侧残线：相邻刷新条带重叠覆盖，末端 seam 做完整覆盖修补。\n- 默认高速/标准模式不再周期性触发全屏清影，降低“翻几页出现一次粗条纹”的概率；清晰模式仍保留周期清影。\n\n### 正文页面布局\n- 正文阅读页移除右下角当前页码。\n- 页眉使用较小的 UI 字体显示：左侧章节名，右侧系统时间。\n- 页尾使用较小的 UI 字体显示整本书阅读进度条和百分比。\n- 重新平衡正文区域：压缩页眉页尾占用，调整默认正文上/下边界和行距，尽量利用 PaperS3 屏幕。\n\n### 分页/渲染修复\n- 修复 v0.4.5 中正文最后一行末尾几个字可能不显示的问题：分页测量和实际绘制统一走同一套换行逻辑，避免测量已消费但渲染未画出的字节。\n- 字形宽度计算考虑 ReadPaper 字体实际 bitmap 右边界，降低行尾裁切风险。\n\n### 开机基线保护\n- 不改 M5 初始化、显示初始化、分区表、SD 懒初始化策略和 WebUI/WiFi 启动路径。\n- 页眉/页尾只在正文阅读页绘制。\n- 旧阅读布局默认值仅在 RAM 中迁移，不在开机读取配置路径写 NVS。\n\n### 验证状态\n- 本地 `git diff --check`、smoke、PlatformIO build、SPIFFS build、full 16MB merge 通过。\n- 需要真机验证：翻页动画连贯性、最后一行缺字是否完全消失、页眉页尾观感和局刷残影。\n",
+      "assets": {
+        "full": {
+          "name": "Vink-PaperS3-v0.4.6-full-16MB.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.6/Vink-PaperS3-v0.4.6-full-16MB.bin",
+          "size": 16777216,
+          "flashOffset": 0
+        }
+      }
+    },
+    {
       "version": "v0.4.5",
       "name": "Vink-PaperS3 v0.4.5",
       "summary": "修复首次刷写/无阅读设置状态下的开机白屏：阅读字体设置不再阻断启动，保留流式分页、跨章上一页和 WebUI 配置功能。",

@@ -370,7 +370,7 @@ void VinkUiRenderer::renderSettings() {
     drawTabs(SystemState::Settings);
     drawSettingsGroup(kContentY, "排版", "页边距", g_readerText.pageMarginLabel(), "行间距", g_readerText.lineSpacingLabel());
     drawSettingsGroup(352, "阅读", "排版优化", g_readerText.layoutPresetLabel(), "抗锯齿", g_readerText.antiAliasLabel());
-    drawSettingsGroup(550, "显示", "刷新策略", g_displayService.readerRefreshStrategyLabel(), "翻页效果", g_readerText.pageTurnEffectLabel());
+    drawSettingsGroup(550, "显示", "刷新策略", g_displayService.readerRefreshStrategyLabel(), "翻页动画", g_readerText.pageTurnEffectLabel());
     drawSettingsGroup(748, "系统", "电源", "点按关机", "关于", kVinkPaperS3FirmwareVersion);
 }
 

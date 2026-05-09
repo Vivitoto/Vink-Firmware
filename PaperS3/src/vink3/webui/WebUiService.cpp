@@ -220,9 +220,9 @@ static const char kHtml[] PROGMEM = R"rawliteral(
     <div class="row"><label>排版模式</label><select id="layoutPreset"><option value="0">原始</option><option value="1">优化</option><option value="2">紧凑</option></select></div>
   </div>
   <div class="card"><h2>刷新策略</h2>
-    <div class="row"><label>刷新频率</label><select id="refreshStrategy"><option value="0">极速</option><option value="1">均衡</option><option value="2">清晰</option></select></div>
-    <div class="row"><label>中间刷新</label><input type="number" id="readerMiddleRefreshEvery" min="0" max="60"><span>0=按策略</span></div>
-    <div class="row"><label>GC16 全刷</label><input type="number" id="readerFullRefreshEvery" min="0" max="60"><span>0=按策略</span></div>
+    <div class="row"><label>翻页刷新模式</label><select id="refreshStrategy"><option value="0">高速</option><option value="1">标准</option><option value="2">清晰</option></select></div>
+    <div class="row"><label>中间清影页数</label><input type="number" id="readerMiddleRefreshEvery" min="0" max="60"><span>0=按模式自动</span></div>
+    <div class="row"><label>全屏清影页数</label><input type="number" id="readerFullRefreshEvery" min="0" max="60"><span>0=按模式自动</span></div>
   </div>
   <div class="card"><h2>显示效果</h2>
     <div class="row"><label>抗锯齿</label><input type="checkbox" id="antiAlias"></div>

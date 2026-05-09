@@ -327,8 +327,8 @@ void StateMachine::handle(const Message& message) {
                     if (state_ == SystemState::ReaderMenu && g_readerBook.handleTap(message.touch.x, message.touch.y)) {
                         if (g_readerBook.consumeLastTapPageTurn()) {
                             enqueueReaderAwareRefresh(g_readerBook.consumeLastTapNextPage()
-                                ? DisplayEffect::HorizontalShutter
-                                : DisplayEffect::VerticalShutter);
+                                ? DisplayEffect::VerticalShutter
+                                : DisplayEffect::HorizontalShutter);
                         } else {
                             g_displayService.enqueueFull(false, 100);
                         }
@@ -355,7 +355,7 @@ void StateMachine::handle(const Message& message) {
                 break;
             }
             if (state_ == SystemState::ReaderMenu) {
-                if (g_readerBook.nextPage()) enqueueReaderAwareRefresh(DisplayEffect::HorizontalShutter);
+                if (g_readerBook.nextPage()) enqueueReaderAwareRefresh(DisplayEffect::VerticalShutter);
                 break;
             }
             if (state_ == SystemState::Library) {
@@ -376,7 +376,7 @@ void StateMachine::handle(const Message& message) {
                 break;
             }
             if (state_ == SystemState::ReaderMenu) {
-                if (g_readerBook.prevPage()) enqueueReaderAwareRefresh(DisplayEffect::VerticalShutter);
+                if (g_readerBook.prevPage()) enqueueReaderAwareRefresh(DisplayEffect::HorizontalShutter);
                 break;
             }
             if (state_ == SystemState::Library) {
@@ -397,7 +397,7 @@ void StateMachine::handle(const Message& message) {
                 break;
             }
             if (state_ == SystemState::ReaderMenu && g_readerBook.nextPage()) {
-                enqueueReaderAwareRefresh(DisplayEffect::HorizontalShutter);
+                enqueueReaderAwareRefresh(DisplayEffect::VerticalShutter);
             } else if (state_ == SystemState::Library && g_readerBook.nextLibraryPage()) {
                 g_displayService.enqueueFull(false, 100);
             }
@@ -410,7 +410,7 @@ void StateMachine::handle(const Message& message) {
                 break;
             }
             if (state_ == SystemState::ReaderMenu && g_readerBook.prevPage()) {
-                enqueueReaderAwareRefresh(DisplayEffect::VerticalShutter);
+                enqueueReaderAwareRefresh(DisplayEffect::HorizontalShutter);
             } else if (state_ == SystemState::Library && g_readerBook.prevLibraryPage()) {
                 g_displayService.enqueueFull(false, 100);
             }

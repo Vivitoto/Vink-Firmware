@@ -41,6 +41,7 @@ private:
     
     // 核心识别逻辑
     bool matchLine(const char* line, int lineLen, ChapterDetectResult& out);
+    bool looksLikeCandidateLine(const char* line, int lineLen) const;
     
     // 各种匹配器
     bool matchChineseChapter(const char* line, int len, ChapterDetectResult& out);
