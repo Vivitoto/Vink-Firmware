@@ -17,6 +17,10 @@ bool ReaderTextRenderer::begin(M5Canvas* canvas) {
     canvas_ = canvas;
     applyLayoutPresetToSettings();
     loadLocalSettings();
+    // A fresh device may not have the vink-reader NVS namespace yet. In that
+    // case loadLocalSettings() cannot apply a saved font, but boot must still
+    // continue and draw the first page instead of halting on a white screen.
+    if (!ready()) loadDefaultFont();
     return canvas_ && ready();
 }
 
@@ -60,7 +64,7 @@ uint16_t ReaderTextRenderer::fontSize() const {
     return font_.isLoaded() ? font_.getFontSize() : fontSizeSetting_;
 }
 
-void ReaderTextRenderer::setReaderFontSize(uint8_t size) {
+void ReaderTextRenderer::applyReaderFontSize(uint8_t size, bool persist) {
     if (size <= 18) size = 16;
     else if (size <= 22) size = 20;
     else size = 24;
@@ -75,7 +79,11 @@ void ReaderTextRenderer::setReaderFontSize(uint8_t size) {
         font_.unload();
         beginReadPaperFullFont();
     }
-    saveLocalSettings();
+    if (persist) saveLocalSettings();
+}
+
+void ReaderTextRenderer::setReaderFontSize(uint8_t size) {
+    applyReaderFontSize(size, true);
 }
 
 void ReaderTextRenderer::applyLayoutPresetToSettings() {
@@ -151,7 +159,8 @@ void ReaderTextRenderer::loadLocalSettings() {
     settings_.formatting1 = formatting;
     settings_.renderOpt1 = render;
     settings_.spacing = spacing;
-    setReaderFontSize(fontSizeSetting_);
+    // Apply persisted font choice without writing NVS during boot.
+    applyReaderFontSize(fontSizeSetting_, false);
 }
 
 bool ReaderTextRenderer::saveLocalSettings() const {

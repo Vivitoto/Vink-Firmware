@@ -5,15 +5,15 @@
   "description": "面向 M5Stack PaperS3 的 Vink 电子书阅读固件。",
   "releases": [
     {
-      "version": "v0.4.4",
-      "name": "Vink-PaperS3 v0.4.4",
-      "summary": "基于 v0.4.2 可开机基线重做：加入流式分页、跨章上一页按需定位、触摸响应修复、翻页动画，以及手动启动的 WiFi WebUI 文件传输与完整阅读配置页。",
-      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.4",
-      "changelog": "## Vink-PaperS3 v0.4.4\n\n### 可开机基线重做\n- 以已验证可开机的 v0.4.2 启动链路为基线重做，不引入旧 v0.4.3 的 runtime/core/ConfigService 启动链路。\n- 保持 M5Unified 初始化、分区表、SD 懒初始化策略不变，新增功能不参与 boot。\n\n### 阅读体验\n- 长章节改为流式分页：进入章节只测当前页，翻页时再测下一页，避免整章同步分页卡顿。\n- 从章节第一页向前翻页时，按需在内存中分段定位上一章末页；不处理整本书，不写持久分页缓存，并周期性让出 CPU 降低 watchdog 风险。\n- 不再读取或写入 `.vink-pages` 分页缓存，旧缓存只可清理，不作为阅读路径依赖。\n- 页脚未知总页数时显示“第 N 页”。\n- 修复快速连续触摸容易被抑制导致“不跟手”的问题。\n- 合入阅读页翻页动画：下一页左到右、上一页右到左；菜单/文件页切换不触发动画。\n\n### WiFi 文件传输 WebUI\n- 传输页新增手动启动/关闭 `Vink-PaperS3` 热点，WebUI 只在用户主动启动热点后运行。\n- WebUI 保留文件浏览器和配置页：文件页可浏览 SD、创建目录、上传文件、下载、重命名、删除。\n- 移除 WebUI 书架页；上传 TXT 可直接放到任意目录，设备端书架按 SD 文件夹读取。\n- 配置页写入设备本机 NVS 阅读/显示设置，包括字体大小、行间距、段间距、首行缩进、上下左右边距、两端对齐、排版模式、刷新策略、中间刷新页数、GC16 全刷页数、抗锯齿、下划线、翻页动画和 WiFi STA 凭据。自动休眠、锁屏、双击唤醒等安全基线尚未实现的系统项仅占位展示，不保存、不影响启动链路。\n- WebUI 所有 SD 操作通过固件已有 SD 懒初始化入口，不绕过本机初始化策略。\n\n### 边界保证\n- 不自动启动 WiFi，不自动启动 HTTP server，不在 boot 注册 WebUI route。\n- 不新增独立 ConfigService；WebUI 配置写入当前固件本机 NVS 设置源。\n\n### 验证状态\n- 本地 `git diff --check`、PlatformIO build、SPIFFS build、full 16MB merge 通过。\n- 需要真机验证：冷启动、连续触摸、翻页动画、手动启动热点、WebUI 上传 TXT、设备端书架读取上传文件。\n",
+      "version": "v0.4.5",
+      "name": "Vink-PaperS3 v0.4.5",
+      "summary": "修复首次刷写/无阅读设置状态下的开机白屏：阅读字体设置不再阻断启动，保留流式分页、跨章上一页和 WebUI 配置功能。",
+      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.5",
+      "changelog": "## Vink-PaperS3 v0.4.5\n\n### 开机白屏热修\n- 修复首次刷写、清空 NVS 或缺少 `vink-reader` 设置命名空间时可能开机白屏的问题。\n- 根因：阅读配置页新增的字体设置加载路径进入了正常开机链路；当本机没有已保存阅读设置时，阅读字体没有被加载，`ReaderTextRenderer::begin()` 返回失败，runtime 初始化中止，主任务停在白屏。\n- 修复：开机读取本机阅读设置后，如果阅读字体仍未 ready，强制加载默认阅读字体，保证 boot page 和后续 UI 可以继续显示。\n- 修复：应用开机期字体设置时不写 NVS，避免配置读取路径产生额外启动期写入副作用。\n\n### 保留功能\n- 保留章节硬边界 + 流式分页。\n- 保留章节首页向前翻页时按需定位上一章末页。\n- 保留 WebUI 文件传输和完整配置页；WebUI/WiFi 仍然只在用户主动进入传输模式后启动。\n- 保留旧 `.vink-pages` 清理和重新生成目录索引功能。\n\n### 验证状态\n- 本地 `git diff --check`、smoke、PlatformIO build、SPIFFS build、full 16MB merge 通过。\n- 需要真机验证：冷启动白屏是否消失、首次刷写/无 NVS 状态下是否进入正常首页。\n",
       "assets": {
         "full": {
-          "name": "Vink-PaperS3-v0.4.4-full-16MB.bin",
-          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.4/Vink-PaperS3-v0.4.4-full-16MB.bin",
+          "name": "Vink-PaperS3-v0.4.5-full-16MB.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.5/Vink-PaperS3-v0.4.5-full-16MB.bin",
           "size": 16777216,
           "flashOffset": 0
         }

@@ -153,6 +153,7 @@ private:
 
     static uint32_t decodeUtf8(const uint8_t* buf, size_t& pos, size_t len);
     bool beginReadPaperFullFont();
+    void applyReaderFontSize(uint8_t size, bool persist);
     bool findReadPaperGlyph(uint32_t unicode, ReadPaperGlyph& out) const;
     uint8_t charAdvance(uint32_t unicode) const;
     int16_t textWidth(const char* text) const;

@@ -656,7 +656,7 @@ bool ReaderBookService::loadProgress() {
     f.close();
     (void)page;
     if (magic != kProgressMagic || cachedSize != activeTextSize() || cachedFingerprint != activeTextFingerprint_ || chapter >= tocCount_) return false; // VPR3
-    // v0.4.4-on-0.4.2: restore at chapter level only. Building a whole chapter
+    // v0.4.5-on-0.4.2: restore at chapter level only. Building a whole chapter
     // during open regressed large books; the visible page is measured lazily.
     currentTocIndex_ = chapter;
     currentPage_ = 0;
@@ -860,7 +860,7 @@ bool ReaderBookService::loadChapterPageCache(int index, uint32_t start, uint32_t
     (void)index;
     (void)start;
     (void)end;
-    // v0.4.4-on-0.4.2 intentionally ignores persistent .vink-pages caches.
+    // v0.4.5-on-0.4.2 intentionally ignores persistent .vink-pages caches.
     // They were layout-sensitive and caused slow/stale cross-version restores.
     return false;
 }
