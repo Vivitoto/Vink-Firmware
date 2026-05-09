@@ -123,6 +123,97 @@ int ChapterDetector::detect(File& file, ChapterDetectResult* results, int maxRes
         if ((++linesScanned & 0x3F) == 0) yield();
     }
 
+    // ── Post-processing: infer keyword→level mapping from structure ──────
+    // Strategy: scan ALL entries' titles for 第…keyword patterns.
+    // A keyword that appears BEFORE another 第…keyword on the same line
+    //   → level-0 (volume marker). e.g. "第三卷 第一章" → 卷=0, 章=1
+    // A keyword that appears AFTER another 第…keyword or always alone
+    //   → level-1 (chapter marker).
+    // If NO multi-marker lines exist → flat (all level-1).
+    {
+        // Pass 1: collect keyword statistics from all entries
+        struct KwInfo { int asParent; int asChild; int asOnly; };
+        // Simple linear-probe map for keywords (max ~20 unique keywords)
+        char kwBuf[64][3];  // up to 64 unique CJK keywords
+        KwInfo kwStats[64];
+        int kwMapSize = 0;
+        auto findKw = [&](const char* s, int slen) -> int {
+            for (int m = 0; m < kwMapSize; ++m) {
+                if (memcmp(kwBuf[m], s, slen) == 0) return m;
+            }
+            return -1;
+        };
+        auto addKw = [&](const char* s, int slen) -> int {
+            int idx = findKw(s, slen);
+            if (idx >= 0) return idx;
+            if (kwMapSize >= 64) return -1;
+            memcpy(kwBuf[kwMapSize], s, slen);
+            kwStats[kwMapSize] = {0, 0, 0};
+            return kwMapSize++;
+        };
+
+        for (int i = 0; i < count; ++i) {
+            const char* t = results[i].title.c_str();
+            int tlen = results[i].title.length();
+            ChapterMarker mks[4];
+            int mc = extractMarkers(t, tlen, mks, 4);
+            if (mc >= 2) {
+                // First marker = parent keyword, last marker = child keyword
+                int pi = addKw(mks[0].keyword, mks[0].keywordLen);
+                if (pi >= 0) kwStats[pi].asParent++;
+                int ci = addKw(mks[mc - 1].keyword, mks[mc - 1].keywordLen);
+                if (ci >= 0) kwStats[ci].asChild++;
+            } else if (mc == 1) {
+                int oi = addKw(mks[0].keyword, mks[0].keywordLen);
+                if (oi >= 0) kwStats[oi].asOnly++;
+            }
+        }
+
+        // Pass 2: assign keyword levels
+        // Rule: a keyword is level-0 if it appears as parent AND never as child/only.
+        //       Otherwise it's level-1 or level-2 (which we treat as 1 here).
+        bool hasVolumeKeywords = false;
+        int8_t kwLevel[64];
+        for (int m = 0; m < kwMapSize; ++m) {
+            if (kwStats[m].asParent > 0 && kwStats[m].asOnly == 0) {
+                kwLevel[m] = 0;
+                hasVolumeKeywords = true;
+            } else {
+                kwLevel[m] = 1;
+            }
+        }
+
+        // Pass 3: apply levels to entries
+        for (int i = 0; i < count; ++i) {
+            const char* t = results[i].title.c_str();
+            int tlen = results[i].title.length();
+            ChapterMarker mks[4];
+            int mc = extractMarkers(t, tlen, mks, 4);
+            if (mc >= 2) {
+                // Multi-marker line → entry is a child-level entry (1);
+                // its parent context is implicit in the preceding volume entry.
+                results[i].level = hasVolumeKeywords ? 1 : 1;
+            } else if (mc == 1) {
+                int idx = findKw(mks[0].keyword, mks[0].keywordLen);
+                results[i].level = (idx >= 0) ? kwLevel[idx] : 1;
+            } else {
+                results[i].level = 1;
+            }
+        }
+
+        // Pass 4: if no volume entries, flatten everything
+        int volCount = 0;
+        for (int i = 0; i < count; ++i) if (results[i].level == 0) volCount++;
+        if (volCount == 0) {
+            for (int i = 0; i < count; ++i) results[i].level = 1;
+        }
+
+        if (_debug) {
+            Serial.printf("[ChapterDetector] Keywords: %d unique, volumes=%d\n",
+                          kwMapSize, volCount);
+        }
+    }
+
     if (_debug) {
         Serial.printf("[ChapterDetector] Detection complete: %d chapters found\n", count);
     }
@@ -245,105 +336,43 @@ bool ChapterDetector::matchLine(const char* line, int lineLen, ChapterDetectResu
 }
 
 bool ChapterDetector::matchChineseChapter(const char* line, int len, ChapterDetectResult& out) {
-    // 模式：第[中文数字]章/回/卷/节/集
+    // Extract ALL 第NUMBER_KEYWORD patterns. Level is NOT hardcoded per keyword;
+    // global inference in detect() figures out which keywords are volumes,
+    // which are chapters, from how they co-occur within single lines.
+    // e.g. "第三卷 第一百零七章" → two markers → first=vol, last=ch.
+    //      "第一章 少年"          → one marker  → inferred as ch.
     if (len < 4) return false;
-
-    // 必须以"第"开头
     if (line[0] != 0xE7 || line[1] != 0xAC || line[2] != 0xAC) return false;  // "第"
 
-    // 查找"章/回/卷/节/集/部"
-    const char* keywords[] = {
-        "\xE7\xAB\xA0",  // 章
-        "\xE5\x9B\x9E",  // 回
-        "\xE5\x8D\xB7",  // 卷
-        "\xE8\x8A\x82",  // 节
-        "\xE9\x9B\x86",  // 集
-        "\xE9\x83\xA8",  // 部
-    };
-    const char* keywordNames[] = {"章", "回", "卷", "节", "集", "部"};
+    constexpr int kMaxMarkers = 4;
+    ChapterMarker markers[kMaxMarkers];
+    int markerCount = extractMarkers(line, len, markers, kMaxMarkers);
+    if (markerCount <= 0) return false;
 
-    for (int k = 0; k < 6; k++) {
-        const char* kw = keywords[k];
-        // 在 line 中查找 keyword
-        for (int i = 3; i < len - 2; i++) {
-            if ((unsigned char)line[i] == (unsigned char)kw[0] &&
-                (unsigned char)line[i+1] == (unsigned char)kw[1] &&
-                (unsigned char)line[i+2] == (unsigned char)kw[2]) {
-
-                // 提取"第"和 keyword 之间的内容
-                int numLen = i - 3;
-                if (numLen > 0 && numLen < 20) {
-                    int num = chineseToNumber(line + 3, numLen);
-                    if (num > 0) {
-                        // Preserve the book's original chapter title for display.
-                        // The parsed numeric value is only for ordering/dedup heuristics.
-                        out.title = String(line, len);
-                        out.score = 100;
-                        out.chapterNumber = num;
-                        return true;
-                    }
-                }
-            }
-        }
-    }
-
-    return false;
+    // Use the LAST marker's number as chapterNumber (innermost level)
+    out.title = String(line, len);
+    out.score = (markerCount >= 2) ? 95 : 100;
+    out.chapterNumber = markers[markerCount - 1].number;
+    out.level = -1;  // resolved globally in detect() post-processing
+    return true;
 }
 
 bool ChapterDetector::matchArabicChapter(const char* line, int len, ChapterDetectResult& out) {
-    // 模式：第[0-9]+章/回/卷/节
+    // Same as matchChineseChapter: extract ALL 第NUMBER_KEYWORD patterns,
+    // use the last marker's number, defer level to global inference.
     if (len < 5) return false;
-
-    // 必须以"第"开头
     if (line[0] != 0xE7 || line[1] != 0xAC || line[2] != 0xAC) return false;
 
-    // 查找数字
-    int numStart = -1, numEnd = -1;
-    for (int i = 3; i < len; i++) {
-        if (isdigit(line[i])) {
-            if (numStart < 0) numStart = i;
-            numEnd = i;
-        } else if (numStart >= 0) {
-            break;
-        }
-    }
+    constexpr int kMaxMarkers = 4;
+    ChapterMarker markers[kMaxMarkers];
+    int markerCount = extractMarkers(line, len, markers, kMaxMarkers);
+    if (markerCount <= 0) return false;
 
-    if (numStart < 0 || numEnd < 0) return false;
-
-    // 解析数字
-    int num = 0;
-    for (int i = numStart; i <= numEnd; i++) {
-        num = num * 10 + (line[i] - '0');
-    }
-
-    // 检查后面的关键字
-    int kwStart = numEnd + 1;
-    if (kwStart >= len) return false;
-
-    const char* keywords[] = {
-        "\xE7\xAB\xA0",  // 章
-        "\xE5\x9B\x9E",  // 回
-        "\xE5\x8D\xB7",  // 卷
-        "\xE8\x8A\x82",  // 节
-    };
-    const char* keywordNames[] = {"章", "回", "卷", "节"};
-
-    for (int k = 0; k < 4; k++) {
-        const char* kw = keywords[k];
-        if (kwStart + 2 < len &&
-            (unsigned char)line[kwStart] == (unsigned char)kw[0] &&
-            (unsigned char)line[kwStart+1] == (unsigned char)kw[1] &&
-            (unsigned char)line[kwStart+2] == (unsigned char)kw[2]) {
-
-            // Preserve original title text; keep `num` only for ordering/dedup.
-            out.title = String(line, len);
-            out.score = 80;
-            out.chapterNumber = num;
-            return true;
-        }
-    }
-
-    return false;
+    out.title = String(line, len);
+    out.score = (markerCount >= 2) ? 75 : 80;
+    out.chapterNumber = markers[markerCount - 1].number;
+    out.level = -1;
+    return true;
 }
 
 bool ChapterDetector::matchEnglishChapter(const char* line, int len, ChapterDetectResult& out) {
@@ -393,6 +422,7 @@ bool ChapterDetector::matchEnglishChapter(const char* line, int len, ChapterDete
                     }
                     out.score = 70;
                     out.chapterNumber = num;
+                    out.level = -1;
                     return true;
                 }
             }
@@ -474,6 +504,7 @@ bool ChapterDetector::matchVolume(const char* line, int len, ChapterDetectResult
                 if (num > 0) {
                     out.title = String(line, len);
                     out.score = 70;
+                    out.level = -1;
                     out.chapterNumber = num;
                     return true;
                 }
@@ -490,6 +521,7 @@ bool ChapterDetector::matchVolume(const char* line, int len, ChapterDetectResult
                 if (num > 0) {
                     out.title = String(line, len);
                     out.score = 60;
+                    out.level = -1;
                     out.chapterNumber = num;
                     return true;
                 }
@@ -529,6 +561,7 @@ bool ChapterDetector::matchSimpleNumber(const char* line, int len, ChapterDetect
         out.title = String("第") + String(num) + String("章");
         out.score = 40;
         out.chapterNumber = num;
+        out.level = -1;
         return true;
     }
 
@@ -555,6 +588,7 @@ bool ChapterDetector::matchSpecialMark(const char* line, int len, ChapterDetectR
     out.title = String(line, len > 30 ? 30 : len);
     out.score = 30;
     out.chapterNumber = 0;
+    out.level = -1;
     return true;
 }
 
@@ -650,6 +684,191 @@ int ChapterDetector::chineseToNumber(const char* str, int len) {
 
     int result = total + section + number;
     return result > 0 ? result : -1;
+}
+
+int ChapterDetector::extractMarkers(const char* line, int len, ChapterMarker* out, int maxOut) const {
+    // Extract ALL 第(NUMBER)(KEYWORD) patterns from a line.
+    // NUMBER can be Chinese digits, Arabic digits, or full-width digits.
+    // KEYWORD is a single CJK character (3-byte UTF-8) immediately after the number.
+    // Returns count of markers found.
+    int count = 0;
+    int pos = 0;
+    while (pos + 5 < len && count < maxOut) {
+        // Find next "第" (0xE7 0xAC 0xAC)
+        int di = -1;
+        for (int j = pos; j + 2 < len; ++j) {
+            if ((uint8_t)line[j] == 0xE7 && (uint8_t)line[j+1] == 0xAC && (uint8_t)line[j+2] == 0xAC) {
+                di = j;
+                break;
+            }
+        }
+        if (di < 0) break;
+
+        int numPos = di + 3;  // after "第"
+        if (numPos >= len) { pos = di + 3; continue; }
+
+        // Parse number (Chinese, Arabic, or full-width digits)
+        int number = parseNumberAt(line, len, numPos);
+        if (number <= 0 || numPos >= len) { pos = di + 3; continue; }
+
+        // Check for CJK keyword immediately after number
+        int kwLen = 0;
+        if (!isCjkKeyword(line, len, numPos, kwLen)) { pos = numPos; continue; }
+
+        out[count].number = number;
+        out[count].keyword = line + numPos;
+        out[count].keywordLen = kwLen;
+        out[count].bytePos = di;
+        count++;
+        pos = numPos + kwLen;
+    }
+    return count;
+}
+
+int ChapterDetector::parseNumberAt(const char* line, int len, int& pos) const {
+    // Parse a number at pos: Chinese digits, Arabic digits, or full-width digits.
+    // Advances pos past the number. Returns numeric value, or -1 if no number.
+    int number = 0;
+    int chineseSection = 0;
+    int chineseAccum = 0;
+    bool hasDigits = false;
+
+    while (pos < len) {
+        uint8_t b0 = (uint8_t)line[pos];
+        // Arabic digit
+        if (line[pos] >= '0' && line[pos] <= '9') {
+            int d = line[pos] - '0';
+            if (chineseSection > 0 || chineseAccum > 0) {
+                // Mixing Chinese and Arabic: treat Arabic as final digits
+                chineseAccum += chineseSection;
+                chineseSection = d;
+            } else {
+                number = number * 10 + d;
+            }
+            hasDigits = true;
+            pos++;
+            continue;
+        }
+        // Full-width digit ０-９ (0xEF 0xBC 0x90 .. 0xEF 0xBC 0x99)
+        if (pos + 2 < len && b0 == 0xEF && (uint8_t)line[pos+1] == 0xBC) {
+            uint8_t b2 = (uint8_t)line[pos+2];
+            if (b2 >= 0x90 && b2 <= 0x99) {
+                int d = b2 - 0x90;
+                if (chineseSection > 0 || chineseAccum > 0) {
+                    chineseAccum += chineseSection;
+                    chineseSection = d;
+                } else {
+                    number = number * 10 + d;
+                }
+                hasDigits = true;
+                pos += 3;
+                continue;
+            }
+        }
+        // Chinese digit / unit
+        if (pos + 2 < len && b0 >= 0xE0) {
+            uint32_t cp = ((uint32_t)b0 << 16) | ((uint32_t)(uint8_t)line[pos+1] << 8) | (uint8_t)line[pos+2];
+            int digit = -1;
+            switch (cp) {
+                case 0xE99BB6: case 0xE38087: digit = 0; break;  // 零, 〇
+                case 0xE4B880: digit = 1; break;  // 一
+                case 0xE4BA8C: case 0xE4B8A4: digit = 2; break;  // 二, 两
+                case 0xE4B889: digit = 3; break;  // 三
+                case 0xE59B9B: digit = 4; break;  // 四
+                case 0xE4BA94: digit = 5; break;  // 五
+                case 0xE585AD: digit = 6; break;  // 六
+                case 0xE4B883: digit = 7; break;  // 七
+                case 0xE585AB: digit = 8; break;  // 八
+                case 0xE4B99D: digit = 9; break;  // 九
+                case 0xE58D81: // 十
+                    if (!hasDigits) { chineseSection = 10; hasDigits = true; pos += 3; }
+                    else { chineseAccum += chineseSection; chineseSection = 10; pos += 3; }
+                    continue;
+                case 0xE799BE: // 百
+                    chineseAccum += (chineseSection > 0 ? chineseSection : 1) * 100;
+                    chineseSection = 0; pos += 3; continue;
+                case 0xE58D83: // 千
+                    chineseAccum += (chineseSection > 0 ? chineseSection : 1) * 1000;
+                    chineseSection = 0; pos += 3; continue;
+                case 0xE4B887: // 万
+                    chineseAccum = (chineseAccum + (chineseSection > 0 ? chineseSection : 1)) * 10000;
+                    chineseSection = 0; pos += 3; continue;
+                default: break;
+            }
+            if (digit >= 0) {
+                chineseSection = digit;
+                hasDigits = true;
+                pos += 3;
+                continue;
+            }
+        }
+        // Not a digit or unit → done
+        break;
+    }
+
+    if (chineseSection > 0 || chineseAccum > 0) {
+        number += chineseAccum + chineseSection;
+    }
+    return hasDigits ? number : -1;
+}
+
+bool ChapterDetector::isCjkKeyword(const char* line, int len, int pos, int& kwLen) const {
+    // A valid keyword is a single CJK character at pos.
+    // Must be 3-byte UTF-8 starting with >= 0xE0, and not a digit or punctuation.
+    if (pos + 2 >= len) return false;
+    uint8_t b0 = (uint8_t)line[pos];
+    if (b0 < 0xE0) return false;
+
+    uint32_t cp = ((uint32_t)b0 << 16) | ((uint32_t)(uint8_t)line[pos+1] << 8) | (uint8_t)line[pos+2];
+
+    // Exclude digits, punctuation, and common non-keyword characters
+    // 零…九 (0-9), 十百千万 (units), ０-９ (full-width digits)
+    if ((cp >= 0xE38087 && cp <= 0xE38087) ||  // 〇
+        (cp >= 0xE4B880 && cp <= 0xE4B99D) ||  // 一…九
+        cp == 0xE4BA8C || cp == 0xE4B889 || cp == 0xE59B9B ||  // 二三四
+        cp == 0xE4BA94 || cp == 0xE585AD || cp == 0xE4B883 ||  // 五六七
+        cp == 0xE585AB || cp == 0xE4B99D ||  // 八九
+        cp == 0xE4B8A4 ||  // 两
+        cp == 0xE58D81 || cp == 0xE799BE || cp == 0xE58D83 || cp == 0xE4B887 ||  // 十百千万
+        cp == 0xE99BB6)  // 零
+        return false;
+
+    if ((b0 == 0xEF && (uint8_t)line[pos+1] == 0xBC && (uint8_t)line[pos+2] >= 0x90 && (uint8_t)line[pos+2] <= 0x99))
+        return false;  // full-width digits
+
+    // Exclude CJK punctuation ranges
+    if ((cp >= 0xE38080 && cp <= 0xE380BF) ||  // CJK punctuation
+        (cp >= 0xEFBC80 && cp <= 0xEFBFA0) ||  // full-width punctuation
+        (cp >= 0xE28090 && cp <= 0xE280BF))    // general punctuation
+        return false;
+
+    // Exclude common measure/counter words that are never chapter keywords.
+    // These frequently appear as "第X个/次/条/..." in body text.
+    switch (cp) {
+        case 0xE4B8AA:  // 个
+        case 0xE6ACA1:  // 次
+        case 0xE9818D:  // 遍
+        case 0xE8B68A:  // 趟
+        case 0xE4B88B:  // 下
+        case 0xE59CBA:  // 场  (but 场 IS occasionally a chapter keyword in some novels)
+            // Keep 场 as valid — some novels use it as chapter marker
+            break;
+        case 0xE9A1BF:  // 顿
+        case 0xE998B5:  // 阵
+        case 0xE58FAA:  // 只
+        case 0xE69DA1:  // 条
+        case 0xE4BBB6:  // 件
+        case 0xE5BCA0:  // 张
+        case 0xE6ADA5:  // 步
+        case 0xE5B182:  // 层
+        case 0xE6AEB5:  // 段
+            return false;
+        default:
+            break;
+    }
+
+    kwLen = 3;
+    return true;
 }
 
 int ChapterDetector::scoreLine(const char* line, int len, int baseScore, int chapterNumber,

@@ -326,7 +326,7 @@ ReaderRenderOptions ReaderTextRenderer::currentOptions() const {
     // for the current renderer
     // so glyphs do not overlap on the PaperS3 panel.
     static constexpr int16_t kLetterGaps[4] = {0, 0, 1, 2};
-    static constexpr int16_t kParagraphGaps[4] = {0, 3, 6, 10};
+    static constexpr int16_t kParagraphGaps[4] = {0, 0, 0, 0};  // no paragraph spacing, per user preference
     static constexpr int16_t kUnderlineOffsets[4] = {1, 2, 4, 6};
 
     opt.marginTop = kTopMargins[settings_.topBottomLevel()];
@@ -772,28 +772,31 @@ size_t ReaderTextRenderer::measurePageBytes(const char* text, size_t len, const 
 }
 
 void ReaderTextRenderer::drawShellTabs(int activeTab, const ReaderRenderOptions& options) {
+    // Tab layout mirrors VinkUiRenderer::drawTabs for visual consistency.
+    // Uses Reading font (not CJK UI font) since this is the reader layer.
     static constexpr const char* kLabels[] = {"阅读", "书架", "同步", "设置"};
-    static constexpr int16_t kTabX0 = 18;
-    static constexpr int16_t kTabsY = 76;
-    static constexpr int16_t kTabW = 120;
-    static constexpr int16_t kTabsH = 64;
-    static constexpr int16_t kTabGap = 8;
+    static constexpr int16_t kCenter  = kPaperS3Width / 2;
+    static constexpr int16_t kTabW    = 128;
+    static constexpr int16_t kTabH    = 62;
+    static constexpr int16_t kTabGap  = 12;
+    static constexpr int16_t kTabY    = 80;
+    static constexpr int16_t kT4      = 4;
+    static constexpr int16_t kLeft    = kCenter - (kTabW * kT4 + kTabGap * (kT4 - 1)) / 2;
     const uint16_t fg = options.dark ? TFT_WHITE : TFT_BLACK;
     const uint16_t bg = options.dark ? TFT_BLACK : TFT_WHITE;
     for (int i = 0; i < 4; ++i) {
-        const int16_t x = kTabX0 + i * (kTabW + kTabGap);
+        const int16_t x = kLeft + i * (kTabW + kTabGap);
         const bool selected = i == activeTab;
-        // Match shell tabs: do not fill selected tab black. On PaperS3 photos
-        // white CJK on black can look swallowed; outline + underline is safer.
-        canvas_->fillRoundRect(x, kTabsY, kTabW, kTabsH, 16, bg);
-        canvas_->drawRoundRect(x, kTabsY, kTabW, kTabsH, 16, fg);
         if (selected) {
-            canvas_->drawRoundRect(x + 2, kTabsY + 2, kTabW - 4, kTabsH - 4, 14, fg);
-            canvas_->fillRoundRect(x + 28, kTabsY + kTabsH - 9, kTabW - 56, 4, 2, fg);
+            canvas_->fillRoundRect(x, kTabY + 2, kTabW, kTabH - 4, 16, bg == TFT_BLACK ? 0x2124 : 0xF7BE);
+        }
+        canvas_->drawRoundRect(x, kTabY, kTabW, kTabH, 16, fg);
+        if (selected) {
+            canvas_->fillRoundRect(x + (kTabW - 48) / 2, kTabY + kTabH - 8, 48, 4, 2, fg);
         }
         const char* label = kLabels[i];
         const int16_t tx = x + (kTabW - textWidth(label)) / 2;
-        const int16_t ty = kTabsY + (kTabsH - fontSize()) / 2;
+        const int16_t ty = kTabY + (kTabH - fontSize()) / 2;
         drawText(tx, ty, label, fg);
     }
 }

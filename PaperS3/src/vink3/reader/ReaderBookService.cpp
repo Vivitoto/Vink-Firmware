@@ -15,7 +15,7 @@ namespace vink3 {
 namespace {
 // TOC cache schema. Bump whenever chapter detection/title display rules change
 // so old bad `.vink-toc` files do not survive firmware updates.
-static constexpr uint32_t kTocCacheMagic = 0x56435434UL; // VCT4
+static constexpr uint32_t kTocCacheMagic = 0x56435435UL; // VCT5 (v0.5: added level field)
 static constexpr uint32_t kProgressMagic = 0x56505233UL; // VPR3
 static constexpr uint32_t kPageCacheMagic = 0x56504734UL; // VPG4
 static constexpr uint32_t kLastBookMagic = 0x564C4231UL; // VLB1
@@ -574,11 +574,12 @@ bool ReaderBookService::loadTocCache() {
     }
     tocCount_ = 0;
     for (uint16_t i = 0; i < count && f.available(); ++i) {
-        uint8_t type = 0;
+        uint8_t level = 1;
         uint16_t titleLen = 0;
         f.read(reinterpret_cast<uint8_t*>(&toc_[i].charOffset), sizeof(toc_[i].charOffset));
         f.read(reinterpret_cast<uint8_t*>(&toc_[i].chapterNumber), sizeof(toc_[i].chapterNumber));
-        f.read(&type, sizeof(type));
+        f.read(&level, sizeof(level));
+        toc_[i].level = static_cast<int8_t>(level);
         f.read(reinterpret_cast<uint8_t*>(&toc_[i].score), sizeof(toc_[i].score));
         f.read(reinterpret_cast<uint8_t*>(&titleLen), sizeof(titleLen));
         if (titleLen > 120) titleLen = 120;
@@ -609,11 +610,11 @@ void ReaderBookService::saveTocCache() {
     f.write(reinterpret_cast<const uint8_t*>(&fileSize), sizeof(fileSize));
     f.write(reinterpret_cast<const uint8_t*>(&fingerprint), sizeof(fingerprint));
     for (int i = 0; i < tocCount_; ++i) {
-        uint8_t type = toc_[i].title.indexOf("卷") >= 0 ? 1 : 0;
+        uint8_t level = static_cast<uint8_t>(toc_[i].level >= 0 ? toc_[i].level : 1);
         uint16_t titleLen = min<size_t>(toc_[i].title.length(), 120);
         f.write(reinterpret_cast<const uint8_t*>(&toc_[i].charOffset), sizeof(toc_[i].charOffset));
         f.write(reinterpret_cast<const uint8_t*>(&toc_[i].chapterNumber), sizeof(toc_[i].chapterNumber));
-        f.write(&type, sizeof(type));
+        f.write(&level, sizeof(level));
         f.write(reinterpret_cast<const uint8_t*>(&toc_[i].score), sizeof(toc_[i].score));
         f.write(reinterpret_cast<const uint8_t*>(&titleLen), sizeof(titleLen));
         f.write(reinterpret_cast<const uint8_t*>(toc_[i].title.c_str()), titleLen);
@@ -962,7 +963,7 @@ void ReaderBookService::renderReaderHome() {
     bool hasLast = false;
     lastPath[0] = '\0';
     lastTitle[0] = '\0';
-    strlcpy(progressText, "上次进度：未开始", sizeof(progressText));
+    strlcpy(progressText, "上次进度:未开始", sizeof(progressText));
 
     if (open_ && bookPath_[0]) {
         strlcpy(lastPath, bookPath_, sizeof(lastPath));
@@ -980,7 +981,7 @@ void ReaderBookService::renderReaderHome() {
     if (hasLast) {
         uint16_t chapter = 0, page = 0;
         if (readProgressForBook(lastPath, chapter, page)) {
-            snprintf(progressText, sizeof(progressText), "上次进度：第 %u 章 · 第 %u 页",
+            snprintf(progressText, sizeof(progressText), "上次进度:第 %u 章 · 第 %u 页",
                      static_cast<unsigned>(chapter + 1), static_cast<unsigned>(page + 1));
         }
     }
@@ -1007,7 +1008,7 @@ void ReaderBookService::renderLibraryPage(uint16_t page) {
         const char* rows[] = {
             "请把 .txt 文件放到 SD 卡 /books 目录。",
             "支持 UTF-8 / GBK 文本和目录缓存。",
-            "书架页使用 UI 字体，正文页才使用阅读字体。",
+            "书架页使用 UI 字体,正文页才使用阅读字体。",
         };
         g_uiRenderer.renderUiListPage(SystemState::Library, "书架", "书架为空", rows, 3,
                                       kListFirstRowY, kListRowH, 1, 1);
@@ -1078,7 +1079,7 @@ bool ReaderBookService::handleLibraryTap(int16_t x, int16_t y) {
     if (!isTxtPath(bookPaths_[index])) {
         const char* info[] = {
             "当前版本先支持 TXT 阅读。",
-            "EPUB 文件已能在书架中识别显示，",
+            "EPUB 文件已能在书架中识别显示,",
             "正文解析会放到后续版本。",
         };
         g_uiRenderer.renderUiActionPage(SystemState::Library, "暂不支持", info, 3, nullptr, 0);
@@ -1120,8 +1121,8 @@ void ReaderBookService::renderBookLoadingPage(const char* stage) {
     char lineSize[48];
     char lineStage[96];
     formatBytes(bookFileSize(bookPath_), sizeText, sizeof(sizeText));
-    snprintf(lineTitle, sizeof(lineTitle), "书籍：%s", title_[0] ? title_ : "TXT");
-    snprintf(lineSize, sizeof(lineSize), "大小：%s", sizeText);
+    snprintf(lineTitle, sizeof(lineTitle), "书籍:%s", title_[0] ? title_ : "TXT");
+    snprintf(lineSize, sizeof(lineSize), "大小:%s", sizeText);
     snprintf(lineStage, sizeof(lineStage), "%s...", stage && stage[0] ? stage : "正在打开");
     const char* info[] = {
         lineTitle,
@@ -1137,8 +1138,8 @@ void ReaderBookService::renderChapterLoadingPage(int index) {
     const char* chapterTitle = (index >= 0 && index < tocCount_) ? toc_[index].title.c_str() : "章节";
     char lineTitle[180];
     char lineChapter[180];
-    snprintf(lineTitle, sizeof(lineTitle), "书籍：%s", title_[0] ? title_ : "TXT");
-    snprintf(lineChapter, sizeof(lineChapter), "章节：%s", chapterTitle);
+    snprintf(lineTitle, sizeof(lineTitle), "书籍:%s", title_[0] ? title_ : "TXT");
+    snprintf(lineChapter, sizeof(lineChapter), "章节:%s", chapterTitle);
     const char* info[] = {
         lineTitle,
         lineChapter,
@@ -1172,15 +1173,15 @@ void ReaderBookService::renderBookEntryPage() {
     char lineToc[48];
     char lineCache[96];
     char lineProgress[180];
-    snprintf(lineTitle, sizeof(lineTitle), "书籍：%s", title_);
-    snprintf(lineSize, sizeof(lineSize), "大小：%s", sizeText);
-    snprintf(lineToc, sizeof(lineToc), "目录：%d 条", tocCount_);
-    snprintf(lineCache, sizeof(lineCache), "状态：进度%s · 目录%s · 分页%s",
+    snprintf(lineTitle, sizeof(lineTitle), "书籍:%s", title_);
+    snprintf(lineSize, sizeof(lineSize), "大小:%s", sizeText);
+    snprintf(lineToc, sizeof(lineToc), "目录:%d 条", tocCount_);
+    snprintf(lineCache, sizeof(lineCache), "状态:进度%s · 目录%s · 分页%s",
              (cacheFlags & kBookHasProgress) ? "已存" : "无",
              (cacheFlags & kBookHasTocCache) ? "已缓存" : "未缓存",
              (cacheFlags & kBookHasPageCache) ? "有旧缓存" : "无旧缓存");
-    snprintf(lineProgress, sizeof(lineProgress), "进度：%s", progress);
-    const char* info[] = {lineTitle, lineSize, lineToc, lineCache, lineProgress, "阅读按当前页流式分页；旧分页缓存可清理"};
+    snprintf(lineProgress, sizeof(lineProgress), "进度:%s", progress);
+    const char* info[] = {lineTitle, lineSize, lineToc, lineCache, lineProgress, "阅读按当前页流式分页;旧分页缓存可清理"};
     const char* actions[] = {"继续阅读", "目录", "从头开始", "清除分页缓存", "重新生成目录"};
     // This is still UI/navigation chrome after choosing a book. Keep it on the
     // UI font path; only actual page body rendering may use the reading font.
@@ -1198,12 +1199,12 @@ void ReaderBookService::renderReaderMenuPage() {
     char lineAa[80];
     char lineRender[120];
     const char* chapterTitle = (currentTocIndex_ >= 0 && currentTocIndex_ < tocCount_) ? toc_[currentTocIndex_].title.c_str() : "未进入章节";
-    snprintf(lineTitle, sizeof(lineTitle), "书籍：%s", title_);
-    snprintf(lineChapter, sizeof(lineChapter), "章节：%s", chapterTitle);
-    snprintf(lineRefresh, sizeof(lineRefresh), "翻页刷新：%s", g_displayService.readerRefreshStrategyLabel());
-    snprintf(lineAa, sizeof(lineAa), "抗锯齿：%s", g_readerText.antiAliasLabel());
-    snprintf(lineRender, sizeof(lineRender), "下划线：%s · 翻页动画：%s", g_readerText.underlineLabel(), g_readerText.pageTurnEffectLabel());
-    const char* info[] = {lineTitle, lineChapter, lineRefresh, lineAa, lineRender, "左上角可回书籍入口；小范围改动会重建分页"};
+    snprintf(lineTitle, sizeof(lineTitle), "书籍:%s", title_);
+    snprintf(lineChapter, sizeof(lineChapter), "章节:%s", chapterTitle);
+    snprintf(lineRefresh, sizeof(lineRefresh), "翻页刷新:%s", g_displayService.readerRefreshStrategyLabel());
+    snprintf(lineAa, sizeof(lineAa), "抗锯齿:%s", g_readerText.antiAliasLabel());
+    snprintf(lineRender, sizeof(lineRender), "下划线:%s · 翻页动画:%s", g_readerText.underlineLabel(), g_readerText.pageTurnEffectLabel());
+    const char* info[] = {lineTitle, lineChapter, lineRefresh, lineAa, lineRender, "左上角可回书籍入口;小范围改动会重建分页"};
     const char* actions[] = {"继续阅读", "翻页刷新", "抗锯齿", "排版优化", "下划线", "翻页动画"};
     g_uiRenderer.renderUiActionPage(SystemState::Reader, "阅读菜单", info, 6, actions, 6);
 }
@@ -1260,7 +1261,7 @@ bool ReaderBookService::closeReaderMenu() {
     // If the user changed an Vink-native layout option from the reader menu,
     // pagination was intentionally invalidated while preserving a byte offset.
     // Re-enter through continueReading() so the chapter is rebuilt and resumes
-    // near the same text instead of making the “继续阅读” button look dead.
+    // near the same text instead of making the "继续阅读" button look dead.
     if (pageCount_ <= 0 && currentTocIndex_ >= 0) return continueReading();
     return renderCurrentReadingPage();
 }
@@ -1470,7 +1471,7 @@ void ReaderBookService::renderTocPage(uint16_t page) {
     char body[900];
     body[0] = '\0';
     if (tocCount_ <= 0) {
-        snprintf(body, sizeof(body), "已打开：%s\n未识别到目录。下一步将直接进入正文分页。", title_);
+        snprintf(body, sizeof(body), "已打开:%s\n未识别到目录。下一步将直接进入正文分页。", title_);
         g_readerText.renderTextPage(title_, body, 1, 1);
         return;
     }
@@ -1489,11 +1490,14 @@ void ReaderBookService::renderTocPage(uint16_t page) {
     for (int i = start; i < end && rowCount < kTocEntriesPerPage; ++i) {
         if (i == currentTocIndex_) activeRow = rowCount;
         char titleBuf[128];
-        // Fit visually with the UI font. Do not blindly byte-truncate titles:
-        // that caused headings like “第七百四十五章 你在何处？” to become
-        // “第七百四十五章 你在”.
+        // Fit visually with the UI font. Do not blindly byte-truncate titles.
         g_cjkText.fitTextToWidth(toc_[i].title.c_str(), titleBuf, sizeof(titleBuf), 430);
-        snprintf(rows[rowCount], sizeof(rows[rowCount]), "%s", titleBuf);
+        // Multi-level indent: level-0 (卷/部) flush left; level-1 (章/回) 2-space indent;
+        // level-2 (节) 4-space indent.
+        const int8_t lv = toc_[i].level;
+        if (lv == 1) snprintf(rows[rowCount], sizeof(rows[rowCount]), "    %s", titleBuf);
+        else if (lv == 2) snprintf(rows[rowCount], sizeof(rows[rowCount]), "        %s", titleBuf);
+        else snprintf(rows[rowCount], sizeof(rows[rowCount]), "%s", titleBuf);
         rowPtrs[rowCount] = rows[rowCount];
         rowCount++;
     }
@@ -1526,7 +1530,7 @@ uint32_t ReaderBookService::chapterContentStart(int index) const {
     if (start == 0) {
         // Drop UTF-8 BOM only. For real chapter entries, the TOC offset is the
         // page-splitting anchor and must point at the first byte of the title
-        // line itself, e.g. the “第” in “第一章 你好”. Layout/font changes rebuild
+        // line itself, e.g. the "第" in "第一章 你好". Layout/font changes rebuild
         // page tables from this stable byte offset; they must not rebuild TOC.
         File f = SD.open(activeTextPath_, FILE_READ);
         if (f && f.available() >= 3) {

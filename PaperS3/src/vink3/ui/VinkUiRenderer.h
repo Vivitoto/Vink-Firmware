@@ -57,9 +57,9 @@ private:
     void drawStatusBar(const char* title);
     void drawTabs(SystemState active);
     void drawCard(int16_t x, int16_t y, int16_t w, int16_t h, const char* title, const char* body);
-    void drawButton(int16_t x, int16_t y, int16_t w, int16_t h, const char* label);
-    void drawSettingsGroup(int16_t y, const char* title, const char* row1, const char* row1Value, const char* row2, const char* row2Value);
-    void drawSettingsRow(int16_t y, const char* label, const char* value);
+    void drawButton(int16_t x, int16_t y, int16_t w, int16_t h, const char* label, bool primary = false);
+    void drawSettingsGroup(int16_t x, int16_t y, const char* title, const char* const* rowLabels, const char* const* rowValues, int rowCount);
+    void drawSettingsRow(int16_t rowX, int16_t y, int16_t rowW, const char* label, const char* value);
     UiAction hitTestTabs(int16_t x, int16_t y) const;
 
     M5Canvas* canvas_ = nullptr;

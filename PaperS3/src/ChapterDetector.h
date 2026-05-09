@@ -8,6 +8,15 @@ struct ChapterDetectResult {
     String title;           // 章节标题
     int score;              // 置信度分数 (0-100)
     int chapterNumber;      // 提取到的章节编号
+    int8_t level;           // 层级: -1=未定级, 0=卷级, 1=章级, 2=节级
+};
+
+// Internal: a single 第…keyword marker extracted from a line
+struct ChapterMarker {
+    int number;             // parsed numeric value
+    const char* keyword;    // pointer to keyword bytes in the line
+    int keywordLen;         // byte length of keyword (3 for CJK)
+    int bytePos;            // byte offset of "第" in the line
 };
 
 class ChapterDetector {
@@ -57,6 +66,13 @@ private:
     int getChineseDigitValue(char c);
     bool isAllChinese(const char* str, int len);
     int getLineChapterNumber(const char* line, int len);
+    
+    // Multi-level: extract ALL 第…keyword patterns from a line
+    int extractMarkers(const char* line, int len, ChapterMarker* out, int maxOut) const;
+    // Parse a number (Chinese digits + Arabic) starting at pos, advance pos
+    int parseNumberAt(const char* line, int len, int& pos) const;
+    // Check if bytes[pos..] form a valid CJK keyword (single char)
+    bool isCjkKeyword(const char* line, int len, int pos, int& kwLen) const;
     
     // 启发式打分
     int scoreLine(const char* line, int len, int baseScore, int chapterNumber, 
