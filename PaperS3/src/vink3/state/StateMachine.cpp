@@ -380,6 +380,7 @@ void StateMachine::handle(const Message& message) {
                                 ? DisplayEffect::VerticalShutter
                                 : DisplayEffect::HorizontalShutter);
                         } else {
+                            g_readerBook.renderCurrent();
                             g_displayService.enqueueFull(false, 100);
                         }
                     } else if (state_ == SystemState::Library && g_readerBook.handleShelfTap(message.touch.x, message.touch.y)) {

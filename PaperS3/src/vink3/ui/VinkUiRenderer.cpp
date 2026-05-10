@@ -395,25 +395,60 @@ void VinkUiRenderer::renderReaderHome(const char* bookTitle, const char* bookPat
 
     (void)bookPath; // path no longer displayed directly
 
-    // ── Top large card: last-read book ───────────────────────────────────
-    constexpr int16_t kTopCardY = kContentY;
-    constexpr int16_t kTopCardH = 176;
-    constexpr int16_t kTopBodyY = kTopCardY + 46;
+    // ── Top section: left cover + right info ──────────────────────────
+    constexpr int16_t kTopY = kContentY;
+    constexpr int16_t kTopH = 176;
+    constexpr int16_t kCoverW = 140;
+    constexpr int16_t kInfoX = kMarginX + kCoverW + 16;
+    constexpr int16_t kInfoW = kContentW - kCoverW - 16;
     const int16_t lineH = static_cast<int16_t>(g_cjkText.fontSize()) + 4;
 
-    drawBookCard(kMarginX, kTopCardY, kContentW, kTopCardH,
-                 hasLastBook ? bookTitle : "暂无",
-                 hasLastBook ? progressText : nullptr,
-                 !hasLastBook);
+    // Background
+    canvas_->fillRect(kMarginX, kTopY, kContentW, kTopH, kSurface);
+    drawThickBorder(kMarginX, kTopY, kContentW, kTopH, kInk);
 
+    // Left: book cover area (proportional to shelf card, scaled up)
+    constexpr int16_t kCoverX = kMarginX + 8;
+    constexpr int16_t kCoverInnerY = kTopY + 8;
+    constexpr int16_t kCoverInnerW = kCoverW - 16;
+    constexpr int16_t kCoverInnerH = kTopH - 16;
+    canvas_->fillRect(kCoverX, kCoverInnerY, kCoverInnerW, kCoverInnerH, kInk);
     if (hasLastBook) {
-        // Overlay "最近阅读" label at top-left of card
-        g_cjkText.drawText(kMarginX + 18, kTopCardY + 14, "最近阅读", kInkMid);
-        // Title auto-wraps inside drawBookCard; progress shown as subtitle
+        // Light accent line on cover
+        canvas_->drawFastVLine(kCoverX + 4, kCoverInnerY + 8, kCoverInnerH - 16, kInkLight);
+    }
+
+    // Right: info text
+    if (hasLastBook) {
+        g_cjkText.drawText(kInfoX, kTopY + 16, "最近阅读", kInkMid);
+        // Title (auto-wrap within info area)
+        const int titleLen = strlen(bookTitle);
+        const int maxCharsPerLine = kInfoW / (g_cjkText.fontSize() / 2);
+        int start = 0;
+        int line = 0;
+        const int maxLines = 4;
+        while (start < titleLen && line < maxLines) {
+            int chars = titleLen - start;
+            if (chars > maxCharsPerLine) chars = maxCharsPerLine;
+            char buf[64];
+            int n = chars;
+            if (n > (int)(sizeof(buf) - 1)) n = sizeof(buf) - 1;
+            memcpy(buf, bookTitle + start, n);
+            buf[n] = '\0';
+            g_cjkText.drawText(kInfoX, kTopY + 44 + line * lineH, buf, line == 0 ? kInk : kInk);
+            start += chars;
+            line++;
+        }
+        // Progress subtitle
+        if (progressText && progressText[0]) {
+            g_cjkText.drawText(kInfoX, kTopY + kTopH - 34, progressText, kInkMid);
+        }
+    } else {
+        g_cjkText.drawText(kInfoX, kTopY + kTopH / 2 - 8, "暂无书籍", kInkMid);
     }
 
     // ── Action buttons below the top card ─────────────────────────────
-    constexpr int16_t kBtnY = kTopCardY + kTopCardH + 18;
+    constexpr int16_t kBtnY = kTopY + kTopH + 18;
     constexpr int16_t kBtnGap = 14;
     constexpr int16_t kBtnW = (kContentW - kBtnGap * 2) / 3;
     drawButton(kMarginX, kBtnY, kBtnW, kButtonMinH, hasLastBook ? "继续" : "打开", true);
@@ -459,9 +494,9 @@ void VinkUiRenderer::renderShelfGrid(const char* const* titles, const char* cons
     }
 
     // ── Book cards grid ─────────────────────────────────────────────────
-    constexpr int16_t kCardW = 148;
-    constexpr int16_t kCardH = 170;
-    constexpr int16_t kGap = 16;
+    constexpr int16_t kCardW = 232;
+    constexpr int16_t kCardH = 200;
+    constexpr int16_t kGap = 20;
     constexpr int16_t kGridY = 230;
 
     for (int row = 0; row < rows; ++row) {
@@ -676,11 +711,9 @@ void VinkUiRenderer::drawMenuItem(int16_t x, int16_t y, int16_t w, int16_t h,
         }
         g_cjkText.drawText(x + kLabelX, textY, label ? label : "", kInk);
     } else if (altText && altText[0]) {
-        // Cycle item: label position is fixed; current value is right-aligned.
-        // This prevents “排版优化/翻页刷新/页边距” from shifting when the value
-        // changes between two or three Chinese characters.
-        g_cjkText.drawText(x + kPlainLabelX, textY, label ? label : "", kInk);
-        g_cjkText.drawRight(x + w - kValueRightPad, textY, altText, kInkMid);
+        // Cycle item: current value on the left (prominent), config name on the right.
+        g_cjkText.drawText(x + kPlainLabelX, textY, altText, kInk);
+        g_cjkText.drawRight(x + w - kValueRightPad, textY, label ? label : "", kInkMid);
     } else {
         g_cjkText.drawText(x + kPlainLabelX, textY, label ? label : "", kInk);
     }
@@ -697,9 +730,9 @@ void VinkUiRenderer::renderReaderMenuOverlay(const char* bookTitle, const char* 
 
     // ── Menu card ──────────────────────────────────────────────────────
     constexpr int16_t kCardX   = 16;
-    constexpr int16_t kCardY   = 100;
+    constexpr int16_t kCardY   = 56;
     constexpr int16_t kCardW   = 508;
-    constexpr int16_t kCardH   = 388;
+    constexpr int16_t kCardH   = 420;
     
     canvas_->fillRect(kCardX, kCardY, kCardW, kCardH, kSurface);
     drawThickBorder(kCardX, kCardY, kCardW, kCardH, kInk);

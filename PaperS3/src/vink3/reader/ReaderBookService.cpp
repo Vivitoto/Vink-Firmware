@@ -1694,10 +1694,10 @@ bool ReaderBookService::handleTap(int16_t x, int16_t y) {
         // ── Reader menu touch targets ──
         // Must match renderReaderMenuOverlay pixel-for-pixel.
         // Card/items/buttons must match renderReaderMenuOverlay pixel-for-pixel.
-        constexpr int16_t kMCX = 16, kMCY = 100, kMCW = 508, kMCH = 388;
+        constexpr int16_t kMCX = 16, kMCY = 56, kMCW = 508, kMCH = 420;
         constexpr int16_t kIX = 40, kIX2 = 280, kIW = 220, kIH = 64;
-        constexpr int16_t kRY0 = 184, kRY1 = 258, kRY2 = 332;
-        constexpr int16_t kBtY = 406;
+        constexpr int16_t kRY0 = 140, kRY1 = 214, kRY2 = 288;
+        constexpr int16_t kBtY = 362;
 
         auto inRect = [](int16_t tx, int16_t ty, int16_t rx, int16_t ry, int16_t rw, int16_t rh) -> bool {
             return tx >= rx && tx < rx + rw && ty >= ry && ty < ry + rh;

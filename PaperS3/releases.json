@@ -5,6 +5,21 @@
   "description": "面向 M5Stack PaperS3 的 Vink 电子书阅读固件。",
   "releases": [
     {
+      "version": "v0.4.10",
+      "name": "Vink-PaperS3 v0.4.10",
+      "summary": "热修复：前向翻页、重建目录卡死、阅读TAB/书架/菜单UI优化、页边距修复。",
+      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.10",
+      "changelog": "## Vink-PaperS3 v0.4.10\n\n### Bug 修复\n- **翻页动画显示错误**：向前翻页不再旋转上半屏内容。统一使用 rotation 0，扫描方向改为 epd_fast。\n- **重建目录卡死**：rebuildTocCache 结束后 StateMachine 现在正确调用 renderCurrent() 重新渲染，不再卡在加载页。\n- **页边距设置无效**：根因同「重建目录卡死」—— 菜单关闭后不重新渲染页面。\n\n### UI 优化\n- **阅读 TAB**：左封面(140×176) + 右信息(书名/进度百分比) 布局，不再整张宽卡。\n- **书架**：3×2 → 2×3 布局，封面卡放大到 232×200。\n- **阅读菜单**：上移至页眉正下方(56px)，视觉上像从页眉下拉展开。\n- **阅读菜单右侧配置项**：当前值和名称左右互换，当前值在左更醒目。\n- **翻页动画速度**：降一档（epd_fast），更舒适。\n\n### 开机基线\n- main.cpp、VinkRuntime.cpp 零改动。\n",
+      "assets": {
+        "full": {
+          "name": "Vink-PaperS3-v0.4.10-full-16MB.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.10/Vink-PaperS3-v0.4.10-full-16MB.bin",
+          "size": 16777216,
+          "flashOffset": 0
+        }
+      }
+    },
+    {
       "version": "v0.4.9",
       "name": "Vink-PaperS3 v0.4.9",
       "summary": "书架持久化、阅读TAB/书架TAB重构、快速目录扫描、排版优化三层预设。",

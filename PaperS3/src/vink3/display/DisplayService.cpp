@@ -254,23 +254,20 @@ const char* DisplayService::readerRefreshStrategyLabel() const {
 }
 
 // Native IT8951 DU4 sweep. Keep this isolated in DisplayService so it does not
-// touch boot/runtime initialization. v0.4.8 briefly regressed to software strip
-// updates; that feels laggy because it performs many partial pushes. The fast
-// path is one full-buffer push using the IT8951 scan direction selected by
-// rotation bit0, matching the v0.4.7 hardware sweep behavior.
+// touch boot/runtime initialization.
+//
+// Both directions use rotation 0 so pixel data stays upright. The scan
+// direction difference is cosmetic — the important part is a single clean
+// sweep with no software strips.
 void DisplayService::pushShutterAnimation(M5Canvas* canvas, DisplayEffect effect) {
     if (!canvas) return;
 
     const uint8_t savedRotation = M5.Display.getRotation();
-    // VerticalShutter = right→left sweep (next page)
-    //   PaperS3: setRotation(0) → _it8951_rotation bit0=1 → right→left
-    // HorizontalShutter = left→right sweep (prev page)
-    //   PaperS3: setRotation(1) → _it8951_rotation bit0=0 → left→right
-    M5.Display.setRotation(effect == DisplayEffect::VerticalShutter ? 0 : 1);
+    M5.Display.setRotation(0);
 
     M5.Display.waitDisplay();
     M5.Display.setColorDepth(kTextColorDepthHigh);
-    M5.Display.setEpdMode(epd_mode_t::epd_fastest);  // DU4: one native sweep, no software strips
+    M5.Display.setEpdMode(epd_mode_t::epd_fast);  // DU4: one native sweep, medium speed
 
     canvas->pushSprite(&M5.Display, 0, 0);
     M5.Display.waitDisplay();

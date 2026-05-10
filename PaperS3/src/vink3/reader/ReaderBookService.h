@@ -66,8 +66,8 @@ private:
     static constexpr int kBooksPerPage = 12;
     static constexpr int kMaxShelfBooks = 36;
     static constexpr int kShelfBooksPerPage = 6;
-    static constexpr int kShelfCols = 3;
-    static constexpr int kShelfRows = 2;
+    static constexpr int kShelfCols = 2;
+    static constexpr int kShelfRows = 3;
     static constexpr uint8_t kMaxLibraryScanDepth = 6;
     static constexpr uint8_t kBookHasTocCache = 0x01;
     static constexpr uint8_t kBookHasProgress = 0x02;
@@ -81,9 +81,9 @@ private:
     static constexpr int16_t kTocFirstRowY = 176;
     static constexpr int16_t kTocRowH = 48;
     // Shelf grid geometry must match VinkUiRenderer drawBookCard() pixel-for-pixel.
-    static constexpr int16_t kShelfCardW = 148;
-    static constexpr int16_t kShelfCardH = 170;
-    static constexpr int16_t kShelfCardGap = 16;
+    static constexpr int16_t kShelfCardW = 232;
+    static constexpr int16_t kShelfCardH = 200;
+    static constexpr int16_t kShelfCardGap = 20;
     static constexpr int16_t kShelfGridY = 230;
     static constexpr int16_t kShelfBrowserEntryY = 158;
     static constexpr int16_t kShelfBrowserEntryH = 52;
