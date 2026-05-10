@@ -82,7 +82,7 @@ private:
     static constexpr int16_t kTocRowH = 48;
     // Shelf grid geometry must match VinkUiRenderer drawBookCard() pixel-for-pixel.
     static constexpr int16_t kShelfCardW = 232;
-    static constexpr int16_t kShelfCardH = 200;
+    static constexpr int16_t kShelfCardH = 215;
     static constexpr int16_t kShelfCardGap = 20;
     static constexpr int16_t kShelfGridY = 230;
     static constexpr int16_t kShelfBrowserEntryY = 158;

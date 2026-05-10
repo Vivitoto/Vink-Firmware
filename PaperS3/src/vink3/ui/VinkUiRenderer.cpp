@@ -395,56 +395,50 @@ void VinkUiRenderer::renderReaderHome(const char* bookTitle, const char* bookPat
 
     (void)bookPath; // path no longer displayed directly
 
-    // ── Top section: left cover + right info ──────────────────────────
+    // ── Top section: left large book card + right info ───────────────
     constexpr int16_t kTopY = kContentY;
-    constexpr int16_t kTopH = 176;
-    constexpr int16_t kCoverW = 140;
-    constexpr int16_t kInfoX = kMarginX + kCoverW + 16;
-    constexpr int16_t kInfoW = kContentW - kCoverW - 16;
+    constexpr int16_t kTopH = 220;
+    constexpr int16_t kCoverW = 230;
+    constexpr int16_t kInfoX = kMarginX + kCoverW + 14;
+    constexpr int16_t kInfoW = kContentW - kCoverW - 14;
     const int16_t lineH = static_cast<int16_t>(g_cjkText.fontSize()) + 4;
 
-    // Background
-    canvas_->fillRect(kMarginX, kTopY, kContentW, kTopH, kSurface);
-    drawThickBorder(kMarginX, kTopY, kContentW, kTopH, kInk);
-
-    // Left: book cover area (proportional to shelf card, scaled up)
-    constexpr int16_t kCoverX = kMarginX + 8;
-    constexpr int16_t kCoverInnerY = kTopY + 8;
-    constexpr int16_t kCoverInnerW = kCoverW - 16;
-    constexpr int16_t kCoverInnerH = kTopH - 16;
-    canvas_->fillRect(kCoverX, kCoverInnerY, kCoverInnerW, kCoverInnerH, kInk);
+    // Left: large book card using drawBookCard (light surface + accent line + border)
     if (hasLastBook) {
-        // Light accent line on cover
-        canvas_->drawFastVLine(kCoverX + 4, kCoverInnerY + 8, kCoverInnerH - 16, kInkLight);
+        drawBookCard(kMarginX, kTopY, kCoverW, kTopH,
+                     bookTitle, progressText, false);
+    } else {
+        drawBookCard(kMarginX, kTopY, kCoverW, kTopH,
+                     nullptr, nullptr, true);
     }
 
-    // Right: info text
+    // Right: info panel
     if (hasLastBook) {
-        g_cjkText.drawText(kInfoX, kTopY + 16, "最近阅读", kInkMid);
-        // Title (auto-wrap within info area)
+        g_cjkText.drawText(kInfoX, kTopY + 14, "最近阅读", kInkMid);
+        // Title (auto-wrap, larger on first line)
         const int titleLen = strlen(bookTitle);
-        const int maxCharsPerLine = kInfoW / (g_cjkText.fontSize() / 2);
+        const int maxChars = kInfoW / (static_cast<int16_t>(g_cjkText.fontSize()) / 2);
         int start = 0;
         int line = 0;
-        const int maxLines = 4;
-        while (start < titleLen && line < maxLines) {
+        while (start < titleLen && line < 3) {
             int chars = titleLen - start;
-            if (chars > maxCharsPerLine) chars = maxCharsPerLine;
+            if (chars > maxChars) chars = maxChars;
             char buf[64];
             int n = chars;
             if (n > (int)(sizeof(buf) - 1)) n = sizeof(buf) - 1;
             memcpy(buf, bookTitle + start, n);
             buf[n] = '\0';
-            g_cjkText.drawText(kInfoX, kTopY + 44 + line * lineH, buf, line == 0 ? kInk : kInk);
+            g_cjkText.drawText(kInfoX, kTopY + 48 + line * lineH, buf, line == 0 ? kInk : kInk);
             start += chars;
             line++;
         }
-        // Progress subtitle
+        // Progress info
         if (progressText && progressText[0]) {
             g_cjkText.drawText(kInfoX, kTopY + kTopH - 34, progressText, kInkMid);
         }
     } else {
-        g_cjkText.drawText(kInfoX, kTopY + kTopH / 2 - 8, "暂无书籍", kInkMid);
+        g_cjkText.drawText(kInfoX, kTopY + kTopH / 2 - 10, "还没有打开过书籍", kInkMid);
+        g_cjkText.drawText(kInfoX, kTopY + kTopH / 2 + 18, "去书架浏览吧", kInkMid);
     }
 
     // ── Action buttons below the top card ─────────────────────────────
@@ -495,7 +489,7 @@ void VinkUiRenderer::renderShelfGrid(const char* const* titles, const char* cons
 
     // ── Book cards grid ─────────────────────────────────────────────────
     constexpr int16_t kCardW = 232;
-    constexpr int16_t kCardH = 200;
+    constexpr int16_t kCardH = 215;
     constexpr int16_t kGap = 20;
     constexpr int16_t kGridY = 230;
 
@@ -959,7 +953,7 @@ UiAction VinkUiRenderer::hitTest(SystemState state, int16_t x, int16_t y) const 
             // Reader home geometry must mirror renderReaderHome() pixel-for-pixel.
             {
                 constexpr int16_t kTopCardY = kContentY;
-                constexpr int16_t kTopCardH = 176;
+                constexpr int16_t kTopCardH = 220;
                 constexpr int16_t kBtnY = kTopCardY + kTopCardH + 18;
                 constexpr int16_t kBtnGap = 14;
                 constexpr int16_t kBtnW = (kContentW - kBtnGap * 2) / 3;

@@ -922,62 +922,34 @@ int ChapterDetector::parseNumberAt(const char* line, int len, int& pos) const {
 }
 
 bool ChapterDetector::isCjkKeyword(const char* line, int len, int pos, int& kwLen) const {
-    // A valid keyword is a single CJK character at pos.
-    // Must be 3-byte UTF-8 starting with >= 0xE0, and not a digit or punctuation.
+    // A valid chapter keyword is a single CJK character at pos.
+    // Must be 3-byte UTF-8 and one of the known chapter/section marker characters.
+    // Using a WHITELIST (not a blacklist) prevents false positives like
+    // "第三批", "第九场", "第二天" which would slip through a counter-word filter.
     if (pos + 2 >= len) return false;
     uint8_t b0 = (uint8_t)line[pos];
     if (b0 < 0xE0) return false;
 
     uint32_t cp = ((uint32_t)b0 << 16) | ((uint32_t)(uint8_t)line[pos+1] << 8) | (uint8_t)line[pos+2];
 
-    // Exclude digits, punctuation, and common non-keyword characters
-    // 零…九 (0-9), 十百千万 (units), ０-９ (full-width digits)
-    if ((cp >= 0xE38087 && cp <= 0xE38087) ||  // 〇
-        (cp >= 0xE4B880 && cp <= 0xE4B99D) ||  // 一…九
-        cp == 0xE4BA8C || cp == 0xE4B889 || cp == 0xE59B9B ||  // 二三四
-        cp == 0xE4BA94 || cp == 0xE585AD || cp == 0xE4B883 ||  // 五六七
-        cp == 0xE585AB || cp == 0xE4B99D ||  // 八九
-        cp == 0xE4B8A4 ||  // 两
-        cp == 0xE58D81 || cp == 0xE799BE || cp == 0xE58D83 || cp == 0xE4B887 ||  // 十百千万
-        cp == 0xE99BB6)  // 零
-        return false;
-
-    if ((b0 == 0xEF && (uint8_t)line[pos+1] == 0xBC && (uint8_t)line[pos+2] >= 0x90 && (uint8_t)line[pos+2] <= 0x99))
-        return false;  // full-width digits
-
-    // Exclude CJK punctuation ranges
-    if ((cp >= 0xE38080 && cp <= 0xE380BF) ||  // CJK punctuation
-        (cp >= 0xEFBC80 && cp <= 0xEFBFA0) ||  // full-width punctuation
-        (cp >= 0xE28090 && cp <= 0xE280BF))    // general punctuation
-        return false;
-
-    // Exclude common measure/counter words that are never chapter keywords.
-    // These frequently appear as "第X个/次/条/..." in body text.
+    // Known chapter/section keywords (whitelist).
+    // All other single CJK characters after 第… are rejected.
     switch (cp) {
-        case 0xE4B8AA:  // 个
-        case 0xE6ACA1:  // 次
-        case 0xE9818D:  // 遍
-        case 0xE8B68A:  // 趟
-        case 0xE4B88B:  // 下
-        case 0xE59CBA:  // 场  (but 场 IS occasionally a chapter keyword in some novels)
-            // Keep 场 as valid — some novels use it as chapter marker
-            break;
-        case 0xE9A1BF:  // 顿
-        case 0xE998B5:  // 阵
-        case 0xE58FAA:  // 只
-        case 0xE69DA1:  // 条
-        case 0xE4BBB6:  // 件
-        case 0xE5BCA0:  // 张
-        case 0xE6ADA5:  // 步
-        case 0xE5B182:  // 层
-        case 0xE6AEB5:  // 段
-            return false;
+        case 0xE7ABA0:  // 章
+        case 0xE88A82:  // 节
+        case 0xE58DB7:  // 卷
+        case 0xE59B9E:  // 回
+        case 0xE7AF87:  // 篇
+        case 0xE983A8:  // 部
+        case 0xE99B86:  // 集
+        case 0xE5B995:  // 幕
+        case 0xE68A98:  // 折
+        case 0xE58899:  // 则
+            kwLen = 3;
+            return true;
         default:
-            break;
+            return false;
     }
-
-    kwLen = 3;
-    return true;
 }
 
 int ChapterDetector::scoreLine(const char* line, int len, int baseScore, int chapterNumber,

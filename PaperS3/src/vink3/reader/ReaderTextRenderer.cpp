@@ -320,10 +320,10 @@ ReaderRenderOptions ReaderTextRenderer::currentOptions() const {
     ReaderRenderOptions opt;
     opt.fontSize = fontSize();
 
-    static constexpr int16_t kTopMargins[4] = {72, 74, 82, 90};
-    static constexpr int16_t kBottomMargins[4] = {26, 30, 36, 44};
-    static constexpr int16_t kSideMargins[4] = {24, 28, 34, 40};
-    static constexpr int16_t kLineGaps[4] = {5, 7, 10, 13};
+    static constexpr int16_t kTopMargins[4] = {68, 78, 92, 108};
+    static constexpr int16_t kBottomMargins[4] = {22, 30, 40, 52};
+    static constexpr int16_t kSideMargins[4] = {20, 28, 38, 48};
+    static constexpr int16_t kLineGaps[4] = {3, 7, 12, 17};
     // Vink keeps four letter-spacing levels. Clamp the tightest level to zero
     // for the current renderer
     // so glyphs do not overlap on the PaperS3 panel.

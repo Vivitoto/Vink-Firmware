@@ -1235,7 +1235,7 @@ bool ReaderBookService::handleReaderHomeTap(int16_t x, int16_t y) {
     // Recent book cards: 3 in a row below the buttons.
     // Must match VinkUiRenderer renderReaderHome() pixel-for-pixel.
     constexpr int16_t kTopCardY = 158;
-    constexpr int16_t kTopCardH = 176;
+    constexpr int16_t kTopCardH = 220;
     constexpr int16_t kBtnY = kTopCardY + kTopCardH + 18;
     constexpr int16_t kRecentY = kBtnY + 52 + 18;
     constexpr int16_t kRecentCardW = 148;
@@ -1746,9 +1746,10 @@ bool ReaderBookService::handleTap(int16_t x, int16_t y) {
         return false;
     }
     if (!showingToc_) {
-        // PaperS3 e-paper reading should use coarse, forgiving zones. Keep the
-        // small top-left/menu affordances, but also support large reference-style
-        // zones: left third = previous page, right third = next page, center = menu.
+        // Touch zones, top-to-bottom:
+        //   y < 90: page header (book entry / TOC / nothing-top-elided)
+        //   y >= 90: reading area — left third=prev, right third=next, center=menu
+        // No zone covers the TAB bar (y 64-158 disappears from reading page).
         if (x < 170 && y < 90) {
             showingBookEntry_ = true;
             showingToc_ = false;
@@ -1760,6 +1761,8 @@ bool ReaderBookService::handleTap(int16_t x, int16_t y) {
             renderTocPage(tocPage_);
             return true;
         }
+        // Below header: only respond if Y is within the reading body
+        if (y < 90) return false;
         if (x < kPaperS3Width / 3) {
             lastTapPageTurn_ = true;
             lastTapNextPage_ = false;
