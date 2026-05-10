@@ -406,7 +406,11 @@ void StateMachine::handle(const Message& message) {
                 break;
             }
             if (state_ == SystemState::ReaderMenu) {
-                if (g_readerBook.nextPage()) enqueueReaderAwareRefresh(DisplayEffect::VerticalShutter);
+                if (g_readerBook.isShowingToc()) {
+                    if (g_readerBook.nextTocPage()) g_displayService.enqueueFull(false, 100);
+                } else if (g_readerBook.nextPage()) {
+                    enqueueReaderAwareRefresh(DisplayEffect::VerticalShutter);
+                }
                 break;
             }
             // Library: swipe left = next shelf page (no tab switching).
@@ -423,7 +427,11 @@ void StateMachine::handle(const Message& message) {
                 break;
             }
             if (state_ == SystemState::ReaderMenu) {
-                if (g_readerBook.prevPage()) enqueueReaderAwareRefresh(DisplayEffect::HorizontalShutter);
+                if (g_readerBook.isShowingToc()) {
+                    if (g_readerBook.prevTocPage()) g_displayService.enqueueFull(false, 100);
+                } else if (g_readerBook.prevPage()) {
+                    enqueueReaderAwareRefresh(DisplayEffect::HorizontalShutter);
+                }
                 break;
             }
             // Library: swipe right = previous shelf page (no tab switching).

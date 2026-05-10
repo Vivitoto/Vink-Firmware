@@ -5,6 +5,21 @@
   "description": "面向 M5Stack PaperS3 的 Vink 电子书阅读固件。",
   "releases": [
     {
+      "version": "v0.4.12",
+      "name": "Vink-PaperS3 v0.4.12",
+      "summary": "单层目录保护并修复TOC页切换与配置源一致性，确保WEB与本机排版不打架。",
+      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.12",
+      "changelog": "## Vink-PaperS3 v0.4.12\\n\\n### 目录稳定性\\n- 大书目录识别回退到单层模式，避免某些 1000+ 章文本出现双关键词标题导致章节序号跳变/尾部缺失。\\n- 对含\"第一章 第一回\"等复合标题，不再强制二级层级划分，完整章节列表更稳定。\\n\\n### 目录页交互\\n- ReaderMenu 中左/右滑动现在区分模式：若当前在 TOC 列表，滑动切换 TOC 页；否则保留正文翻页。\\n- TOC 翻页与状态机对齐，减少菜单交互误判。\\n\\n### 排版配置一致性\\n- 统一排版配置来源：Web 下发的行距、边距、缩进、间距等参数直接写回本机配置并参与最终生效。\\n- 修复“网页排版保存后没生效”的覆盖冲突问题。",
+      "assets": {
+        "full": {
+          "name": "Vink-PaperS3-v0.4.12-full-16MB.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.12/Vink-PaperS3-v0.4.12-full-16MB.bin",
+          "size": 16777216,
+          "flashOffset": 0
+        }
+      }
+    },
+    {
       "version": "v0.4.11",
       "name": "Vink-PaperS3 v0.4.11",
       "summary": "目录白名单识别/版式四档生效/阅读TAB大书卡/触摸防穿透/书架加长。",

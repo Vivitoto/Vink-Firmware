@@ -23,6 +23,7 @@ public:
     int tocCount() const { return tocCount_; }
     const char* title() const { return title_; }
     const char* path() const { return bookPath_; }
+    bool isShowingToc() const { return showingToc_; }
 
     void renderReaderHome();
     void renderShelfGrid(uint16_t page = 0);
@@ -87,7 +88,16 @@ private:
     static constexpr int16_t kShelfGridY = 230;
     static constexpr int16_t kShelfBrowserEntryY = 158;
     static constexpr int16_t kShelfBrowserEntryH = 52;
+
+    // Reader home geometry must match VinkUiRenderer::renderReaderHome().
+    static constexpr int16_t kReaderHomeTopY = 158;
+    static constexpr int16_t kReaderHomeTopH = 220;
+    static constexpr int16_t kReaderHomeTopW = 236;
+    static constexpr int16_t kReaderHomeRecentCardW = 152;
+    static constexpr int16_t kReaderHomeRecentCardH = 170;
+    static constexpr int16_t kReaderHomeRecentGap = 14;
     static constexpr int16_t kUiMarginX = 28;
+
     static constexpr int16_t kUiContentW = kPaperS3Width - kUiMarginX * 2;
     // Must match VinkUiRenderer::renderUiActionPage() button geometry.
     static constexpr int16_t kEntryButtonX = 64;

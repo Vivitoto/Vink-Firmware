@@ -241,6 +241,15 @@ void ReaderTextRenderer::setPageMarginLevel(uint8_t level) {
     level &= 0x03;
     ReaderSettings::setSlot(settings_.spacing, 0, level);
     ReaderSettings::setSlot(settings_.spacing, 1, level);
+
+    static constexpr int16_t kTopMargins[4] = {68, 78, 92, 108};
+    static constexpr int16_t kBottomMargins[4] = {22, 30, 40, 52};
+    static constexpr int16_t kSideMargins[4] = {20, 28, 38, 48};
+    webMarginTop_ = static_cast<uint8_t>(kTopMargins[level]);
+    webMarginBottom_ = static_cast<uint8_t>(kBottomMargins[level]);
+    webMarginLeft_ = static_cast<uint8_t>(kSideMargins[level]);
+    webMarginRight_ = static_cast<uint8_t>(kSideMargins[level]);
+
     saveLocalSettings();
     Serial.printf("[vink3][reader] page margin -> %s spacing=0x%04x\n", pageMarginLabel(), settings_.spacing);
 }
@@ -263,7 +272,18 @@ void ReaderTextRenderer::cycleLineSpacing() {
 
 void ReaderTextRenderer::setLineSpacingLevel(uint8_t level) {
     if (settings_.schema == 0) applyLayoutPresetToSettings();
-    ReaderSettings::setSlot(settings_.spacing, 2, level & 0x03);
+    level &= 0x03;
+    ReaderSettings::setSlot(settings_.spacing, 2, level);
+
+    static constexpr int16_t kLineGaps[4] = {3, 7, 12, 17};
+    const int16_t gap = kLineGaps[level];
+    const uint16_t fz = fontSize();
+    uint16_t percent = (static_cast<int32_t>(gap) * 100 + static_cast<int32_t>(fz / 2))
+                          / static_cast<int32_t>(max<uint8_t>(fz, 1));
+    if (percent < 50) percent = 50;
+    if (percent > 200) percent = 200;
+    webLineSpacing_ = static_cast<uint8_t>(percent);
+
     saveLocalSettings();
     Serial.printf("[vink3][reader] line spacing -> %s spacing=0x%04x\n", lineSpacingLabel(), settings_.spacing);
 }
@@ -331,6 +351,7 @@ ReaderRenderOptions ReaderTextRenderer::currentOptions() const {
     static constexpr int16_t kParagraphGaps[4] = {0, 0, 0, 0};  // no paragraph spacing, per user preference
     static constexpr int16_t kUnderlineOffsets[4] = {1, 2, 4, 6};
 
+    // 本地设置作为预设基础，再以合并后的本机排版参数（含 Web 配置写回）形成最终运行值。
     opt.marginTop = kTopMargins[settings_.topBottomLevel()];
     opt.marginBottom = kBottomMargins[settings_.topBottomLevel()];
     opt.marginLeft = kSideMargins[settings_.leftRightLevel()];
@@ -346,6 +367,7 @@ ReaderRenderOptions ReaderTextRenderer::currentOptions() const {
     opt.underline = settings_.underlineEnabled();
     opt.firstLineIndentPx = opt.indentFirstLine ? max<int16_t>(fontSize() * 2, 56) : 0;
 
+    // Web 配置与本机排版配置合并后作为最终运行时源。
     opt.marginLeft = webMarginLeft_;
     opt.marginRight = webMarginRight_;
     opt.marginTop = max<int16_t>(webMarginTop_, kReaderBodyTopMin);
@@ -356,9 +378,8 @@ ReaderRenderOptions ReaderTextRenderer::currentOptions() const {
     opt.firstLineIndentPx = opt.indentFirstLine ? static_cast<int16_t>(fontSize() * webIndentFirstLine_) : 0;
     opt.justify = webJustify_;
 
-    // Apply the quick in-reader layout preset after WebUI/local numeric values
-    // so the menu's “排版优化” switch has an immediately visible effect.
-    // WebUI values remain the base; presets are a reading-time transform layer.
+    // Apply the quick in-reader layout preset after base values so the menu's
+    // “排版优化” switch has an immediately visible effect.
     if (layoutPreset_ == 0) {
         // 原始：disable Vink formatting transforms for comparison.
         opt.indentFirstLine = false;

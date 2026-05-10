@@ -1234,13 +1234,13 @@ bool ReaderBookService::handleShelfTap(int16_t x, int16_t y) {
 bool ReaderBookService::handleReaderHomeTap(int16_t x, int16_t y) {
     // Recent book cards: 3 in a row below the buttons.
     // Must match VinkUiRenderer renderReaderHome() pixel-for-pixel.
-    constexpr int16_t kTopCardY = 158;
-    constexpr int16_t kTopCardH = 220;
+    constexpr int16_t kTopCardY = kReaderHomeTopY;
+    constexpr int16_t kTopCardH = kReaderHomeTopH;
     constexpr int16_t kBtnY = kTopCardY + kTopCardH + 18;
     constexpr int16_t kRecentY = kBtnY + 52 + 18;
-    constexpr int16_t kRecentCardW = 148;
-    constexpr int16_t kRecentCardH = 170;
-    constexpr int16_t kRecentGap = 16;
+    constexpr int16_t kRecentCardW = kReaderHomeRecentCardW;
+    constexpr int16_t kRecentCardH = kReaderHomeRecentCardH;
+    constexpr int16_t kRecentGap = kReaderHomeRecentGap;
 
     for (int i = 0; i < 3; ++i) {
         const int16_t cx = kUiMarginX + i * (kRecentCardW + kRecentGap);
