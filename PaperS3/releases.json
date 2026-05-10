@@ -5,6 +5,21 @@
   "description": "面向 M5Stack PaperS3 的 Vink 电子书阅读固件。",
   "releases": [
     {
+      "version": "v0.4.11",
+      "name": "Vink-PaperS3 v0.4.11",
+      "summary": "目录白名单识别/版式四档生效/阅读TAB大书卡/触摸防穿透/书架加长。",
+      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.11",
+      "changelog": "## Vink-PaperS3 v0.4.11\n\n### 目录识别重构\n- 黑名单→白名单：只认 章/节/卷/回/篇/部/集/幕/折/则 十字。\n- \"第三批\"\"第九场\"\"第二天\"等量词误判全部消除。\n\n### 版式设置生效\n- 页边距四档差距拉大：68/78/92/108（档差10-16px），肉眼可辨。\n- 行间距四档差距拉大：3/7/12/17（档差4-5px）。\n\n### 阅读 TAB 重新设计\n- 左大书卡 230×220（drawBookCard 浅底+accent线）+ 右信息区。\n- 不再有黑方块封面。\n\n### 触摸防穿透\n- 正文翻页区加 y>=90 约束，TAB 区域点击不再触发翻页。\n- 只在当前页面做当前页面的事。\n\n### 书架优化\n- 书卡高度 200→215，更修长。\n\n### 开机基线\n- main.cpp、VinkRuntime.cpp 零改动。\n",
+      "assets": {
+        "full": {
+          "name": "Vink-PaperS3-v0.4.11-full-16MB.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.11/Vink-PaperS3-v0.4.11-full-16MB.bin",
+          "size": 16777216,
+          "flashOffset": 0
+        }
+      }
+    },
+    {
       "version": "v0.4.10",
       "name": "Vink-PaperS3 v0.4.10",
       "summary": "热修复：前向翻页、重建目录卡死、阅读TAB/书架/菜单UI优化、页边距修复。",
