@@ -5,6 +5,21 @@
   "description": "面向 M5Stack PaperS3 的 Vink 电子书阅读固件。",
   "releases": [
     {
+      "version": "v0.4.8",
+      "name": "Vink-PaperS3 v0.4.8",
+      "summary": "UI 扁平化、设置多级子页、Tab 留白去贴边、阅读菜单浮层、删除清除分页缓存。",
+      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.8",
+      "changelog": "## Vink-PaperS3 v0.4.8\n\n### UI 扁平化\n- 全部 23 处圆角矩形 fillRoundRect/drawRoundRect 改为直角 fillRect/drawRect。\n- 6 色调色板保持 v0.4.7 灰阶层次，直角线条更干练。\n\n### 设置多级子页\n- 主设置页保留「电源（点按关机）」和「关于（版本号）」，直观方便。\n- 新增「阅读设置」入口：点入后独立子页，含排版/阅读/显示三组全部选项。\n- 子页含「< 返回」按钮回到主设置；切换 Tab 或左右滑自动重置到设置主页。\n\n### Tab 留白\n- 4 个 Tab 页签从贴满 540px 改为左右各 28px 留白（0..540 → 28..512）。\n- 每个 tab 宽 112px，间距 12px，精确居中。\n\n### 阅读菜单浮层\n- 阅读菜单不再 clear() 刷白整屏，改为浮层卡片盖在正文上方。\n- 卡片下方正文可见，点正文区域直接关闭菜单继续阅读。\n\n### 删除清除分页缓存\n- 移除 clearPageCache() 和相关 UI 入口。\n- 重新生成目录即重建索引和分页，不需要单独清理缓存。\n\n### 构建验证\n- 本地 smoke、diff check、PlatformIO build、full 16MB merge 均通过。\n",
+      "assets": {
+        "full": {
+          "name": "Vink-PaperS3-v0.4.8-full-16MB.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.8/Vink-PaperS3-v0.4.8-full-16MB.bin",
+          "size": 16777216,
+          "flashOffset": 0
+        }
+      }
+    },
+    {
       "version": "v0.4.7",
       "name": "Vink-PaperS3 v0.4.7",
       "summary": "IT8951 硬件翻页、UI 全面美化、多级目录自动识别、段落间距归零。",
@@ -134,21 +149,6 @@
         "full": {
           "name": "Vink-PaperS3-v0.3.17-full-16MB.bin",
           "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.3.17/Vink-PaperS3-v0.3.17-full-16MB.bin",
-          "size": 16777216,
-          "flashOffset": 0
-        }
-      }
-    },
-    {
-      "version": "v0.3.16",
-      "name": "Vink-PaperS3 v0.3.16",
-      "summary": "以真机确认可正常开机的 v0.3.8 基线重做：保留稳定启动链路，只移植子目录书架、章节检测、关机防重启等低风险修复。",
-      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.3.16",
-      "changelog": "## Vink-PaperS3 v0.3.16\n\n### 重要说明\n- 本版重新以真机确认可正常开机的 v0.3.8-rc 为底座。\n- 不合并 v0.3.9+ 中可能导致启动卡住的启动链路、显示初始化、WebUI/WiFi 启动路径。\n\n### 已移植的安全修复\n- 书架支持递归扫描 `/books` 下多级子目录 TXT。\n- 章节检测规则更新：优化间距评分、阿拉伯数字章节支持“集”、避免纯章节号被错误惩罚。\n- host 侧 `detect_txt_toc.py` 同步章节检测规则。\n- 电源键关机改为不再手动 GPIO44 脉冲，减少关机后像重启的问题。\n\n### 验证状态\n- 本地将验证：source smoke、PlatformIO build、buildfs、full 16MB merge。\n- 需要真机验证：是否恢复 v0.3.8 的正常开机表现，以及子目录书架/章节检测/关机行为。",
-      "assets": {
-        "full": {
-          "name": "Vink-PaperS3-v0.3.16-full-16MB.bin",
-          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.3.16/Vink-PaperS3-v0.3.16-full-16MB.bin",
           "size": 16777216,
           "flashOffset": 0
         }

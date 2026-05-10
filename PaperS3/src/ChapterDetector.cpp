@@ -123,20 +123,47 @@ int ChapterDetector::detect(File& file, ChapterDetectResult* results, int maxRes
         if ((++linesScanned & 0x3F) == 0) yield();
     }
 
-    // ── Post-processing: infer keyword→level mapping from structure ──────
-    // Strategy: scan ALL entries' titles for 第…keyword patterns.
-    // A keyword that appears BEFORE another 第…keyword on the same line
-    //   → level-0 (volume marker). e.g. "第三卷 第一章" → 卷=0, 章=1
-    // A keyword that appears AFTER another 第…keyword or always alone
-    //   → level-1 (chapter marker).
-    // If NO multi-marker lines exist → flat (all level-1).
+    // ── Post-processing: combined hardcoded + inference strategy ─────
+    //   Known keywords → always hardcoded (reliable for common conventions)
+    //     Level 0 (volume):  卷, 部, 集, 篇
+    //     Level 1 (chapter):  章, 回, 话, 折, 幕, 记, 传
+    //     Level 2 (section):  节
+    //   Unknown keywords → global inference from multi-marker co-occurrence
+    //     If a keyword appears as parent (before another) and never alone → level 0
+    //     Otherwise → level 1
+    //   Multi-marker lines → always level 1 (child entry)
     {
-        // Pass 1: collect keyword statistics from all entries
-        struct KwInfo { int asParent; int asChild; int asOnly; };
-        // Simple linear-probe map for keywords (max ~20 unique keywords)
-        char kwBuf[64][3];  // up to 64 unique CJK keywords
+        // Hardcoded keyword→level for known markers
+        auto knownLevel = [](const char* kw, int kwLen) -> int8_t {
+            if (kwLen != 3) return -1;  // unknown
+            uint32_t cp = ((uint32_t)(uint8_t)kw[0] << 16) |
+                          ((uint32_t)(uint8_t)kw[1] << 8)  | (uint8_t)kw[2];
+            // Level 0: volume/part markers
+            if (cp == 0xE58DB7 ||  // 卷
+                cp == 0xE983A8 ||  // 部
+                cp == 0xE99B86 ||  // 集
+                cp == 0xE7AF87)    // 篇
+                return 0;
+            if (cp == 0xE88A82) return 2;  // 节
+            // Level 1: chapter markers
+            if (cp == 0xE7ABA0 ||  // 章
+                cp == 0xE59B9E ||  // 回
+                cp == 0xE8AF9D ||  // 话
+                cp == 0xE68A98 ||  // 折
+                cp == 0xE5B995 ||  // 幕
+                cp == 0xE8AEB0 ||  // 记
+                cp == 0xE4BCA0)    // 传
+                return 1;
+            return -1;  // unknown keyword → use inference
+        };
+
+        // Build index for unknown keywords
+        struct KwInfo { int asParent; int asChild; int asOnly; int8_t level; };
+        char kwBuf[64][3];
         KwInfo kwStats[64];
         int kwMapSize = 0;
+        int8_t kwLevel[64];
+
         auto findKw = [&](const char* s, int slen) -> int {
             for (int m = 0; m < kwMapSize; ++m) {
                 if (memcmp(kwBuf[m], s, slen) == 0) return m;
@@ -148,37 +175,43 @@ int ChapterDetector::detect(File& file, ChapterDetectResult* results, int maxRes
             if (idx >= 0) return idx;
             if (kwMapSize >= 64) return -1;
             memcpy(kwBuf[kwMapSize], s, slen);
-            kwStats[kwMapSize] = {0, 0, 0};
+            kwStats[kwMapSize] = {0, 0, 0, -1};
+            kwLevel[kwMapSize] = -1;
             return kwMapSize++;
         };
 
+        // Pass 1: classify keywords — hardcoded wins, then infer from structure
         for (int i = 0; i < count; ++i) {
             const char* t = results[i].title.c_str();
             int tlen = results[i].title.length();
             ChapterMarker mks[4];
             int mc = extractMarkers(t, tlen, mks, 4);
             if (mc >= 2) {
-                // First marker = parent keyword, last marker = child keyword
                 int pi = addKw(mks[0].keyword, mks[0].keywordLen);
-                if (pi >= 0) kwStats[pi].asParent++;
+                if (pi >= 0 && kwStats[pi].level < 0) kwStats[pi].asParent++;
                 int ci = addKw(mks[mc - 1].keyword, mks[mc - 1].keywordLen);
-                if (ci >= 0) kwStats[ci].asChild++;
+                if (ci >= 0 && kwStats[ci].level < 0) kwStats[ci].asChild++;
             } else if (mc == 1) {
                 int oi = addKw(mks[0].keyword, mks[0].keywordLen);
-                if (oi >= 0) kwStats[oi].asOnly++;
+                if (oi >= 0 && kwStats[oi].level < 0) kwStats[oi].asOnly++;
             }
         }
 
-        // Pass 2: assign keyword levels
-        // Rule: a keyword is level-0 if it appears as parent AND never as child/only.
-        //       Otherwise it's level-1 or level-2 (which we treat as 1 here).
-        bool hasVolumeKeywords = false;
-        int8_t kwLevel[64];
+        // Pass 2: resolve levels — hardcoded first, then inferred
         for (int m = 0; m < kwMapSize; ++m) {
-            if (kwStats[m].asParent > 0 && kwStats[m].asOnly == 0) {
+            int8_t known = knownLevel(kwBuf[m], 3);
+            if (known >= 0) {
+                kwLevel[m] = known;
+            } else if (kwStats[m].asParent > 0 && kwStats[m].asOnly == 0 && kwStats[m].asChild > 0) {
+                // Unknown keyword appears as parent in multi-marker lines AND as child
+                // → ambiguous, default to chapter (level 1)
+                kwLevel[m] = 1;
+            } else if (kwStats[m].asParent > 0 && kwStats[m].asOnly == 0) {
+                // Unknown keyword appears as parent (before another marker) and never alone
+                // → volume-like (level 0)
                 kwLevel[m] = 0;
-                hasVolumeKeywords = true;
             } else {
+                // Unknown keyword appears alone or as child → chapter (level 1)
                 kwLevel[m] = 1;
             }
         }
@@ -190,18 +223,17 @@ int ChapterDetector::detect(File& file, ChapterDetectResult* results, int maxRes
             ChapterMarker mks[4];
             int mc = extractMarkers(t, tlen, mks, 4);
             if (mc >= 2) {
-                // Multi-marker line → entry is a child-level entry (1);
-                // its parent context is implicit in the preceding volume entry.
-                results[i].level = hasVolumeKeywords ? 1 : 1;
+                // Multi-marker: entry is always a chapter (level 1)
+                results[i].level = 1;
             } else if (mc == 1) {
                 int idx = findKw(mks[0].keyword, mks[0].keywordLen);
-                results[i].level = (idx >= 0) ? kwLevel[idx] : 1;
+                results[i].level = (idx >= 0 && kwLevel[idx] >= 0) ? kwLevel[idx] : 1;
             } else {
                 results[i].level = 1;
             }
         }
 
-        // Pass 4: if no volume entries, flatten everything
+        // Flatten if no volume entries at all (all level 1)
         int volCount = 0;
         for (int i = 0; i < count; ++i) if (results[i].level == 0) volCount++;
         if (volCount == 0) {
@@ -209,8 +241,12 @@ int ChapterDetector::detect(File& file, ChapterDetectResult* results, int maxRes
         }
 
         if (_debug) {
-            Serial.printf("[ChapterDetector] Keywords: %d unique, volumes=%d\n",
-                          kwMapSize, volCount);
+            Serial.printf("[ChapterDetector] Keywords=%d (inferred=%d) Volumes=%d\n",
+                          kwMapSize,
+                          kwMapSize > 0
+                              ? (kwLevel[0] >= 0 && knownLevel(kwBuf[0], 3) < 0 ? 1 : 0)
+                              : 0,
+                          volCount);
         }
     }
 

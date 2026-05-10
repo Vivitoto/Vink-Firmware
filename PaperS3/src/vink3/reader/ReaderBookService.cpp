@@ -1181,11 +1181,11 @@ void ReaderBookService::renderBookEntryPage() {
              (cacheFlags & kBookHasTocCache) ? "已缓存" : "未缓存",
              (cacheFlags & kBookHasPageCache) ? "有旧缓存" : "无旧缓存");
     snprintf(lineProgress, sizeof(lineProgress), "进度:%s", progress);
-    const char* info[] = {lineTitle, lineSize, lineToc, lineCache, lineProgress, "阅读按当前页流式分页;旧分页缓存可清理"};
-    const char* actions[] = {"继续阅读", "目录", "从头开始", "清除分页缓存", "重新生成目录"};
+    const char* info[] = {lineTitle, lineSize, lineToc, lineCache, lineProgress};
+    const char* actions[] = {"继续阅读", "目录", "从头开始", "重新生成目录"};
     // This is still UI/navigation chrome after choosing a book. Keep it on the
     // UI font path; only actual page body rendering may use the reading font.
-    g_uiRenderer.renderUiActionPage(SystemState::Reader, "书籍入口", info, 6, actions, 5);
+    g_uiRenderer.renderUiActionPage(SystemState::Reader, "书籍入口", info, 5, actions, 4);
 }
 
 void ReaderBookService::renderReaderMenuPage() {
@@ -1193,20 +1193,14 @@ void ReaderBookService::renderReaderMenuPage() {
         renderOpenOrHelp();
         return;
     }
-    char lineTitle[180];
-    char lineChapter[180];
-    char lineRefresh[80];
-    char lineAa[80];
-    char lineRender[120];
     const char* chapterTitle = (currentTocIndex_ >= 0 && currentTocIndex_ < tocCount_) ? toc_[currentTocIndex_].title.c_str() : "未进入章节";
-    snprintf(lineTitle, sizeof(lineTitle), "书籍:%s", title_);
-    snprintf(lineChapter, sizeof(lineChapter), "章节:%s", chapterTitle);
-    snprintf(lineRefresh, sizeof(lineRefresh), "翻页刷新:%s", g_displayService.readerRefreshStrategyLabel());
-    snprintf(lineAa, sizeof(lineAa), "抗锯齿:%s", g_readerText.antiAliasLabel());
-    snprintf(lineRender, sizeof(lineRender), "下划线:%s · 翻页动画:%s", g_readerText.underlineLabel(), g_readerText.pageTurnEffectLabel());
-    const char* info[] = {lineTitle, lineChapter, lineRefresh, lineAa, lineRender, "左上角可回书籍入口;小范围改动会重建分页"};
-    const char* actions[] = {"继续阅读", "翻页刷新", "抗锯齿", "排版优化", "下划线", "翻页动画"};
-    g_uiRenderer.renderUiActionPage(SystemState::Reader, "阅读菜单", info, 6, actions, 6);
+    g_uiRenderer.renderReaderMenuOverlay(
+        title_, chapterTitle,
+        g_displayService.readerRefreshStrategyLabel(),
+        g_readerText.antiAliasEnabled(),
+        g_readerText.layoutPresetLabel(),
+        g_readerText.underlineEnabled(),
+        g_readerText.pageTurnEffectEnabled());
 }
 
 bool ReaderBookService::continueReading() {
@@ -1303,6 +1297,14 @@ bool ReaderBookService::cycleLayoutPreset() {
     return true;
 }
 
+bool ReaderBookService::cyclePageMargin() {
+    g_readerText.cyclePageMargin();
+    invalidatePaginationForLayoutChange();
+    showingReaderMenu_ = true;
+    renderReaderMenuPage();
+    return true;
+}
+
 void ReaderBookService::invalidatePaginationForLayoutChange() {
     // Layout options affect only the in-RAM streaming page window; the stable
     // `.vink-toc` chapter byte index stays valid. Preserve the current byte
@@ -1314,17 +1316,6 @@ void ReaderBookService::invalidatePaginationForLayoutChange() {
     }
     pageCount_ = 0;
     nextPreheatTocIndex_ = -1;
-}
-
-bool ReaderBookService::clearPageCache() {
-    if (!open_ || !ensureSdReady()) return false;
-    removeSidecarForCurrentBook(".vink-pages");
-    pageCount_ = 0;
-    currentPage_ = 0;
-    nextPreheatTocIndex_ = -1;
-    showingBookEntry_ = true;
-    renderBookEntryPage();
-    return true;
 }
 
 bool ReaderBookService::rebuildTocCache() {
@@ -1397,13 +1388,41 @@ bool ReaderBookService::handleTap(int16_t x, int16_t y) {
     lastTapNextPage_ = false;
     if (!open_) return false;
     if (showingReaderMenu_) {
-        if (x >= kEntryButtonX && x < kEntryButtonX + kEntryButtonW && y >= kEntryContinueY && y < kEntryContinueY + kEntryButtonH) return closeReaderMenu();
-        if (x >= kEntryButtonX && x < kEntryButtonX + kEntryButtonW && y >= kEntryTocY && y < kEntryTocY + kEntryButtonH) return cycleRefreshStrategy();
-        if (x >= kEntryButtonX && x < kEntryButtonX + kEntryButtonW && y >= kEntryRestartY && y < kEntryRestartY + kEntryButtonH) return toggleAntiAlias();
-        if (x >= kEntryButtonX && x < kEntryButtonX + kEntryButtonW && y >= kEntryClearPagesY && y < kEntryClearPagesY + kEntryButtonH) return cycleLayoutPreset();
-        if (x >= kEntryButtonX && x < kEntryButtonX + kEntryButtonW && y >= kEntryRebuildTocY && y < kEntryRebuildTocY + kEntryButtonH) return toggleUnderline();
-        if (x >= kEntryButtonX && x < kEntryButtonX + kEntryButtonW && y >= kEntryPageTurnY && y < kEntryPageTurnY + kEntryButtonH) return togglePageTurnEffect();
-        return false;
+        // ── Reader menu touch targets ──
+        // Must match renderReaderMenuOverlay pixel-for-pixel.
+        // Card: (16,100,508,340). Items: 2 cols × 3 rows + 2 buttons.
+        constexpr int16_t kMCX = 16, kMCY = 100, kMCW = 508, kMCH = 360;
+        constexpr int16_t kIX = 40, kIX2 = 280, kIW = 220, kIH = 64;
+        constexpr int16_t kRY0 = 184, kRY1 = 258, kRY2 = 332;
+        constexpr int16_t kBtY = 400, kBtW = 200, kBtH = 48;
+        constexpr int16_t kBtX0 = 60, kBtX1 = 280;
+
+        auto inRect = [](int16_t tx, int16_t ty, int16_t rx, int16_t ry, int16_t rw, int16_t rh) -> bool {
+            return tx >= rx && tx < rx + rw && ty >= ry && ty < ry + rh;
+        };
+
+        // Tap outside menu card → close menu and continue reading
+        if (x < kMCX || x >= kMCX + kMCW || y < kMCY || y >= kMCY + kMCH) return closeReaderMenu();
+
+        // Row 0: 抗锯齿 | 翻页刷新
+        if (inRect(x, y, kIX,  kRY0, kIW, kIH)) return toggleAntiAlias();
+        if (inRect(x, y, kIX2, kRY0, kIW, kIH)) return cycleRefreshStrategy();
+        // Row 1: 下划线 | 排版优化
+        if (inRect(x, y, kIX,  kRY1, kIW, kIH)) return toggleUnderline();
+        if (inRect(x, y, kIX2, kRY1, kIW, kIH)) return cycleLayoutPreset();
+        // Row 2: 翻页动画 | 页边距
+        if (inRect(x, y, kIX,  kRY2, kIW, kIH)) return togglePageTurnEffect();
+        if (inRect(x, y, kIX2, kRY2, kIW, kIH)) return cyclePageMargin();
+        // Bottom buttons: 目录 | 返回
+        if (inRect(x, y, kBtX0, kBtY, kBtW, kBtH)) {
+            showingReaderMenu_ = false;
+            showingToc_ = true;
+            renderTocPage(tocPage_);
+            return true;
+        }
+        if (inRect(x, y, kBtX1, kBtY, kBtW, kBtH)) return closeReaderMenu();
+        // Tap inside card but outside items → also close
+        return closeReaderMenu();
     }
     if (showingBookEntry_) {
         if (x >= kEntryButtonX && x < kEntryButtonX + kEntryButtonW && y >= kEntryContinueY && y < kEntryContinueY + kEntryButtonH) return continueReading();
@@ -1414,7 +1433,6 @@ bool ReaderBookService::handleTap(int16_t x, int16_t y) {
             return true;
         }
         if (x >= kEntryButtonX && x < kEntryButtonX + kEntryButtonW && y >= kEntryRestartY && y < kEntryRestartY + kEntryButtonH) return restartReading();
-        if (x >= kEntryButtonX && x < kEntryButtonX + kEntryButtonW && y >= kEntryClearPagesY && y < kEntryClearPagesY + kEntryButtonH) return clearPageCache();
         if (x >= kEntryButtonX && x < kEntryButtonX + kEntryButtonW && y >= kEntryRebuildTocY && y < kEntryRebuildTocY + kEntryButtonH) return rebuildTocCache();
         return false;
     }

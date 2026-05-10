@@ -62,7 +62,6 @@ private:
     static constexpr int16_t kEntryContinueY = 498;
     static constexpr int16_t kEntryTocY = 570;
     static constexpr int16_t kEntryRestartY = 642;
-    static constexpr int16_t kEntryClearPagesY = 714;
     static constexpr int16_t kEntryRebuildTocY = 786;
     static constexpr int16_t kEntryPageTurnY = 858;
     static constexpr int kMaxChapterPages = 512;
@@ -137,7 +136,7 @@ private:
     bool toggleUnderline();
     bool togglePageTurnEffect();
     bool cycleLayoutPreset();
-    bool clearPageCache();
+    bool cyclePageMargin();
     bool rebuildTocCache();
     uint32_t chapterContentStart(int index) const;
     uint32_t chapterEndOffset(int index);

@@ -191,6 +191,7 @@ void StateMachine::handle(const Message& message) {
                 case UiAction::TabLibrary:
                 case UiAction::TabTransfer:
                 case UiAction::TabSettings:
+                    g_uiRenderer.hideReaderSettings();
                     state_ = tabStateForAction(action);
                     renderState(state_);
                     g_displayService.enqueueFull(false, 100);
@@ -211,6 +212,7 @@ void StateMachine::handle(const Message& message) {
                     break;
 
                 case UiAction::OpenSettings:
+                    g_uiRenderer.hideReaderSettings();
                     state_ = SystemState::Settings;
                     renderState(state_);
                     g_displayService.enqueueFull(false, 100);
@@ -236,6 +238,7 @@ void StateMachine::handle(const Message& message) {
                     break;
 
                 case UiAction::CancelShutdown:
+                    g_uiRenderer.hideReaderSettings();
                     state_ = SystemState::Settings;
                     renderState(state_);
                     g_displayService.enqueueFull(false, 100);
@@ -301,6 +304,22 @@ void StateMachine::handle(const Message& message) {
                     }
                     state_ = SystemState::Transfer;
                     renderState(state_);
+                    g_displayService.enqueueFull(false, 100);
+                    suppressAfterTransition();
+                    break;
+
+                case UiAction::OpenReaderSettings:
+                    g_uiRenderer.showReaderSettings();
+                    state_ = SystemState::Settings;
+                    g_uiRenderer.renderSettings();
+                    g_displayService.enqueueFull(false, 100);
+                    suppressAfterTransition();
+                    break;
+
+                case UiAction::BackToSettings:
+                    g_uiRenderer.hideReaderSettings();
+                    state_ = SystemState::Settings;
+                    g_uiRenderer.renderSettings();
                     g_displayService.enqueueFull(false, 100);
                     suppressAfterTransition();
                     break;

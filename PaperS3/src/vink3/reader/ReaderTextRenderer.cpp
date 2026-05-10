@@ -109,6 +109,7 @@ void ReaderTextRenderer::applyLayoutPresetToSettings() {
             on(settings_.formatting1, 3); // NewPage
             on(settings_.formatting1, 4); // DynamicLineHeight
             on(settings_.renderOpt1, 1);  // AntiAlias
+            on(settings_.renderOpt1, 3);  // PageTurnEffect
             level(settings_.spacing, 0, 0);
             level(settings_.spacing, 1, 0);
             level(settings_.spacing, 2, 0);
@@ -128,6 +129,7 @@ void ReaderTextRenderer::applyLayoutPresetToSettings() {
             on(settings_.formatting1, 3); // NewPage
             on(settings_.formatting1, 4); // DynamicLineHeight
             on(settings_.renderOpt1, 1);  // AntiAlias
+            on(settings_.renderOpt1, 3);  // PageTurnEffect
             level(settings_.spacing, 0, 1);
             level(settings_.spacing, 1, 1);
             level(settings_.spacing, 2, 1);
@@ -842,8 +844,12 @@ void ReaderTextRenderer::drawJustifiedText(int16_t x, int16_t y, const char* tex
 void ReaderTextRenderer::formatReaderTime(char* out, size_t outSize) const {
     if (!out || outSize == 0) return;
     m5::rtc_time_t rtc;
-    M5.Rtc.getTime(&rtc);
-    snprintf(out, outSize, "%02u:%02u", rtc.hours, rtc.minutes);
+    if (M5.Rtc.isEnabled() && M5.Rtc.getTime(&rtc) &&
+        rtc.hours >= 0 && rtc.hours < 24 && rtc.minutes >= 0 && rtc.minutes < 60) {
+        snprintf(out, outSize, "%02d:%02d", rtc.hours, rtc.minutes);
+        return;
+    }
+    snprintf(out, outSize, "--:--");
 }
 
 void ReaderTextRenderer::drawReadingChrome(const char* title, uint16_t progressPermille, const ReaderRenderOptions& options, uint16_t color) {
@@ -853,31 +859,43 @@ void ReaderTextRenderer::drawReadingChrome(const char* title, uint16_t progressP
 
     if (g_cjkText.ready()) {
         char timeText[12];
-        char titleText[96];
+        char battText[12];
         char pctText[12];
-        formatReaderTime(timeText, sizeof(timeText));
-        const int16_t timeW = g_cjkText.textWidth(timeText);
-        g_cjkText.fitTextToWidth(title ? title : "未命名书籍", titleText, sizeof(titleText), right - left - timeW - 16);
-        g_cjkText.drawText(left, 18, titleText, mid);
-        g_cjkText.drawRight(right, 18, timeText, mid);
 
+        // ── Header: time left, battery right (matches tab page status bar) ──
+        formatReaderTime(timeText, sizeof(timeText));
+        g_cjkText.drawText(left, 18, timeText, mid);
+
+        {
+            int level = M5.Power.getBatteryLevel();
+            if (level > 0 && level <= 100) {
+                snprintf(battText, sizeof(battText), "%d%%", level);
+            } else {
+                float v = M5.Power.getBatteryVoltage();
+                if (v > 0.1f) snprintf(battText, sizeof(battText), "%.2fV", v);
+                else snprintf(battText, sizeof(battText), "--%%");
+            }
+        }
+        g_cjkText.drawRight(right, 18, battText, mid);
+
+        // ── Footer: chapter name left, progress % right ──
         const uint16_t permille = min<uint16_t>(progressPermille, 1000);
         snprintf(pctText, sizeof(pctText), "%u.%u%%", permille / 10, permille % 10);
-        const int16_t pctW = g_cjkText.textWidth(pctText);
-        const int16_t barX = left;
-        const int16_t barY = kPaperS3Height - 26;
-        const int16_t barW = max<int16_t>(20, right - left - pctW - 14);
-        constexpr int16_t barH = 5;
-        canvas_->drawRoundRect(barX, barY, barW, barH, 2, mid);
-        const int16_t fillW = static_cast<int16_t>((static_cast<uint32_t>(barW - 2) * permille) / 1000);
-        if (fillW > 0) canvas_->fillRoundRect(barX + 1, barY + 1, fillW, barH - 2, 1, mid);
         g_cjkText.drawRight(right, kPaperS3Height - 38, pctText, mid);
+
+        {
+            char nameText[96];
+            const int16_t nameMaxW = right - left - g_cjkText.textWidth(pctText) - 16;
+            g_cjkText.fitTextToWidth(title ? title : "", nameText, sizeof(nameText), nameMaxW);
+            g_cjkText.drawText(left, kPaperS3Height - 38, nameText, mid);
+        }
     } else {
         char pctText[12];
         const uint16_t permille = min<uint16_t>(progressPermille, 1000);
         snprintf(pctText, sizeof(pctText), "%u.%u%%", permille / 10, permille % 10);
-        drawText(left, 18, title ? title : "未命名书籍", mid);
+        drawText(left, 18, "--:--", mid);
         drawText(right - textWidth(pctText), kPaperS3Height - 38, pctText, mid);
+        if (title && title[0]) drawText(left, kPaperS3Height - 38, title, mid);
     }
 
     canvas_->drawFastHLine(left, kReaderHeaderDividerY, right - left, mid);

@@ -27,6 +27,8 @@ enum class UiAction : uint8_t {
     ToggleReaderPageTurnEffect,
     ToggleWifiAp,
     BackHome,
+    OpenReaderSettings,
+    BackToSettings,
 };
 
 class VinkUiRenderer {
@@ -45,6 +47,14 @@ public:
                             const char* const* actions, int actionCount);
     void renderTransfer();
     void renderSettings();
+    void renderReaderSettings();  // sub-page: all reader options
+    bool isShowingReaderSettings() const { return showReaderSettings_; }
+    void showReaderSettings();
+    void hideReaderSettings();
+    void renderReaderMenuOverlay(const char* bookTitle, const char* chapterTitle,
+                                 const char* refreshLabel, bool antiAliasOn,
+                                 const char* layoutLabel, bool underlineOn,
+                                 bool pageTurnEffectOn);
     void renderDiagnostics(const Message& lastTouch, const char* eventName);
     void renderShutdownConfirm();
     void renderShutdown(const char* reason);
@@ -58,11 +68,15 @@ private:
     void drawTabs(SystemState active);
     void drawCard(int16_t x, int16_t y, int16_t w, int16_t h, const char* title, const char* body);
     void drawButton(int16_t x, int16_t y, int16_t w, int16_t h, const char* label, bool primary = false);
+    void drawThickBorder(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t color);
     void drawSettingsGroup(int16_t x, int16_t y, const char* title, const char* const* rowLabels, const char* const* rowValues, int rowCount);
     void drawSettingsRow(int16_t rowX, int16_t y, int16_t rowW, const char* label, const char* value);
+    void drawMenuItem(int16_t x, int16_t y, int16_t w, int16_t h,
+                      const char* label, bool isToggle, bool isOn, const char* altText);
     UiAction hitTestTabs(int16_t x, int16_t y) const;
 
     M5Canvas* canvas_ = nullptr;
+    bool showReaderSettings_ = false;
 };
 
 extern VinkUiRenderer g_uiRenderer;
