@@ -5,6 +5,21 @@
   "description": "面向 M5Stack PaperS3 的 Vink 电子书阅读固件。",
   "releases": [
     {
+      "version": "v0.4.9",
+      "name": "Vink-PaperS3 v0.4.9",
+      "summary": "书架持久化、阅读TAB/书架TAB重构、快速目录扫描、排版优化三层预设。",
+      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.9",
+      "changelog": "## Vink-PaperS3 v0.4.9\n\n### 书架持久化\n- 新增 `.vink-shelf` 文件：最多 36 本书，按最后打开时间排序，哈希去重。\n- 每次打开书籍自动加入书架；数据在 SD 卡持久化，重启不丢失。\n- 空书架首次使用显示引导入口「浏览书籍文件」。\n\n### 阅读 TAB 重构\n- 顶部大书卡：显示最近阅读书籍封面区、书名、进度百分比。\n- 进度按 `当前章 / 总章数 × 100%` 显示；无 TOC 缓存时只显示章号。\n- 三按钮：继续（上次位置）、目录（直接进章节目录）、从头开始（第一章）。\n- 无最近阅读时只显示「打开」按钮。\n- 底部 3 张最近书卡，排除当前最近书。\n- 移除正文设置入口（已迁至设置 TAB 子页）。\n\n### 书架 TAB 重构\n- 封面网格：3×2 布局，每页 6 本，支持左右滑动翻页。\n- 顶部「浏览书籍文件」入口：进入 SD 文件浏览器。\n- 从浏览器打开书后自动返回书架网格。\n\n### 交互变更\n- 取消 TAB 页左右滑动切换，每个页面独立翻页。\n- 书架 TAB 滑动只翻书架页，阅读 TAB 滑动无操作。\n\n### 快速目录扫描\n- ChapterDetector 重构：行首特征预判，跳过纯空格/引号/括号行。\n- 大书首次目录生成速度显著提升。\n\n### IT8951 翻页恢复\n- DisplayService 简化为 IT8951 原生 DU4 sweep。\n\n### 排版优化三层\n- 三层预设（原始/优化/紧凑）正确生效。\n\n### 触摸增强\n- InputService 触摸精度和响应改进。\n\n### 开机基线\n- main.cpp、VinkRuntime.cpp 零改动。\n- 纯 UI/数据层重构，不影响启动和硬件初始化路径。\n",
+      "assets": {
+        "full": {
+          "name": "Vink-PaperS3-v0.4.9-full-16MB.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.9/Vink-PaperS3-v0.4.9-full-16MB.bin",
+          "size": 16777216,
+          "flashOffset": 0
+        }
+      }
+    },
+    {
       "version": "v0.4.8",
       "name": "Vink-PaperS3 v0.4.8",
       "summary": "UI 扁平化、设置多级子页、Tab 留白去贴边、阅读菜单浮层、删除清除分页缓存。",

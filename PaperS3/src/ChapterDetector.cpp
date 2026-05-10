@@ -45,82 +45,152 @@ int ChapterDetector::detect(File& file, ChapterDetectResult* results, int maxRes
                       fileSize, maxResults);
     }
 
+    const uint32_t startedMs = millis();
     int count = 0;
     int lastChapterOffset = 0;
     int lastChapterNumber = 0;
-    int consecutiveEmptyLines = 0;
     uint32_t linesScanned = 0;
+    uint32_t candidatesScanned = 0;
+    uint32_t longLinesSkipped = 0;
 
+    auto isEmptyLine = [](const char* line, int lineLen) -> bool {
+        for (int i = 0; i < lineLen; i++) {
+            if (line[i] > ' ') return false;
+        }
+        return true;
+    };
+
+    auto acceptCandidate = [&](const char* line, int lineLen, uint32_t lineStartOffset) {
+        if (lineLen <= 0 || isEmptyLine(line, lineLen)) return;
+        candidatesScanned++;
+
+        ChapterDetectResult result;
+        if (!matchLine(line, lineLen, result)) return;
+
+        result.score = scoreLine(line, lineLen, result.score,
+                                 result.chapterNumber, lineStartOffset, fileSize,
+                                 lastChapterOffset);
+        if (result.score < 50) return;
+
+        bool accept = true;
+        const bool volumeLike = result.title.indexOf("卷") >= 0 ||
+                                result.title.indexOf("部") >= 0 ||
+                                result.title.indexOf("集") >= 0 ||
+                                result.title.indexOf("篇") >= 0;
+        if (count > 0 && result.chapterNumber > 0 && lastChapterNumber > 0 && !volumeLike) {
+            if (result.chapterNumber == lastChapterNumber) {
+                accept = false;  // Some web TXT dumps duplicate a heading as "...免费阅读".
+            } else if (result.chapterNumber > lastChapterNumber + 50) {
+                accept = false;  // Likely an OCR/ad/header typo inside a continuous novel.
+            } else if (result.chapterNumber < lastChapterNumber && lastChapterNumber - result.chapterNumber < 50) {
+                accept = false;  // Avoid short backwards jumps caused by duplicated/mislabeled headers.
+            }
+        }
+        if (!accept) {
+            if (_debug) {
+                Serial.printf("[ChapterDetector] Skipped outlier: number=%d, last=%d, title=%s\n",
+                              result.chapterNumber, lastChapterNumber, result.title.c_str());
+            }
+            return;
+        }
+
+        result.charOffset = lineStartOffset;
+        results[count] = result;
+        lastChapterOffset = static_cast<int>(lineStartOffset);
+        lastChapterNumber = result.chapterNumber;
+        count++;
+
+        if (_debug) {
+            Serial.printf("[ChapterDetector] Found #%d: score=%d, offset=%d, title=%s\n",
+                          count, result.score, result.charOffset, result.title.c_str());
+        }
+    };
+
+    // Fast standalone-line scanner. Most TXT chapters are a short heading on a
+    // physical line by itself. Read large chunks from SD, then reject normal
+    // prose lines from their first few meaningful bytes while scanning. That
+    // avoids copying whole paragraphs and avoids running matchers on every line.
+    auto prefixLooksLikeCandidate = [&](const char* line, int lineLen) -> bool {
+        const char* p = line;
+        int n = lineLen;
+        while (n > 0 && (*p == ' ' || *p == '\t' || *p == '\r')) { p++; n--; }
+        while (n >= 3 &&
+               static_cast<uint8_t>(p[0]) == 0xE3 &&
+               static_cast<uint8_t>(p[1]) == 0x80 &&
+               static_cast<uint8_t>(p[2]) == 0x80) { // U+3000 ideographic space
+            p += 3;
+            n -= 3;
+        }
+        return looksLikeCandidateLine(p, n);
+    };
+
+    constexpr int kPrefixProbeBytes = 24;
     file.seek(0);
+    char chunk[4096];
+    uint32_t nextLineStartOffset = 0;
+    int lineLen = 0;
+    bool lineTooLong = false;
+    bool lineCandidate = false;
+    bool lineRejected = false;
 
     while (file.available() && count < maxResults) {
-        uint32_t lineStartOffset = file.position();
-        int lineLen = readLine(file, _lineBuffer, LINE_BUF_SIZE);
-        if (lineLen <= 0) {
-            if (file.available()) {
-                consecutiveEmptyLines++;
+        const uint32_t chunkStartOffset = file.position();
+        const int n = file.read(reinterpret_cast<uint8_t*>(chunk), sizeof(chunk));
+        if (n <= 0) break;
+
+        for (int i = 0; i < n && count < maxResults; ++i) {
+            const char c = chunk[i];
+            const uint32_t byteOffset = chunkStartOffset + static_cast<uint32_t>(i);
+            if (c == '\n') {
+                if (lineTooLong) {
+                    longLinesSkipped++;
+                } else if (!lineRejected) {
+                    while (lineLen > 0 && _lineBuffer[lineLen - 1] == '\r') lineLen--;
+                    _lineBuffer[lineLen] = '\0';
+                    acceptCandidate(_lineBuffer, lineLen, nextLineStartOffset);
+                }
+                lineLen = 0;
+                lineTooLong = false;
+                lineCandidate = false;
+                lineRejected = false;
+                nextLineStartOffset = byteOffset + 1;
+                if ((++linesScanned & 0xFF) == 0) yield();
                 continue;
             }
-            break;
-        }
 
-        // 跳过空行
-        bool isEmpty = true;
-        for (int i = 0; i < lineLen; i++) {
-            if (_lineBuffer[i] > ' ') {
-                isEmpty = false;
-                break;
+            if (lineTooLong || lineRejected) continue;
+            if (lineLen < LINE_BUF_SIZE - 1) {
+                _lineBuffer[lineLen++] = c;
+            } else {
+                lineTooLong = true;
+                lineLen = 0;
+                continue;
             }
-        }
 
-        if (isEmpty) {
-            consecutiveEmptyLines++;
-            continue;
-        }
-
-        // 尝试匹配章节
-        ChapterDetectResult result;
-        if (matchLine(_lineBuffer, lineLen, result)) {
-            // 启发式打分
-            result.score = scoreLine(_lineBuffer, lineLen, result.score,
-                                     result.chapterNumber, lineStartOffset, fileSize,
-                                     lastChapterOffset);
-
-            if (result.score >= 50) {  // 只保留高置信度结果
-                bool accept = true;
-                const bool volumeLike = result.title.indexOf("卷") >= 0 ||
-                                        result.title.indexOf("部") >= 0 ||
-                                        result.title.indexOf("集") >= 0 ||
-                                        result.title.indexOf("篇") >= 0;
-                if (count > 0 && result.chapterNumber > 0 && lastChapterNumber > 0 && !volumeLike) {
-                    if (result.chapterNumber == lastChapterNumber) {
-                        accept = false;  // Some web TXT dumps duplicate a heading as "...免费阅读".
-                    } else if (result.chapterNumber > lastChapterNumber + 50) {
-                        accept = false;  // Likely an OCR/ad/header typo inside a continuous novel.
-                    } else if (result.chapterNumber < lastChapterNumber && lastChapterNumber - result.chapterNumber < 50) {
-                        accept = false;  // Avoid short backwards jumps caused by duplicated/mislabeled headers.
-                    }
-                }
-                if (accept) {
-                    result.charOffset = lineStartOffset;
-                    results[count] = result;
-                    lastChapterOffset = static_cast<int>(lineStartOffset);
-                    lastChapterNumber = result.chapterNumber;
-                    count++;
-
-                    if (_debug) {
-                        Serial.printf("[ChapterDetector] Found #%d: score=%d, offset=%d, title=%s\n",
-                                      count, result.score, result.charOffset, result.title.c_str());
-                    }
-                } else if (_debug) {
-                    Serial.printf("[ChapterDetector] Skipped outlier: number=%d, last=%d, title=%s\n",
-                                  result.chapterNumber, lastChapterNumber, result.title.c_str());
+            // If the line is already long enough to identify its kind and it
+            // does not look like a chapter heading, drop the rest immediately.
+            // Short lines are still checked at newline so brief chapter titles
+            // such as “序”/“楔子”/“1.” are not lost.
+            if (!lineCandidate && lineLen >= kPrefixProbeBytes) {
+                _lineBuffer[lineLen] = '\0';
+                if (prefixLooksLikeCandidate(_lineBuffer, lineLen)) {
+                    lineCandidate = true;
+                } else {
+                    lineRejected = true;
+                    lineLen = 0;
                 }
             }
         }
+    }
 
-        consecutiveEmptyLines = 0;
-        if ((++linesScanned & 0x3F) == 0) yield();
+    if (count < maxResults && (lineLen > 0 || lineTooLong)) {
+        if (lineTooLong) {
+            longLinesSkipped++;
+        } else if (!lineRejected) {
+            while (lineLen > 0 && _lineBuffer[lineLen - 1] == '\r') lineLen--;
+            _lineBuffer[lineLen] = '\0';
+            acceptCandidate(_lineBuffer, lineLen, nextLineStartOffset);
+        }
     }
 
     // ── Post-processing: combined hardcoded + inference strategy ─────
@@ -250,9 +320,12 @@ int ChapterDetector::detect(File& file, ChapterDetectResult* results, int maxRes
         }
     }
 
-    if (_debug) {
-        Serial.printf("[ChapterDetector] Detection complete: %d chapters found\n", count);
-    }
+    Serial.printf("[ChapterDetector] Detection complete: %d chapters, %lu lines, %lu candidates, %lu long skipped, %lu ms\n",
+                  count,
+                  static_cast<unsigned long>(linesScanned),
+                  static_cast<unsigned long>(candidatesScanned),
+                  static_cast<unsigned long>(longLinesSkipped),
+                  static_cast<unsigned long>(millis() - startedMs));
 
     return count;
 }

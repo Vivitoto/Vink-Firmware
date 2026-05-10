@@ -95,7 +95,7 @@ void renderState(SystemState state) {
             g_readerBook.renderCurrent();
             break;
         case SystemState::Library:
-            g_readerBook.renderLibraryPage();
+            g_readerBook.renderShelfGrid();
             break;
         case SystemState::Transfer:
             g_uiRenderer.renderTransfer();
@@ -326,32 +326,63 @@ void StateMachine::handle(const Message& message) {
 
                 case UiAction::OpenCurrentBook:
                 {
-                    const bool fromLibrary = state_ == SystemState::Library;
-                    if (fromLibrary) {
-                        if (!g_readerBook.handleLibraryTap(message.touch.x, message.touch.y)) break;
-                        if (g_readerBook.lastLibraryTapOpenedBook()) {
-                            state_ = SystemState::ReaderMenu;
-                            g_readerBook.renderCurrent();
-                        }
-                    } else {
+                    state_ = SystemState::ReaderMenu;
+                    g_readerBook.renderOpenOrHelp();
+                    g_displayService.enqueueFull(false, 100);
+                    suppressAfterTransition();
+                    break;
+                }
+
+                case UiAction::OpenCurrentBookToc:
+                {
+                    if (!g_readerBook.isOpen()) g_readerBook.openLastBook();
+                    if (g_readerBook.isOpen()) {
+                        g_readerBook.showTocForCurrentBook();
                         state_ = SystemState::ReaderMenu;
-                        g_readerBook.renderOpenOrHelp();
+                        g_readerBook.renderCurrent();
                     }
                     g_displayService.enqueueFull(false, 100);
                     suppressAfterTransition();
                     break;
                 }
 
+                case UiAction::RestartCurrentBook:
+                {
+                    if (g_readerBook.isOpen()) {
+                        g_readerBook.restartReading();
+                    } else {
+                        g_readerBook.openLastBook();
+                    }
+                    state_ = SystemState::ReaderMenu;
+                    g_readerBook.renderCurrent();
+                    g_displayService.enqueueFull(false, 100);
+                    suppressAfterTransition();
+                    break;
+                }
+
                 case UiAction::None:
-                    if (state_ == SystemState::ReaderMenu && g_readerBook.handleTap(message.touch.x, message.touch.y)) {
-                        if (g_readerBook.consumeLastTapPageTurn()) {
+                    if (state_ == SystemState::Reader || state_ == SystemState::Home) {
+                        if (g_readerBook.handleReaderHomeTap(message.touch.x, message.touch.y)) {
+                            if (g_readerBook.lastLibraryTapOpenedBook()) {
+                                state_ = SystemState::ReaderMenu;
+                                g_readerBook.renderCurrent();
+                            }
+                            g_displayService.enqueueFull(false, 100);
+                        }
+                    } else if (state_ == SystemState::ReaderMenu && g_readerBook.handleTap(message.touch.x, message.touch.y)) {
+                        if (g_readerBook.consumeLastTapBackHome()) {
+                            state_ = SystemState::Reader;
+                            renderState(state_);
+                            g_displayService.enqueueFull(false, 100);
+                            suppressAfterTransition();
+                        } else if (g_readerBook.consumeLastTapPageTurn()) {
                             enqueueReaderAwareRefresh(g_readerBook.consumeLastTapNextPage()
                                 ? DisplayEffect::VerticalShutter
                                 : DisplayEffect::HorizontalShutter);
                         } else {
                             g_displayService.enqueueFull(false, 100);
                         }
-                    } else if (state_ == SystemState::Library && g_readerBook.handleLibraryTap(message.touch.x, message.touch.y)) {
+                    } else if (state_ == SystemState::Library && g_readerBook.handleShelfTap(message.touch.x, message.touch.y)) {
                         if (g_readerBook.lastLibraryTapOpenedBook()) {
                             state_ = SystemState::ReaderMenu;
                             g_readerBook.renderCurrent();
@@ -377,15 +408,11 @@ void StateMachine::handle(const Message& message) {
                 if (g_readerBook.nextPage()) enqueueReaderAwareRefresh(DisplayEffect::VerticalShutter);
                 break;
             }
+            // Library: swipe left = next shelf page (no tab switching).
             if (state_ == SystemState::Library) {
-                if (g_readerBook.nextLibraryPage()) g_displayService.enqueueFull(false, 100);
-                else { state_ = SystemState::Transfer; renderState(state_); g_displayService.enqueueFull(false, 100); }
+                if (g_readerBook.nextShelfPage()) g_displayService.enqueueFull(false, 100);
                 break;
             }
-            if (state_ == SystemState::Reader) state_ = SystemState::Library;
-            else if (state_ == SystemState::Transfer) state_ = SystemState::Settings;
-            renderState(state_);
-            g_displayService.enqueueFull(false, 100);
             break;
 
         case MessageType::SwipeRight:
@@ -398,15 +425,11 @@ void StateMachine::handle(const Message& message) {
                 if (g_readerBook.prevPage()) enqueueReaderAwareRefresh(DisplayEffect::HorizontalShutter);
                 break;
             }
+            // Library: swipe right = previous shelf page (no tab switching).
             if (state_ == SystemState::Library) {
-                if (g_readerBook.prevLibraryPage()) g_displayService.enqueueFull(false, 100);
-                else { state_ = SystemState::Reader; renderState(state_); g_displayService.enqueueFull(false, 100); }
+                if (g_readerBook.prevShelfPage()) g_displayService.enqueueFull(false, 100);
                 break;
             }
-            if (state_ == SystemState::Settings) state_ = SystemState::Transfer;
-            else if (state_ == SystemState::Transfer) state_ = SystemState::Library;
-            renderState(state_);
-            g_displayService.enqueueFull(false, 100);
             break;
 
         case MessageType::SwipeUp:
@@ -417,7 +440,7 @@ void StateMachine::handle(const Message& message) {
             }
             if (state_ == SystemState::ReaderMenu && g_readerBook.nextPage()) {
                 enqueueReaderAwareRefresh(DisplayEffect::VerticalShutter);
-            } else if (state_ == SystemState::Library && g_readerBook.nextLibraryPage()) {
+            } else if (state_ == SystemState::Library && g_readerBook.nextShelfPage()) {
                 g_displayService.enqueueFull(false, 100);
             }
             break;
@@ -430,7 +453,7 @@ void StateMachine::handle(const Message& message) {
             }
             if (state_ == SystemState::ReaderMenu && g_readerBook.prevPage()) {
                 enqueueReaderAwareRefresh(DisplayEffect::HorizontalShutter);
-            } else if (state_ == SystemState::Library && g_readerBook.prevLibraryPage()) {
+            } else if (state_ == SystemState::Library && g_readerBook.prevShelfPage()) {
                 g_displayService.enqueueFull(false, 100);
             }
             break;

@@ -109,7 +109,7 @@ void ReaderTextRenderer::applyLayoutPresetToSettings() {
             on(settings_.formatting1, 3); // NewPage
             on(settings_.formatting1, 4); // DynamicLineHeight
             on(settings_.renderOpt1, 1);  // AntiAlias
-            on(settings_.renderOpt1, 3);  // PageTurnEffect
+            on(settings_.renderOpt1, 3);  // PageTurnEffect (native IT8951 DU4 sweep)
             level(settings_.spacing, 0, 0);
             level(settings_.spacing, 1, 0);
             level(settings_.spacing, 2, 0);
@@ -129,7 +129,7 @@ void ReaderTextRenderer::applyLayoutPresetToSettings() {
             on(settings_.formatting1, 3); // NewPage
             on(settings_.formatting1, 4); // DynamicLineHeight
             on(settings_.renderOpt1, 1);  // AntiAlias
-            on(settings_.renderOpt1, 3);  // PageTurnEffect
+            on(settings_.renderOpt1, 3);  // PageTurnEffect (native IT8951 DU4 sweep)
             level(settings_.spacing, 0, 1);
             level(settings_.spacing, 1, 1);
             level(settings_.spacing, 2, 1);
@@ -356,11 +356,27 @@ ReaderRenderOptions ReaderTextRenderer::currentOptions() const {
     opt.firstLineIndentPx = opt.indentFirstLine ? static_cast<int16_t>(fontSize() * webIndentFirstLine_) : 0;
     opt.justify = webJustify_;
 
-    // Original comparison mode intentionally disables the Vink formatting
-    // transforms but still keeps Vink's safe text box.
+    // Apply the quick in-reader layout preset after WebUI/local numeric values
+    // so the menu's “排版优化” switch has an immediately visible effect.
+    // WebUI values remain the base; presets are a reading-time transform layer.
     if (layoutPreset_ == 0) {
+        // 原始：disable Vink formatting transforms for comparison.
+        opt.indentFirstLine = false;
+        opt.compactBlankLines = false;
+        opt.dynamicLineHeight = false;
+        opt.breakLineOpt = false;
+        opt.justify = false;
+        opt.firstLineIndentPx = 0;
         opt.letterGap = 0;
         opt.underlineOffset = 2;
+    } else if (layoutPreset_ == 2) {
+        // 紧凑：visibly tighter safe text box and line spacing.
+        opt.marginLeft = max<int16_t>(12, opt.marginLeft - 8);
+        opt.marginRight = max<int16_t>(12, opt.marginRight - 8);
+        opt.marginTop = max<int16_t>(kReaderBodyTopMin, opt.marginTop - 6);
+        opt.marginBottom = max<int16_t>(kReaderFooterReserve, opt.marginBottom - 6);
+        opt.lineGap = max<int16_t>(2, opt.lineGap - 3);
+        opt.paragraphGap = max<int16_t>(0, opt.paragraphGap - 2);
     }
     return opt;
 }

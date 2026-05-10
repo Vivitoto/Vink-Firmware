@@ -12,6 +12,8 @@ enum class UiAction : uint8_t {
     TabTransfer,
     TabSettings,
     OpenCurrentBook,
+    RestartCurrentBook,
+    OpenCurrentBookToc,
     OpenLibrary,
     OpenTransfer,
     OpenSettings,
@@ -37,7 +39,15 @@ public:
     void renderBoot();
     void renderHome(SystemState state);
     void renderReaderHome(const char* bookTitle = nullptr, const char* bookPath = nullptr,
-                          const char* progressText = nullptr, bool hasLastBook = false);
+                          const char* progressText = nullptr, bool hasLastBook = false,
+                          const char* const* recentTitles = nullptr,
+                          const char* const* recentSubs = nullptr,
+                          int recentCount = 0);
+    void renderShelfGrid(const char* const* titles, const char* const* subs,
+                         int bookCount, uint16_t page, uint16_t totalPages,
+                         int cols, int rows, bool showBrowserEntry);
+    void drawBookCard(int16_t x, int16_t y, int16_t w, int16_t h,
+                      const char* title, const char* subtitle, bool isEmpty);
     void renderLibrary();
     void renderUiListPage(SystemState active, const char* title, const char* summary,
                           const char* const* rows, int rowCount, int16_t rowY, int16_t rowH,
