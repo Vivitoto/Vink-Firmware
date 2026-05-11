@@ -1207,6 +1207,7 @@ bool ReaderBookService::handleShelfTap(int16_t x, int16_t y) {
     if (shelfShowingBrowser_) return handleLibraryTap(x, y);
     // "浏览书籍文件" entry: top card at kShelfBrowserEntryY
     if (x >= kUiMarginX && x < kUiMarginX + kUiContentW && y >= kShelfBrowserEntryY && y < kShelfBrowserEntryY + kShelfBrowserEntryH) {
+        lastLibraryTapOpenedBook_ = false;
         scanBooks();
         shelfShowingBrowser_ = true;
         bookPage_ = 0;
@@ -1361,6 +1362,7 @@ bool ReaderBookService::handleLibraryTap(int16_t x, int16_t y) {
 
     // Check tap on summary/back-button area (y: summary area, ~158-204)
     if (shelfShowingBrowser_ && y >= kShelfBrowserEntryY && y < kListFirstRowY) {
+        lastLibraryTapOpenedBook_ = false;
         shelfShowingBrowser_ = false;
         strlcpy(currentLibraryDir_, BOOKS_DIR, sizeof(currentLibraryDir_));
         bookPage_ = 0;
@@ -1378,6 +1380,7 @@ bool ReaderBookService::handleLibraryTap(int16_t x, int16_t y) {
     if (bookFlags_[index] & kBookIsDirectory) {
         // In shelf browser mode, tapping ".." at root returns to shelf grid.
         if (shelfShowingBrowser_ && strcmp(bookPaths_[index], BOOKS_DIR) == 0) {
+            lastLibraryTapOpenedBook_ = false;
             shelfShowingBrowser_ = false;
             renderShelfGrid(shelfPage_);
             return true;
@@ -1489,10 +1492,9 @@ void ReaderBookService::renderBookEntryPage() {
     snprintf(lineTitle, sizeof(lineTitle), "书籍:%s", title_);
     snprintf(lineSize, sizeof(lineSize), "大小:%s", sizeText);
     snprintf(lineToc, sizeof(lineToc), "目录:%d 条", tocCount_);
-    snprintf(lineCache, sizeof(lineCache), "状态:进度%s · 目录%s · 分页%s",
+    snprintf(lineCache, sizeof(lineCache), "状态:进度%s · 目录%s",
              (cacheFlags & kBookHasProgress) ? "已存" : "无",
-             (cacheFlags & kBookHasTocCache) ? "已缓存" : "未缓存",
-             (cacheFlags & kBookHasPageCache) ? "有旧缓存" : "无旧缓存");
+             (cacheFlags & kBookHasTocCache) ? "已缓存" : "未缓存");
     snprintf(lineProgress, sizeof(lineProgress), "进度:%s", progress);
     const char* info[] = {lineTitle, lineSize, lineToc, lineCache, lineProgress};
     const char* actions[] = {"继续阅读", "目录", "从头开始", "重新生成目录"};
@@ -1839,12 +1841,8 @@ void ReaderBookService::renderTocPage(uint16_t page) {
         char titleBuf[128];
         // Fit visually with the UI font. Do not blindly byte-truncate titles.
         g_cjkText.fitTextToWidth(toc_[i].title.c_str(), titleBuf, sizeof(titleBuf), 430);
-        // Multi-level indent: level-0 (卷/部) flush left; level-1 (章/回) 2-space indent;
-        // level-2 (节) 4-space indent.
-        const int8_t lv = toc_[i].level;
-        if (lv == 1) snprintf(rows[rowCount], sizeof(rows[rowCount]), "    %s", titleBuf);
-        else if (lv == 2) snprintf(rows[rowCount], sizeof(rows[rowCount]), "        %s", titleBuf);
-        else snprintf(rows[rowCount], sizeof(rows[rowCount]), "%s", titleBuf);
+        // All chapters are single-level; no indent needed.
+        snprintf(rows[rowCount], sizeof(rows[rowCount]), "%s", titleBuf);
         rowPtrs[rowCount] = rows[rowCount];
         rowCount++;
     }

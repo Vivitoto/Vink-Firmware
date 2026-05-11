@@ -79,12 +79,12 @@ private:
     static constexpr int16_t kListTouchW = kPaperS3Width - 56;
     static constexpr int16_t kListFirstRowY = 204;
     static constexpr int16_t kListRowH = 52;
-    static constexpr int16_t kTocFirstRowY = 176;
+    static constexpr int16_t kTocFirstRowY = 196;
     static constexpr int16_t kTocRowH = 48;
     // Shelf grid geometry must match VinkUiRenderer drawBookCard() pixel-for-pixel.
     static constexpr int16_t kShelfCardW = 148;
     static constexpr int16_t kShelfCardH = 216;
-    static constexpr int16_t kShelfCardGap = 14;
+    static constexpr int16_t kShelfCardGap = 20;
     static constexpr int16_t kShelfGridY = 228;
     static constexpr int16_t kShelfBrowserEntryY = 158;
     static constexpr int16_t kShelfBrowserEntryH = 52;
@@ -94,8 +94,8 @@ private:
     static constexpr int16_t kReaderHomeTopH = 320;
     static constexpr int16_t kReaderHomeTopW = 180;
     static constexpr int16_t kReaderHomeRecentCardW = 140;
-    static constexpr int16_t kReaderHomeRecentCardH = 200;
-    static constexpr int16_t kReaderHomeRecentGap = 20;
+    static constexpr int16_t kReaderHomeRecentCardH = 204;
+    static constexpr int16_t kReaderHomeRecentGap = 32;
     static constexpr int16_t kUiMarginX = 28;
 
     static constexpr int16_t kUiContentW = kPaperS3Width - kUiMarginX * 2;
@@ -104,7 +104,7 @@ private:
     static constexpr int16_t kEntryButtonW = 416;
     static constexpr int16_t kEntryButtonH = 52;
     static constexpr int16_t kEntryButtonGap = 16;
-    static constexpr int16_t kEntryContinueY = 540;
+    static constexpr int16_t kEntryContinueY = 500;
     static constexpr int16_t kEntryTocY = kEntryContinueY + (kEntryButtonH + kEntryButtonGap);
     static constexpr int16_t kEntryRestartY = kEntryTocY + (kEntryButtonH + kEntryButtonGap);
     static constexpr int16_t kEntryRebuildTocY = kEntryRestartY + (kEntryButtonH + kEntryButtonGap);
