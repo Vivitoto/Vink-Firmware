@@ -5,6 +5,21 @@
   "description": "面向 M5Stack PaperS3 的 Vink 电子书阅读固件。",
   "releases": [
     {
+      "version": "v0.4.14",
+      "name": "Vink-PaperS3 v0.4.14",
+      "summary": "UI全面重构：阅读TAB分块布局/书卡右边缘对齐/同步页按钮独立/全局文字居中/书架页码优化",
+      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.14",
+      "changelog": "**阅读TAB重做**\n- 右半区分块布局：最近阅读居中盒 / 《书名》不截断 / 进度36px盒（去掉外框）\n- 近期书卡140×204，gap自动填满右边缘，去卡内进度文字\n- kPadX缩小多放每行1-2字\n\n**书架**\n- 卡片gap14→20右边缘对齐512px\n- 空状态占位步长对齐\n- 页码单页也显示(1/1)，上移不挤卡片\n\n**同步页**\n- 按钮去外框→独立绘制，间距均匀化\n\n**书籍入口**\n- 去分页缓存展示项，按钮触摸对齐\n\n**TOC**\n- kTocFirstRowY176→196，去缩进，去行间分隔线\n\n**全局文字居中**\n- drawCard标题y+18→y+12\n- drawSettingsGroup标题与分隔线分离\n- 读者菜单目录/返回按钮drawText→drawCentered\n- 阅读设置递进修复\n\n**导航**\n- 书架↔浏览器三处lastLibraryTapOpenedBook_重置",
+      "assets": {
+        "full": {
+          "name": "Vink-PaperS3-v0.4.14-full-16MB.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.14/Vink-PaperS3-v0.4.14-full-16MB.bin",
+          "size": 16777216,
+          "flashOffset": "0x0"
+        }
+      }
+    },
+    {
       "version": "v0.4.13",
       "name": "Vink-PaperS3 v0.4.13",
       "summary": "阅读内核重建：目录识别重写/书卡长方形比例/3x3书架/返回按钮/间距句号修正",
@@ -74,21 +89,6 @@
         "full": {
           "name": "Vink-PaperS3-v0.4.9-full-16MB.bin",
           "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.9/Vink-PaperS3-v0.4.9-full-16MB.bin",
-          "size": 16777216,
-          "flashOffset": 0
-        }
-      }
-    },
-    {
-      "version": "v0.4.8",
-      "name": "Vink-PaperS3 v0.4.8",
-      "summary": "UI 扁平化、设置多级子页、Tab 留白去贴边、阅读菜单浮层、删除清除分页缓存。",
-      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.8",
-      "changelog": "## Vink-PaperS3 v0.4.8\n\n### UI 扁平化\n- 全部 23 处圆角矩形 fillRoundRect/drawRoundRect 改为直角 fillRect/drawRect。\n- 6 色调色板保持 v0.4.7 灰阶层次，直角线条更干练。\n\n### 设置多级子页\n- 主设置页保留「电源（点按关机）」和「关于（版本号）」，直观方便。\n- 新增「阅读设置」入口：点入后独立子页，含排版/阅读/显示三组全部选项。\n- 子页含「< 返回」按钮回到主设置；切换 Tab 或左右滑自动重置到设置主页。\n\n### Tab 留白\n- 4 个 Tab 页签从贴满 540px 改为左右各 28px 留白（0..540 → 28..512）。\n- 每个 tab 宽 112px，间距 12px，精确居中。\n\n### 阅读菜单浮层\n- 阅读菜单不再 clear() 刷白整屏，改为浮层卡片盖在正文上方。\n- 卡片下方正文可见，点正文区域直接关闭菜单继续阅读。\n\n### 删除清除分页缓存\n- 移除 clearPageCache() 和相关 UI 入口。\n- 重新生成目录即重建索引和分页，不需要单独清理缓存。\n\n### 构建验证\n- 本地 smoke、diff check、PlatformIO build、full 16MB merge 均通过。\n",
-      "assets": {
-        "full": {
-          "name": "Vink-PaperS3-v0.4.8-full-16MB.bin",
-          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.8/Vink-PaperS3-v0.4.8-full-16MB.bin",
           "size": 16777216,
           "flashOffset": 0
         }
