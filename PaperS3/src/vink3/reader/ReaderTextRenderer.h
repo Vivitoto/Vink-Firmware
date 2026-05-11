@@ -2,6 +2,7 @@
 #include <Arduino.h>
 #include <M5Unified.h>
 #include "../../FontManager.h"
+#include "TtfFont.h"
 
 namespace vink3 {
 
@@ -98,6 +99,19 @@ public:
     void setAntiAlias(bool enabled);
     bool antiAliasEnabled() const { return settings_.antiAliasEnabled(); }
     const char* antiAliasLabel() const { return antiAliasEnabled() ? "开启" : "关闭"; }
+
+    // ── SD card TTF font support ──
+    void cycleFontSource();
+    bool isSdFont() const { return sdCardFontActive_ && ttfFont_.isLoaded(); }
+    const char* fontSourceLabel() const;
+    void stepSdFontSize(int delta);
+    uint8_t sdFontSize() const { return sdFontSize_; }
+    void setSdFontSize(uint8_t size);
+    uint16_t minSdFontSize() const { return 16; }
+    uint16_t maxSdFontSize() const { return 64; }
+    const char* sdFontSizeLabel() const;
+    int16_t sdFontAscender() const { return ttfFont_.isLoaded() ? ttfFont_.ascender() : 0; }
+
     void toggleUnderline();
     void setUnderline(bool enabled);
     bool underlineEnabled() const { return settings_.underlineEnabled(); }
@@ -114,6 +128,8 @@ public:
     void setLineSpacingLevel(uint8_t level);
     uint8_t lineSpacingLevel() const { return settings_.lineSpacingLevel(); }
     const char* lineSpacingLabel() const;
+    const char* readerFontSizeLabel() const;
+    void cycleReaderFontSize();
     void cycleLayoutPreset();
     void setLayoutPreset(uint8_t preset);
     uint8_t layoutPreset() const { return layoutPreset_; }
@@ -140,25 +156,26 @@ public:
     size_t measurePageBytes(const char* text, size_t len, const ReaderRenderOptions& options = ReaderRenderOptions{}) const;
 
 private:
-    struct ReadPaperGlyph {
-        uint16_t unicode = 0;
-        uint16_t width = 0;
-        uint8_t bitmapW = 0;
-        uint8_t bitmapH = 0;
-        int8_t xOffset = 0;
-        int8_t yOffset = 0;
+    struct GrayGlyph {
+        uint32_t unicode = 0;
         uint32_t bitmapOffset = 0;
-        uint32_t bitmapSize = 0;
+        uint8_t width = 0;
+        uint8_t height = 0;
+        int8_t bearingX = 0;
+        int8_t bearingY = 0;
+        uint8_t advance = 0;
     };
 
     static uint32_t decodeUtf8(const uint8_t* buf, size_t& pos, size_t len);
-    bool beginReadPaperFullFont();
+    // Public decodeUtf8 for external use (TtfFont, font-source cycling)
+    static uint32_t decodeUtf8Unsafe(const uint8_t* buf, size_t& pos, size_t len) { return decodeUtf8(buf, pos, len); }
+    bool beginWenkai32Font();
     void applyReaderFontSize(uint8_t size, bool persist);
-    bool findReadPaperGlyph(uint32_t unicode, ReadPaperGlyph& out) const;
+    bool findWenkai32Glyph(uint32_t unicode, GrayGlyph& out) const;
     uint8_t charAdvance(uint32_t unicode) const;
     int16_t textWidth(const char* text) const;
     void drawGlyph(uint32_t unicode, int16_t x, int16_t y, uint16_t color);
-    void drawReadPaperGlyph(const ReadPaperGlyph& glyph, int16_t x, int16_t y, uint16_t color);
+    void drawWenkai32Glyph(const GrayGlyph& glyph, int16_t x, int16_t y, uint16_t color);
     uint16_t pixelColorForNibble(uint8_t nibble, uint16_t color) const;
     void drawText(int16_t x, int16_t y, const char* text, uint16_t color = TFT_BLACK, int16_t letterGap = 0);
     void drawJustifiedText(int16_t x, int16_t y, const char* text, int16_t targetWidth, uint16_t color, int16_t letterGap = 0);
@@ -172,14 +189,27 @@ private:
     bool isParagraphStart(const char* text, size_t pos, bool chunkStartsAtParagraph) const;
     bool isForbiddenLineStart(uint32_t unicode) const;
 
+    // Wenkai32 PROGMEM access
+    static uint8_t wenkaiByte(uint32_t offset);
+    static uint16_t wenkaiU16(uint32_t offset);
+    static uint32_t wenkaiU32(uint32_t offset);
+    static int8_t wenkaiI8(uint32_t offset);
+
     M5Canvas* canvas_ = nullptr;
-    bool readPaperFullReady_ = false;
-    uint32_t readPaperCharCount_ = 0;
-    uint8_t readPaperFontHeight_ = 0;
+    bool wenkai32Ready_ = false;
+    uint32_t wenkai32CharCount_ = 0;
+    uint8_t wenkai32FontHeight_ = 0;
+    uint32_t wenkai32BitmapStart_ = 0;
     FontManager font_;
     ReaderSettings settings_;
     uint8_t layoutPreset_ = 1;
     uint8_t fontSizeSetting_ = 24;
+    uint8_t sdFontSize_ = 32;
+    bool sdCardFontActive_ = false;
+    TtfFont ttfFont_;
+    char ttfFontPaths_[4][64] = {};
+    int ttfFontCount_ = 0;
+    int ttfFontIndex_ = 0;
     uint8_t webLineSpacing_ = 50;
     uint8_t webParagraphSpacing_ = 50;
     uint8_t webIndentFirstLine_ = 2;

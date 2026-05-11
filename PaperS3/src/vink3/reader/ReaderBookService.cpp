@@ -1709,39 +1709,63 @@ bool ReaderBookService::handleTap(int16_t x, int16_t y) {
     lastTapBackHome_ = false;
     if (!open_) return false;
     if (showingReaderMenu_) {
-        // ── Reader menu touch targets ──
-        // Must match renderReaderMenuOverlay pixel-for-pixel.
-        // Card/items/buttons must match renderReaderMenuOverlay pixel-for-pixel.
-        constexpr int16_t kMCX = 16, kMCY = 56, kMCW = 508, kMCH = 420;
-        constexpr int16_t kIX = 40, kIX2 = 280, kIW = 220, kIH = 64;
-        constexpr int16_t kRY0 = 140, kRY1 = 214, kRY2 = 288;
-        constexpr int16_t kBtY = 362;
+        constexpr int16_t kMCX = 16, kMCY = 56, kMCW = 508, kMCH = 508;
+        constexpr int16_t kIW = 220, kIH = 64;
+        constexpr int16_t kCol0 = kMCX + 24, kCol1 = kMCX + 264;
 
         auto inRect = [](int16_t tx, int16_t ty, int16_t rx, int16_t ry, int16_t rw, int16_t rh) -> bool {
             return tx >= rx && tx < rx + rw && ty >= ry && ty < ry + rh;
         };
 
-        // Tap outside menu card → close menu and continue reading
         if (x < kMCX || x >= kMCX + kMCW || y < kMCY || y >= kMCY + kMCH) return closeReaderMenu();
 
-        // Row 0: 抗锯齿 | 翻页刷新
-        if (inRect(x, y, kIX,  kRY0, kIW, kIH)) return toggleAntiAlias();
-        if (inRect(x, y, kIX2, kRY0, kIW, kIH)) return cycleRefreshStrategy();
-        // Row 1: 下划线 | 排版优化
-        if (inRect(x, y, kIX,  kRY1, kIW, kIH)) return toggleUnderline();
-        if (inRect(x, y, kIX2, kRY1, kIW, kIH)) return cycleLayoutPreset();
-        // Row 2: 翻页动画 | 页边距
-        if (inRect(x, y, kIX,  kRY2, kIW, kIH)) return togglePageTurnEffect();
-        if (inRect(x, y, kIX2, kRY2, kIW, kIH)) return cyclePageMargin();
-        // Bottom buttons: 目录 | 返回
-        if (inRect(x, y, kIX, kBtY, kIW, kIH)) {
+        // Grid: 3 rows starting at kMCY+76, 4px gap between rows
+        constexpr int16_t kGY = kMCY + 76;
+        if (inRect(x, y, kCol0, kGY, kIW, kIH)) return toggleAntiAlias();
+        if (inRect(x, y, kCol1, kGY, kIW, kIH)) return cycleRefreshStrategy();
+        if (inRect(x, y, kCol0, kGY + kIH + 4, kIW, kIH)) return toggleUnderline();
+        if (inRect(x, y, kCol1, kGY + kIH + 4, kIW, kIH)) return cycleLayoutPreset();
+        if (inRect(x, y, kCol0, kGY + 2 * (kIH + 4), kIW, kIH)) return togglePageTurnEffect();
+        if (inRect(x, y, kCol1, kGY + 2 * (kIH + 4), kIW, kIH)) return cyclePageMargin();
+
+        // Font source (below grid)
+        constexpr int16_t kFW = 460, kFH = 64;
+        constexpr int16_t kFY = kGY + 3 * kIH + 2 * 4 + 6;
+        if (inRect(x, y, kCol0, kFY, kFW, kFH)) {
+            g_readerText.cycleFontSource();
+            g_readerBook.invalidatePaginationForLayoutChange();
+            showingReaderMenu_ = true;
+            renderReaderMenuPage();
+            return true;
+        }
+        // Font size stepper: y=kFY+kFH+4, segX=kCol0+kFW-20-320
+        {
+            const int16_t sY = kFY + kFH + 4;
+            const int16_t sX = kCol0 + kFW - 20 - 5 * 64;
+            const int16_t sH = kFH - 16;
+            bool hit = false;
+            if (inRect(x, y, sX,       sY + 8, 60, sH)) { g_readerText.stepSdFontSize(-4); hit = true; }
+            else if (inRect(x, y, sX + 64,  sY + 8, 60, sH)) { g_readerText.stepSdFontSize(-1); hit = true; }
+            else if (inRect(x, y, sX + 128, sY + 8, 60, sH)) { g_readerText.cycleReaderFontSize(); hit = true; }
+            else if (inRect(x, y, sX + 192, sY + 8, 60, sH)) { g_readerText.stepSdFontSize(1); hit = true; }
+            else if (inRect(x, y, sX + 256, sY + 8, 60, sH)) { g_readerText.stepSdFontSize(4); hit = true; }
+            if (hit) {
+                g_readerBook.invalidatePaginationForLayoutChange();
+                renderReaderMenuPage();
+                return true;
+            }
+        }
+
+        // Bottom buttons: y=kFY+kFH+4+kFH+6
+        constexpr int16_t kBtY = kFY + kFH + 4 + kFH + 6;
+        if (inRect(x, y, kCol0, kBtY, kIW, kIH)) {
             showingReaderMenu_ = false;
             showingToc_ = true;
             if (currentTocIndex_ >= 0) tocPage_ = currentTocIndex_ / kTocEntriesPerPage;
             renderTocPage(tocPage_);
             return true;
         }
-        if (inRect(x, y, kIX2, kBtY, kIW, kIH)) {
+        if (inRect(x, y, kCol1, kBtY, kIW, kIH)) {
             showingReaderMenu_ = false;
             showingBookEntry_ = false;
             showingToc_ = false;

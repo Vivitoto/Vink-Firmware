@@ -1,13 +1,14 @@
 #include "ReaderTextRenderer.h"
 #include "../../Config.h"
 #include "../ReadPaper176.h"
-#include "../text/ReadPaperFullFont.h"
+#include "../text/WenkaiFullFont.h"
 #include "../text/CjkTextRenderer.h"
+#include "TtfFont.h"
 #include <Preferences.h>
 
 namespace {
-constexpr uint32_t kReadPaperHeaderSize = 134;
-constexpr uint32_t kReadPaperEntrySize = 20;
+constexpr uint32_t kGrayHeaderSize = 16;
+constexpr uint32_t kGrayEntrySize = 16;
 constexpr int16_t kReaderHeaderDividerY = 58;
 constexpr int16_t kReaderBodyTopMin = 68;
 constexpr int16_t kReaderFooterReserve = 48;
@@ -29,13 +30,12 @@ bool ReaderTextRenderer::begin(M5Canvas* canvas) {
 }
 
 bool ReaderTextRenderer::loadDefaultFont() {
-    // Reader body font is intentionally separate from the UI subset font.
-    // v0.3 uses ReadPaper's complete PROGMEM Book font, enabled by the larger
-    // single-app partition. Bundled fonts remain only as emergency fallback.
-    if (beginReadPaperFullFont()) {
-        Serial.printf("[vink3][reader] ReadPaper full PROGMEM font loaded: glyphs=%lu size=%lu\n",
-                      static_cast<unsigned long>(readPaperCharCount_),
-                      static_cast<unsigned long>(g_readpaper_full_font_size));
+    // Reader body font: 32px Wenkai PROGMEM is the primary font.
+    // SPIFFS fonts provide 16px/20px fallback.
+    if (beginWenkai32Font()) {
+        Serial.printf("[vink3][reader] Wenkai 32px PROGMEM font loaded: glyphs=%lu size=%lu\n",
+                      static_cast<unsigned long>(wenkai32CharCount_),
+                      static_cast<unsigned long>(g_wenkai_font32_size));
         return true;
     }
     if (font_.loadBundledFont(FONT_FILE_24)) {
@@ -60,28 +60,29 @@ bool ReaderTextRenderer::loadFont(const char* path) {
 }
 
 bool ReaderTextRenderer::ready() const {
-    return canvas_ && (readPaperFullReady_ || font_.isLoaded());
+    return canvas_ && (wenkai32Ready_ || font_.isLoaded());
 }
 
 uint16_t ReaderTextRenderer::fontSize() const {
-    if (readPaperFullReady_) return readPaperFontHeight_;
+    if (sdCardFontActive_ && ttfFont_.isLoaded()) return ttfFont_.currentSize();
+    if (wenkai32Ready_) return wenkai32FontHeight_;
     return font_.isLoaded() ? font_.getFontSize() : fontSizeSetting_;
 }
 
 void ReaderTextRenderer::applyReaderFontSize(uint8_t size, bool persist) {
     if (size <= 18) size = 16;
-    else if (size <= 22) size = 20;
-    else size = 24;
+    else if (size <= 26) size = 20;
+    else size = 32;
     fontSizeSetting_ = size;
     if (size == 16) {
-        readPaperFullReady_ = false;
+        wenkai32Ready_ = false;
         font_.loadBundledFont(FONT_FILE_16);
     } else if (size == 20) {
-        readPaperFullReady_ = false;
+        wenkai32Ready_ = false;
         font_.loadBundledFont(FONT_FILE_20);
     } else {
         font_.unload();
-        beginReadPaperFullFont();
+        beginWenkai32Font();
     }
     if (persist) saveLocalSettings();
 }
@@ -91,9 +92,16 @@ void ReaderTextRenderer::setReaderFontSize(uint8_t size) {
 }
 
 void ReaderTextRenderer::applyLayoutPresetToSettings() {
-    settings_ = ReaderSettings{};
+    // Only mutate layout-related fields (formatting1, spacing).
+    // Leave renderOpt1 (underline, antiAlias, pageTurnEffect) untouched
+    // so independent toggles survive preset changes.
     auto on = [](uint16_t& raw, uint8_t idx) { ReaderSettings::setSlot(raw, idx, 1); };
+    auto off = [](uint16_t& raw, uint8_t idx) { ReaderSettings::setSlot(raw, idx, 0); };
     auto level = [](uint16_t& raw, uint8_t idx, uint8_t value) { ReaderSettings::setSlot(raw, idx, value); };
+
+    // Reset only layout slots
+    settings_.formatting1 = 0;
+    settings_.spacing = 0;
 
     switch (layoutPreset_) {
         case 0:
@@ -108,8 +116,6 @@ void ReaderTextRenderer::applyLayoutPresetToSettings() {
             on(settings_.formatting1, 2); // BreakLineOpt
             on(settings_.formatting1, 3); // NewPage
             on(settings_.formatting1, 4); // DynamicLineHeight
-            on(settings_.renderOpt1, 1);  // AntiAlias
-            on(settings_.renderOpt1, 3);  // PageTurnEffect (native IT8951 DU4 sweep)
             level(settings_.spacing, 0, 0);
             level(settings_.spacing, 1, 0);
             level(settings_.spacing, 2, 0);
@@ -128,8 +134,6 @@ void ReaderTextRenderer::applyLayoutPresetToSettings() {
             on(settings_.formatting1, 2); // BreakLineOpt
             on(settings_.formatting1, 3); // NewPage
             on(settings_.formatting1, 4); // DynamicLineHeight
-            on(settings_.renderOpt1, 1);  // AntiAlias
-            on(settings_.renderOpt1, 3);  // PageTurnEffect (native IT8951 DU4 sweep)
             level(settings_.spacing, 0, 1);
             level(settings_.spacing, 1, 1);
             level(settings_.spacing, 2, 1);
@@ -154,7 +158,6 @@ void ReaderTextRenderer::loadLocalSettings() {
     webParagraphSpacing_ = prefs.getUChar("para", webParagraphSpacing_);
     webIndentFirstLine_ = prefs.getUChar("indent", webIndentFirstLine_);
     webMarginLeft_ = prefs.getUChar("mleft", webMarginLeft_);
-    webMarginRight_ = prefs.getUChar("mright", webMarginRight_);
     webMarginTop_ = prefs.getUChar("mtop", webMarginTop_);
     webMarginBottom_ = prefs.getUChar("mbot", webMarginBottom_);
     // v0.4.6 adds compact reader chrome; migrate old defaults in RAM only so
@@ -186,8 +189,6 @@ bool ReaderTextRenderer::saveLocalSettings() const {
     prefs.putUChar("para", webParagraphSpacing_);
     prefs.putUChar("indent", webIndentFirstLine_);
     prefs.putUChar("mleft", webMarginLeft_);
-    prefs.putUChar("mright", webMarginRight_);
-    prefs.putUChar("mtop", webMarginTop_);
     prefs.putUChar("mbot", webMarginBottom_);
     prefs.putBool("justify", webJustify_);
     prefs.end();
@@ -248,8 +249,6 @@ void ReaderTextRenderer::setPageMarginLevel(uint8_t level) {
     webMarginTop_ = static_cast<uint8_t>(kTopMargins[level]);
     webMarginBottom_ = static_cast<uint8_t>(kBottomMargins[level]);
     webMarginLeft_ = static_cast<uint8_t>(kSideMargins[level]);
-    webMarginRight_ = static_cast<uint8_t>(kSideMargins[level]);
-
     saveLocalSettings();
     Serial.printf("[vink3][reader] page margin -> %s spacing=0x%04x\n", pageMarginLabel(), settings_.spacing);
 }
@@ -286,6 +285,23 @@ void ReaderTextRenderer::setLineSpacingLevel(uint8_t level) {
 
     saveLocalSettings();
     Serial.printf("[vink3][reader] line spacing -> %s spacing=0x%04x\n", lineSpacingLabel(), settings_.spacing);
+}
+
+const char* ReaderTextRenderer::readerFontSizeLabel() const {
+    switch (fontSizeSetting_) {
+        case 16: return "16px";
+        case 20: return "20px";
+        case 32: return "32px";
+        default: return "16px";
+    }
+}
+
+void ReaderTextRenderer::cycleReaderFontSize() {
+    uint8_t next = fontSizeSetting_;
+    if (next == 16) next = 20;
+    else if (next == 20) next = 32;
+    else next = 16;
+    setReaderFontSize(next);
 }
 
 const char* ReaderTextRenderer::lineSpacingLabel() const {
@@ -326,9 +342,7 @@ void ReaderTextRenderer::setWebLayout(uint8_t fontSize, uint8_t lineSpacing, uin
     webParagraphSpacing_ = constrain(paragraphSpacing, static_cast<uint8_t>(0), static_cast<uint8_t>(100));
     webIndentFirstLine_ = constrain(indentFirstLine, static_cast<uint8_t>(0), static_cast<uint8_t>(4));
     webMarginLeft_ = constrain(marginLeft, static_cast<uint8_t>(0), static_cast<uint8_t>(120));
-    webMarginRight_ = constrain(marginRight, static_cast<uint8_t>(0), static_cast<uint8_t>(120));
     webMarginTop_ = constrain(marginTop, static_cast<uint8_t>(0), static_cast<uint8_t>(160));
-    webMarginBottom_ = constrain(marginBottom, static_cast<uint8_t>(0), static_cast<uint8_t>(160));
     webJustify_ = justify;
     setReaderFontSize(fontSize);
     saveLocalSettings();
@@ -369,7 +383,7 @@ ReaderRenderOptions ReaderTextRenderer::currentOptions() const {
 
     // Web 配置与本机排版配置合并后作为最终运行时源。
     opt.marginLeft = webMarginLeft_;
-    opt.marginRight = webMarginRight_;
+    opt.marginRight = webMarginLeft_;
     opt.marginTop = max<int16_t>(webMarginTop_, kReaderBodyTopMin);
     opt.marginBottom = max<int16_t>(webMarginBottom_, kReaderFooterReserve);
     opt.lineGap = max<int16_t>(0, (static_cast<int16_t>(fontSize()) * webLineSpacing_) / 100);
@@ -421,36 +435,64 @@ uint32_t ReaderTextRenderer::decodeUtf8(const uint8_t* buf, size_t& pos, size_t 
     return c;
 }
 
-bool ReaderTextRenderer::beginReadPaperFullFont() {
-    if (!g_readpaper_full_font_available || g_readpaper_full_font_size < kReadPaperHeaderSize) return false;
-    readPaperCharCount_ = readpaperFullU32(0);
-    readPaperFontHeight_ = readpaperFullByte(4);
-    const uint8_t version = readpaperFullByte(5);
-    if (readPaperCharCount_ == 0 || readPaperFontHeight_ == 0 || version != 3) return false;
-    const uint32_t entriesEnd = kReadPaperHeaderSize + readPaperCharCount_ * kReadPaperEntrySize;
-    if (entriesEnd >= g_readpaper_full_font_size) return false;
-    readPaperFullReady_ = true;
+uint8_t ReaderTextRenderer::wenkaiByte(uint32_t offset) {
+    if (offset >= g_wenkai_font32_size) return 0;
+    return pgm_read_byte(&g_wenkai_font32[offset]);
+}
+
+uint16_t ReaderTextRenderer::wenkaiU16(uint32_t offset) {
+    uint8_t b0 = wenkaiByte(offset);
+    uint8_t b1 = wenkaiByte(offset + 1);
+    return static_cast<uint16_t>(b0) | (static_cast<uint16_t>(b1) << 8);
+}
+
+uint32_t ReaderTextRenderer::wenkaiU32(uint32_t offset) {
+    uint32_t b0 = wenkaiByte(offset);
+    uint32_t b1 = wenkaiByte(offset + 1);
+    uint32_t b2 = wenkaiByte(offset + 2);
+    uint32_t b3 = wenkaiByte(offset + 3);
+    return b0 | (b1 << 8) | (b2 << 16) | (b3 << 24);
+}
+
+int8_t ReaderTextRenderer::wenkaiI8(uint32_t offset) {
+    return static_cast<int8_t>(wenkaiByte(offset));
+}
+
+bool ReaderTextRenderer::beginWenkai32Font() {
+    if (!g_wenkai_font32_available || g_wenkai_font32_size < kGrayHeaderSize) return false;
+    if (wenkaiByte(0) != 'G' || wenkaiByte(1) != 'R' || wenkaiByte(2) != 'A' || wenkaiByte(3) != 'Y') return false;
+    const uint16_t version = wenkaiU16(4);
+    wenkai32FontHeight_ = wenkaiU16(6);
+    wenkai32CharCount_ = wenkaiU32(8);
+    const uint32_t bitmapBytes = wenkaiU32(12);
+    wenkai32BitmapStart_ = kGrayHeaderSize + wenkai32CharCount_ * kGrayEntrySize;
+    if (version != 1 || wenkai32FontHeight_ == 0 || wenkai32CharCount_ == 0) return false;
+    if (wenkai32BitmapStart_ >= g_wenkai_font32_size) return false;
+    if (wenkai32BitmapStart_ + bitmapBytes != g_wenkai_font32_size) return false;
+    wenkai32Ready_ = true;
     return true;
 }
 
-bool ReaderTextRenderer::findReadPaperGlyph(uint32_t unicode, ReadPaperGlyph& out) const {
-    if (!readPaperFullReady_ || unicode > 0xFFFF) return false;
+bool ReaderTextRenderer::findWenkai32Glyph(uint32_t unicode, GrayGlyph& out) const {
+    if (!wenkai32Ready_) return false;
     int32_t lo = 0;
-    int32_t hi = static_cast<int32_t>(readPaperCharCount_) - 1;
+    int32_t hi = static_cast<int32_t>(wenkai32CharCount_) - 1;
     while (lo <= hi) {
         int32_t mid = lo + (hi - lo) / 2;
-        uint32_t off = kReadPaperHeaderSize + static_cast<uint32_t>(mid) * kReadPaperEntrySize;
-        uint16_t cp = readpaperFullU16(off);
+        uint32_t off = kGrayHeaderSize + static_cast<uint32_t>(mid) * kGrayEntrySize;
+        uint32_t cp = wenkaiU32(off);
         if (cp == unicode) {
             out.unicode = cp;
-            out.width = readpaperFullU16(off + 2);
-            out.bitmapW = readpaperFullByte(off + 4);
-            out.bitmapH = readpaperFullByte(off + 5);
-            out.xOffset = readpaperFullI8(off + 6);
-            out.yOffset = readpaperFullI8(off + 7);
-            out.bitmapOffset = readpaperFullU32(off + 8);
-            out.bitmapSize = readpaperFullU32(off + 12);
-            return out.bitmapOffset + out.bitmapSize <= g_readpaper_full_font_size;
+            out.bitmapOffset = wenkaiU32(off + 4);
+            out.width = wenkaiByte(off + 8);
+            out.height = wenkaiByte(off + 9);
+            out.bearingX = wenkaiI8(off + 10);
+            out.bearingY = wenkaiI8(off + 11);
+            out.advance = wenkaiByte(off + 12);
+            const uint32_t bitmapSize = static_cast<uint32_t>((out.width + 1) / 2) * out.height;
+            return out.width > 0 && out.height > 0 && out.advance > 0 &&
+                   out.bitmapOffset >= wenkai32BitmapStart_ &&
+                   out.bitmapOffset + bitmapSize <= g_wenkai_font32_size;
         }
         if (cp < unicode) lo = mid + 1;
         else hi = mid - 1;
@@ -459,11 +501,15 @@ bool ReaderTextRenderer::findReadPaperGlyph(uint32_t unicode, ReadPaperGlyph& ou
 }
 
 uint8_t ReaderTextRenderer::charAdvance(uint32_t unicode) const {
-    if (readPaperFullReady_) {
-        ReadPaperGlyph glyph;
-        if (findReadPaperGlyph(unicode, glyph) && glyph.width > 0) {
-            const int16_t visualRight = max<int16_t>(0, glyph.xOffset) + glyph.bitmapW;
-            return static_cast<uint8_t>(min<int16_t>(255, max<int16_t>(glyph.width, visualRight)));
+    if (sdCardFontActive_ && ttfFont_.isLoaded()) {
+        int16_t a = ttfFont_.charAdvance(unicode);
+        if (a > 0) return static_cast<uint8_t>(a > 255 ? 255 : a);
+        return unicode < 128 ? static_cast<uint8_t>(ttfFont_.currentSize() / 2) : ttfFont_.currentSize();
+    }
+    if (wenkai32Ready_) {
+        GrayGlyph glyph;
+        if (findWenkai32Glyph(unicode, glyph) && glyph.advance > 0) {
+            return glyph.advance;
         }
         return unicode < 128 ? 8 : fontSize();
     }
@@ -489,171 +535,73 @@ int16_t ReaderTextRenderer::textWidth(const char* text) const {
 uint16_t ReaderTextRenderer::pixelColorForNibble(uint8_t nibble, uint16_t color) const {
     if (color == TFT_WHITE) return TFT_WHITE;
     if (color != TFT_BLACK) return color;
-    // Vink-native AntiAlias switch: enabled keeps softened gray edge
-    // pixels for fast e-paper refresh; disabled uses a hard black/white cutoff.
     if (!antiAliasEnabled()) return (nibble >= 8) ? TFT_BLACK : TFT_WHITE;
-    // Keep the glyph core black. The previous AA curve let 10/11 coverage draw
-    // as dark gray, which made body text look foggy on real PaperS3. Use gray
-    // only for deliberately-added edge pixels; original stroke pixels stay ink.
+    // Gamma-0.7 AA curve — same as CjkTextRenderer. Pushes edge nibbles
+    // deeper into visible gray so Bayer dithering can't scatter them.
     static const uint8_t kRemap[16] __attribute__((aligned(1))) = {
-        0, 0, 1, 2, 3, 4, 5, 7, 9, 12, 15, 15, 15, 15, 15, 15
+        0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15
     };
     static const uint16_t k4BitToRgb565[16] __attribute__((aligned(2))) = {
-        0xFFFF, 0xEFFF, 0xCFFF, 0xADAD, 0x8A8A, 0x7B7B,
-        0x6B6B, 0x5B5B, 0x4B4B, 0x39A5, 0x294A, 0x2108,
-        0x1800, 0x1000, 0x0841, 0x0000
+        0xFFFF, 0xDEDB, 0xC618, 0xAD75, 0x9CD3, 0x8C51, 0x7BCF, 0x6B4D,
+        0x5ACB, 0x4A69, 0x39E7, 0x3186, 0x2124, 0x10A2, 0x0841, 0x0000
     };
     return k4BitToRgb565[kRemap[nibble & 0x0F]];
 }
 
-void ReaderTextRenderer::drawReadPaperGlyph(const ReadPaperGlyph& glyph, int16_t x, int16_t y, uint16_t color) {
-    if (!canvas_) return;
-    const int16_t drawX = x + glyph.xOffset;
-    // ReadPaper V3 glyph entries already store a visual yOffset inside the
-    // 32px line box. Do not center each bitmap by height: that puts '.', 'o',
-    // 'v' and punctuation in the middle of /books/.txt prompts. Use yOffset so
-    // lowercase, punctuation, and descenders keep the original ReadPaper metrics.
-    const int16_t drawY = y + glyph.yOffset;
-    uint8_t bitPos = 0;
-    uint32_t bytePos = 0;
-    const uint32_t totalPixels = static_cast<uint32_t>(glyph.bitmapW) * glyph.bitmapH;
-    if (totalPixels == 0) return;
-
-    auto nextBit = [&]() -> int {
-        if (bytePos >= glyph.bitmapSize) return -1;
-        uint8_t current = readpaperFullByte(glyph.bitmapOffset + bytePos);
-        int bit = (current >> (7 - bitPos)) & 0x01;
-        bitPos++;
-        if (bitPos >= 8) {
-            bitPos = 0;
-            bytePos++;
-        }
-        return bit;
-    };
-
-    auto decodePixel = [&]() -> uint8_t {
-        int first = nextBit();
-        if (first <= 0) return 0;
-        int second = nextBit();
-        if (second < 0) return 0;
-        return second == 0 ? 10 : 11;
-    };
-
-    // Keep anti-aliasing conservative. The first v0.4.1 curve painted a full
-    // gray halo around strokes; on real PaperS3 that made Chinese body text look
-    // foggy. This sharper curve only fills sparse corner pixels where a blank
-    // pixel touches one direct stroke and at least two diagonal strokes.
-    static constexpr uint32_t kMaxAAGlyphPixels = 48 * 48;
-    if (antiAliasEnabled() && color == TFT_BLACK && totalPixels <= kMaxAAGlyphPixels) {
-        uint8_t pixels[kMaxAAGlyphPixels];
-        memset(pixels, 0, totalPixels);
-        for (uint32_t i = 0; i < totalPixels; ++i) pixels[i] = decodePixel();
-
-        const uint16_t cornerEdge = pixelColorForNibble(1, TFT_BLACK);
-        for (uint16_t row = 0; row < glyph.bitmapH; ++row) {
-            for (uint16_t col = 0; col < glyph.bitmapW; ++col) {
-                const uint32_t idx = static_cast<uint32_t>(row) * glyph.bitmapW + col;
-                if (pixels[idx] != 0) continue;
-                uint8_t directCount = 0;
-                uint8_t diagonalCount = 0;
-                for (int8_t dy = -1; dy <= 1; ++dy) {
-                    const int16_t ny = static_cast<int16_t>(row) + dy;
-                    if (ny < 0 || ny >= glyph.bitmapH) continue;
-                    for (int8_t dx = -1; dx <= 1; ++dx) {
-                        if (dx == 0 && dy == 0) continue;
-                        const int16_t nx = static_cast<int16_t>(col) + dx;
-                        if (nx < 0 || nx >= glyph.bitmapW) continue;
-                        const uint32_t nidx = static_cast<uint32_t>(ny) * glyph.bitmapW + nx;
-                        if (pixels[nidx] == 0) continue;
-                        if (dx == 0 || dy == 0) directCount++;
-                        else diagonalCount++;
-                    }
-                }
-                if (!(directCount == 1 && diagonalCount >= 2)) continue;
-                const int16_t px = drawX + static_cast<int16_t>(col);
-                const int16_t py = drawY + static_cast<int16_t>(row);
-                if (px >= 0 && px < kPaperS3Width && py >= 0 && py < kPaperS3Height) {
-                    canvas_->drawPixel(px, py, cornerEdge);
-                }
-            }
-        }
-
-        for (uint32_t i = 0; i < totalPixels; ++i) {
-            const uint8_t pixel = pixels[i];
-            if (pixel == 0) continue;
-            const int16_t px = drawX + static_cast<int16_t>(i % glyph.bitmapW);
-            const int16_t py = drawY + static_cast<int16_t>(i / glyph.bitmapW);
-            if (px >= 0 && px < kPaperS3Width && py >= 0 && py < kPaperS3Height) {
-                canvas_->drawPixel(px, py, pixelColorForNibble(pixel, color));
-            }
-        }
-        return;
-    }
-
-    for (uint32_t pixelIdx = 0; pixelIdx < totalPixels && bytePos < glyph.bitmapSize; ++pixelIdx) {
-        const uint8_t pixel = decodePixel();
-        if (pixel == 0) continue;
-        const int16_t px = drawX + static_cast<int16_t>(pixelIdx % glyph.bitmapW);
-        const int16_t py = drawY + static_cast<int16_t>(pixelIdx / glyph.bitmapW);
-        if (px >= 0 && px < kPaperS3Width && py >= 0 && py < kPaperS3Height) {
-            canvas_->drawPixel(px, py, pixelColorForNibble(pixel, color));
-        }
-    }
-}
-
 void ReaderTextRenderer::drawGlyph(uint32_t unicode, int16_t x, int16_t y, uint16_t color) {
     if (!canvas_) return;
-    if (readPaperFullReady_) {
-        ReadPaperGlyph glyph;
-        if (findReadPaperGlyph(unicode, glyph)) {
-            drawReadPaperGlyph(glyph, x, y, color);
+    // SD card TTF font (highest priority)
+    if (sdCardFontActive_ && ttfFont_.isLoaded()) {
+        ttfFont_.drawGlyph(unicode, x, y, color, canvas_);
+        return;
+    }
+    // Wenkai32 PROGMEM (4bpp GRAY format, primary)
+    if (wenkai32Ready_) {
+        GrayGlyph glyph;
+        if (findWenkai32Glyph(unicode, glyph)) {
+            const int16_t drawX = x + glyph.bearingX;
+            const int16_t drawY = y;
+            const uint32_t rowBytes = (glyph.width + 1) / 2;
+            for (uint8_t row = 0; row < glyph.height; row++) {
+                const int16_t py = drawY + row;
+                if (py < 0 || py >= kPaperS3Height) continue;
+                for (uint8_t col = 0; col < glyph.width; col++) {
+                    const int16_t px = drawX + col;
+                    if (px < 0 || px >= kPaperS3Width) continue;
+                    const uint8_t packed = wenkaiByte(glyph.bitmapOffset + row * rowBytes + col / 2);
+                    const uint8_t nibble = (col % 2 == 0) ? ((packed >> 4) & 0x0F) : (packed & 0x0F);
+                    if (nibble > 0) canvas_->drawPixel(px, py, pixelColorForNibble(nibble, color));
+                }
+            }
             return;
         }
     }
+    // LovyanGFX fallback (16/20px SPIFFS GRAY fonts)
     if (!font_.isLoaded()) return;
     if (font_.getFontType() == FontType::GRAY_4BPP) {
-        uint8_t width = 0, height = 0, advance = 0;
-        int8_t bearingX = 0, bearingY = 0;
-        const uint8_t* bmp = font_.getCharBitmapGray(unicode, width, height, bearingX, bearingY, advance);
-        if (!bmp || width == 0 || height == 0) return;
-        const int16_t drawX = x + bearingX;
-        // Reader management/list pages pass y as a visual top coordinate. Do
-        // not baseline-align gray fallback glyphs with per-character bearingY;
-        // it makes Latin words look staggered on the e-paper screen.
-        const int16_t drawY = y + max<int16_t>(0, (static_cast<int16_t>(font_.getFontSize()) - static_cast<int16_t>(height)) / 2);
-        for (int row = 0; row < height; row++) {
+        uint8_t w = 0, h = 0, adv = 0;
+        int8_t bx = 0, by = 0;
+        const uint8_t* bmp = font_.getCharBitmapGray(unicode, w, h, bx, by, adv);
+        if (!bmp || w == 0 || h == 0) return;
+        const int16_t drawX = x + bx;
+        const int16_t drawY = y;
+        for (int row = 0; row < h; row++) {
             const int16_t py = drawY + row;
             if (py < 0 || py >= kPaperS3Height) continue;
-            for (int col = 0; col < width; col++) {
+            for (int col = 0; col < w; col++) {
                 const int16_t px = drawX + col;
                 if (px < 0 || px >= kPaperS3Width) continue;
-                const int srcIdx = row * ((width + 1) / 2) + col / 2;
-                const uint8_t nibble = (col % 2 == 0) ? ((bmp[srcIdx] >> 4) & 0x0F) : (bmp[srcIdx] & 0x0F);
+                const uint8_t packed = bmp[row * ((w + 1) / 2) + col / 2];
+                const uint8_t nibble = (col % 2 == 0) ? ((packed >> 4) & 0x0F) : (packed & 0x0F);
                 if (nibble > 0) canvas_->drawPixel(px, py, pixelColorForNibble(nibble, color));
             }
-        }
-        return;
-    }
-
-    uint8_t width = 0, height = 0;
-    const uint8_t* bmp = font_.getCharBitmap(unicode, width, height);
-    if (!bmp || width == 0 || height == 0) return;
-    for (int row = 0; row < height; row++) {
-        const int16_t py = y + row;
-        if (py < 0 || py >= kPaperS3Height) continue;
-        for (int col = 0; col < width; col++) {
-            const int16_t px = x + col;
-            if (px < 0 || px >= kPaperS3Width) continue;
-            int byteIdx = row * ((width + 7) / 8) + col / 8;
-            int bitIdx = 7 - (col % 8);
-            if (bmp[byteIdx] & (1 << bitIdx)) canvas_->drawPixel(px, py, color);
         }
     }
 }
 
 void ReaderTextRenderer::drawText(int16_t x, int16_t y, const char* text, uint16_t color, int16_t letterGap) {
     if (!canvas_ || !text) return;
-    if (!readPaperFullReady_ && !font_.isLoaded()) return;
+    if (!wenkai32Ready_ && !font_.isLoaded()) return;
     int16_t cx = x;
     const uint8_t* bytes = reinterpret_cast<const uint8_t*>(text);
     size_t pos = 0;
@@ -1076,6 +1024,81 @@ void ReaderTextRenderer::renderActionPage(const char* title, const char* const* 
         const int16_t ty = by + (kButtonH - lineH) / 2;
         drawText(tx, ty, label, primary ? bg : fg);
     }
+}
+
+// ── SD card TTF font source ──────────────────────────────────────────────────
+
+void ReaderTextRenderer::cycleFontSource() {
+    if (sdCardFontActive_ && ttfFont_.isLoaded()) {
+        // Switch back to built-in
+        ttfFont_.unload();
+        sdCardFontActive_ = false;
+        applyReaderFontSize(fontSizeSetting_, false);
+        Serial.println("[vink3][reader] font source -> 内置文楷");
+        saveLocalSettings();
+        return;
+    }
+
+    // Scan SD for TTF fonts, cycle through them
+    ttfFontCount_ = TtfFont::scanSdFonts(ttfFontPaths_, 4);
+    if (ttfFontCount_ == 0) {
+        Serial.println("[vink3][reader] no TTF/OTF fonts found on SD");
+        return;
+    }
+
+    // Increment font index (cycle through available fonts)
+    ttfFontIndex_ = (ttfFontIndex_ + 1) % ttfFontCount_;
+    if (ttfFontIndex_ < 0 || ttfFontIndex_ >= ttfFontCount_) ttfFontIndex_ = 0;
+
+    if (ttfFont_.loadFromSd(ttfFontPaths_[ttfFontIndex_])) {
+        ttfFont_.setSize(sdFontSize_);
+        sdCardFontActive_ = true;
+        // Unload built-in fonts to free resources
+        font_.unload();
+        wenkai32Ready_ = false;
+        Serial.printf("[vink3][reader] font source -> SD:%s\n",
+                      strrchr(ttfFontPaths_[ttfFontIndex_], '/') ?
+                      strrchr(ttfFontPaths_[ttfFontIndex_], '/') + 1 :
+                      ttfFontPaths_[ttfFontIndex_]);
+    }
+    saveLocalSettings();
+}
+
+const char* ReaderTextRenderer::fontSourceLabel() const {
+    if (sdCardFontActive_ && ttfFont_.isLoaded()) {
+        static char label[48];
+        const char* fname = strrchr(ttfFont_.currentPath(), '/');
+        fname = fname ? fname + 1 : ttfFont_.currentPath();
+        snprintf(label, sizeof(label), "SD:%.30s", fname);
+        return label;
+    }
+    return "内置文楷";
+}
+
+void ReaderTextRenderer::stepSdFontSize(int delta) {
+    if (delta == 0) return;
+    int newSize = static_cast<int>(sdFontSize_) + delta;
+    if (newSize < 16) newSize = 16;
+    if (newSize > 64) newSize = 64;
+    setSdFontSize(static_cast<uint8_t>(newSize));
+}
+
+void ReaderTextRenderer::setSdFontSize(uint8_t size) {
+    if (size < 16) size = 16;
+    if (size > 64) size = 64;
+    if (size == sdFontSize_ && (!sdCardFontActive_ || ttfFont_.isLoaded())) return;
+    sdFontSize_ = size;
+    if (sdCardFontActive_ && ttfFont_.isLoaded()) {
+        ttfFont_.setSize(size);
+    }
+    saveLocalSettings();
+    Serial.printf("[vink3][reader] SD font size -> %upx\n", sdFontSize_);
+}
+
+const char* ReaderTextRenderer::sdFontSizeLabel() const {
+    static char buf[8];
+    snprintf(buf, sizeof(buf), "%upx", sdFontSize_);
+    return buf;
 }
 
 void ReaderTextRenderer::renderPlaceholderPage() {

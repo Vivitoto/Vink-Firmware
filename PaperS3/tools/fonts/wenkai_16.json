@@ -1,0 +1,12 @@
+{
+  "magic": "GRAY",
+  "version": 1,
+  "fontSize": 16,
+  "charCount": 7195,
+  "bitmapDataSize": 847973,
+  "fontFamily": "LXGW WenKai",
+  "fontStyle": "Regular",
+  "sourceFile": "LXGWWenKai-Regular.ttf",
+  "faceIndex": 0,
+  "generatedBy": "generate_gray_font.py"
+}

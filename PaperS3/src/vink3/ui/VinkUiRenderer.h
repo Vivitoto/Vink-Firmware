@@ -27,6 +27,12 @@ enum class UiAction : uint8_t {
     CycleReaderPageMargin,
     CycleReaderLineSpacing,
     ToggleReaderPageTurnEffect,
+    CycleReaderFontSize,
+    CycleReaderFontSource,
+    IncreaseSdFontSize,
+    DecreaseSdFontSize,
+    IncreaseSdFontSizeBig,
+    DecreaseSdFontSizeBig,
     ToggleWifiAp,
     BackHome,
     OpenReaderSettings,
@@ -76,7 +82,7 @@ private:
     void clear();
     void drawStatusBar(const char* title);
     void drawTabs(SystemState active);
-    void drawCard(int16_t x, int16_t y, int16_t w, int16_t h, const char* title, const char* body);
+    void drawCard(int16_t x, int16_t y, int16_t w, int16_t h, const char* title, const char* body, bool smallBody = false);
     void drawButton(int16_t x, int16_t y, int16_t w, int16_t h, const char* label, bool primary = false);
     void drawThickBorder(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t color);
     void drawSettingsGroup(int16_t x, int16_t y, const char* title, const char* const* rowLabels, const char* const* rowValues, int rowCount);

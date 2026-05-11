@@ -261,6 +261,60 @@ void StateMachine::handle(const Message& message) {
                     suppressAfterTransition();
                     break;
 
+                case UiAction::CycleReaderFontSize:
+                    g_readerText.cycleReaderFontSize();
+                    g_readerBook.invalidatePaginationForLayoutChange();
+                    state_ = SystemState::Settings;
+                    renderState(state_);
+                    g_displayService.enqueueFull(false, 100);
+                    suppressAfterTransition();
+                    break;
+
+                case UiAction::CycleReaderFontSource:
+                    g_readerText.cycleFontSource();
+                    g_readerBook.invalidatePaginationForLayoutChange();
+                    state_ = SystemState::Settings;
+                    renderState(state_);
+                    g_displayService.enqueueFull(false, 100);
+                    suppressAfterTransition();
+                    break;
+
+                case UiAction::DecreaseSdFontSizeBig:
+                    g_readerText.stepSdFontSize(-4);
+                    g_readerBook.invalidatePaginationForLayoutChange();
+                    state_ = SystemState::Settings;
+                    renderState(state_);
+                    g_displayService.enqueueFull(false, 100);
+                    suppressAfterTransition();
+                    break;
+
+                case UiAction::DecreaseSdFontSize:
+                    g_readerText.stepSdFontSize(-1);
+                    g_readerBook.invalidatePaginationForLayoutChange();
+                    state_ = SystemState::Settings;
+                    renderState(state_);
+                    g_displayService.enqueueFull(false, 100);
+                    suppressAfterTransition();
+                    break;
+
+                case UiAction::IncreaseSdFontSize:
+                    g_readerText.stepSdFontSize(1);
+                    g_readerBook.invalidatePaginationForLayoutChange();
+                    state_ = SystemState::Settings;
+                    renderState(state_);
+                    g_displayService.enqueueFull(false, 100);
+                    suppressAfterTransition();
+                    break;
+
+                case UiAction::IncreaseSdFontSizeBig:
+                    g_readerText.stepSdFontSize(4);
+                    g_readerBook.invalidatePaginationForLayoutChange();
+                    state_ = SystemState::Settings;
+                    renderState(state_);
+                    g_displayService.enqueueFull(false, 100);
+                    suppressAfterTransition();
+                    break;
+
                 case UiAction::CycleReaderLayoutPreset:
                     g_readerText.cycleLayoutPreset();
                     g_readerBook.invalidatePaginationForLayoutChange();

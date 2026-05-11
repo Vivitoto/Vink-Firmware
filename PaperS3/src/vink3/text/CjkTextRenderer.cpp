@@ -23,16 +23,18 @@ bool CjkTextRenderer::begin(M5Canvas* canvas) {
     progmemUiBitmapStart_ = 0;
     if (!canvas_) return false;
 
-    // Official PaperS3 docs confirm a 16-level grayscale EPD, but the custom
-    // font source is Vink-owned. Real-device feedback showed SPIFFS-dependent
-    // UI fonts can silently fall back to the tiny built-in subset and then mix
-    // with 32px ReadPaper glyphs. Make the compiled 24px Simplified Chinese UI
-    // font the primary path so the shell does not depend on the filesystem.
     const bool progmemUi = beginProgmemUiFont();
     if (progmemUi) {
-        Serial.printf("[vink3][cjk] PROGMEM SC 24px UI font loaded: glyphs=%lu size=%lu\n",
+        Serial.printf("[vink3][cjk] PROGMEM Bold 24px UI font loaded: glyphs=%lu size=%lu\n",
                       static_cast<unsigned long>(progmemUiCharCount_),
                       static_cast<unsigned long>(g_vink_ui_font24_size));
+    }
+
+    // Try loading 16px Bold UI font from SPIFFS for small labels
+    if (fontSmall_.loadFont("/fonts/noto_bold_16.fnt")) {
+        Serial.println("[vink3][cjk] SPIFFS Bold 16px small font loaded");
+    } else {
+        Serial.println("[vink3][cjk] SPIFFS Bold 16px not found — small text will use 24px");
     }
 
     if (progmemUi) return true;
@@ -221,17 +223,17 @@ void CjkTextRenderer::fitTextToWidth(const char* text, char* out, size_t outSize
 uint16_t CjkTextRenderer::pixelColorForNibble(uint8_t nibble, uint16_t color) const {
     if (color == TFT_WHITE) return TFT_WHITE;
     if (color != TFT_BLACK) return color;
-    // E-paper has only 16 gray levels with a steep contrast response curve.
-    // A+B+D: linear kRemap prevents Bayer dithering artifacts at AA edge
-    // pixels (nibble 1-4). No aggressive compression — edge pixels stay closer
-    // to background gray (~192), producing smoother Bayer transitions.
+    // Gamma-0.7 anti-aliasing curve for EPD.
+    // Pushes edge nibbles 1-4 deeper into visible gray so Bayer dithering
+    // (IT8951 ±30) cannot scatter them back into imperceptible near-white noise.
+    // Without this curve the anti-alias data in the font is wasted — every
+    // edge pixel becomes random on/off chessboard noise that looks like jaggies.
     static const uint8_t kRemap[16] __attribute__((aligned(1))) = {
         0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15
     };
     static const uint16_t k4BitToRgb565[16] __attribute__((aligned(2))) = {
-        0xFFFF, 0xEFFF, 0xCFFF, 0xADAD, 0x8A8A, 0x7B7B,
-        0x6B6B, 0x5B5B, 0x4B4B, 0x39A5, 0x294A, 0x2108,
-        0x1800, 0x1000, 0x0841, 0x0000
+        0xFFFF, 0xDEDB, 0xC618, 0xAD75, 0x9CD3, 0x8C51, 0x7BCF, 0x6B4D,
+        0x5ACB, 0x4A69, 0x39E7, 0x3186, 0x2124, 0x10A2, 0x0841, 0x0000
     };
     return k4BitToRgb565[kRemap[nibble & 0x0F]];
 }
@@ -318,6 +320,72 @@ void CjkTextRenderer::drawCentered(int16_t x, int16_t y, int16_t w, int16_t h, c
 
 void CjkTextRenderer::drawRight(int16_t rightX, int16_t y, const char* text, uint16_t color) {
     drawText(rightX - textWidth(text ? text : ""), y, text, color);
+}
+
+// ── 16px small-text methods ──────────────────────────────────────────────
+
+int16_t CjkTextRenderer::textWidthSmall(const char* text) {
+    if (!text || !fontSmall_.isLoaded()) return textWidth(text);
+    int16_t w = 0;
+    const uint8_t* bytes = reinterpret_cast<const uint8_t*>(text);
+    size_t pos = 0;
+    const size_t len = strlen(text);
+    while (pos < len) {
+        uint32_t ch = decodeUtf8(bytes, pos, len);
+        if (ch == '\n') break;
+        uint8_t adv = fontSmall_.getCharAdvance(ch);
+        w += adv > 0 ? adv : 8;
+    }
+    return w;
+}
+
+void CjkTextRenderer::drawTextSmall(int16_t x, int16_t y, const char* text, uint16_t color) {
+    if (!text || !canvas_) return;
+    
+    if (fontSmall_.isLoaded()) {
+        // Use 16px SPIFFS font
+        const uint8_t* bytes = reinterpret_cast<const uint8_t*>(text);
+        size_t pos = 0;
+        const size_t len = strlen(text);
+        int16_t cx = x;
+        while (pos < len) {
+            uint32_t ch = decodeUtf8(bytes, pos, len);
+            uint8_t w = 0, h = 0, adv = 0;
+            int8_t bx = 0, by = 0;
+            const uint8_t* bmp = fontSmall_.getCharBitmapGray(ch, w, h, bx, by, adv);
+            if (bmp && w > 0 && h > 0) {
+                const int16_t drawX = cx + bx;
+                const int16_t drawY = y + (16 - h) / 2;
+                for (int row = 0; row < h; row++) {
+                    const int16_t py = drawY + row;
+                    if (py < 0 || py >= kPaperS3Height) continue;
+                    for (int col = 0; col < w; col++) {
+                        const int16_t px = drawX + col;
+                        if (px < 0 || px >= kPaperS3Width) continue;
+                        const uint8_t packed = bmp[row * ((w + 1) / 2) + col / 2];
+                        const uint8_t nibble = (col % 2 == 0) ? ((packed >> 4) & 0x0F) : (packed & 0x0F);
+                        if (nibble > 0)
+                            canvas_->drawPixel(px, py, pixelColorForNibble(nibble, color));
+                    }
+                }
+                cx += adv > 0 ? adv : w;
+            } else {
+                cx += 8;
+            }
+        }
+    } else {
+        // Fallback: use 24px PROGMEM font (larger but works)
+        drawText(x, y, text, color);
+    }
+}
+
+void CjkTextRenderer::drawCenteredSmall(int16_t x, int16_t y, int16_t w, int16_t h,
+                                         const char* text, uint16_t color) {
+    if (!text || !text[0]) return;
+    const int16_t tw = textWidthSmall(text);
+    const int16_t lx = x + (w - tw) / 2;
+    const int16_t ly = y + (h - 16) / 2;
+    drawTextSmall(lx > x + 6 ? lx : x + 6, ly, text, color);
 }
 
 } // namespace vink3

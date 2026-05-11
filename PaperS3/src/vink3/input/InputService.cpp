@@ -126,23 +126,17 @@ void InputService::pollPowerButton(uint32_t now) {
     const uint32_t heldMs = powerPressStartedMs_ ? now - powerPressStartedMs_ : 0;
     powerPressStartedMs_ = 0;
     if (heldMs < kPowerMinClickMs || heldMs > kPowerMaxClickMs) {
-        lastPowerClickMs_ = 0;
         return;
     }
 
-    if (lastPowerClickMs_ != 0 && now - lastPowerClickMs_ <= kPowerDoubleClickWindowMs) {
-        lastPowerClickMs_ = 0;
-        powerArmed_ = false;
-        Message msg;
-        msg.type = MessageType::PowerButton;
-        msg.timestampMs = now;
-        stateMachine_->post(msg, 0);
-        Serial.printf("[vink3][power] BtnPWR double click -> graceful shutdown (held=%lu)\n",
-                      static_cast<unsigned long>(heldMs));
-        return;
-    }
-
-    lastPowerClickMs_ = now;
+    // Single-click → shutdown (no double-click required)
+    powerArmed_ = false;
+    Message msg;
+    msg.type = MessageType::PowerButton;
+    msg.timestampMs = now;
+    stateMachine_->post(msg, 0);
+    Serial.printf("[vink3][power] BtnPWR single click -> graceful shutdown (held=%lu)\n",
+                  static_cast<unsigned long>(heldMs));
 }
 
 void InputService::pollTouch() {

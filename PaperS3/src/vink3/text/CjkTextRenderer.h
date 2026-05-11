@@ -1,21 +1,27 @@
 #pragma once
 #include <Arduino.h>
 #include <M5Unified.h>
+#include "../../FontManager.h"
 
 namespace vink3 {
 
-// v0.3 UI text renderer. It avoids M5GFX drawString for UTF-8 Chinese.
-// Vink shell UI uses one compiled Simplified Chinese UI font so shell text does
-// not depend on SD/SPIFFS font files.
+// UI text renderer with dual-size support:
+// - 24px Noto Sans CJK SC Bold (PROGMEM, primary)
+// - 16px Noto Sans CJK SC Bold (SPIFFS, small labels/subtitles)
 class CjkTextRenderer {
 public:
     bool begin(M5Canvas* canvas);
     bool ready() const;
     uint16_t fontSize() const;
+    uint16_t fontSizeSmall() const { return 16; }
+    bool hasSmallFont() const { return fontSmall_.isLoaded(); }
     int16_t textWidth(const char* text);
+    int16_t textWidthSmall(const char* text);
     void fitTextToWidth(const char* text, char* out, size_t outSize, int16_t maxWidth);
     void drawText(int16_t x, int16_t y, const char* text, uint16_t color = TFT_BLACK);
+    void drawTextSmall(int16_t x, int16_t y, const char* text, uint16_t color = TFT_BLACK);
     void drawCentered(int16_t x, int16_t y, int16_t w, int16_t h, const char* text, uint16_t color = TFT_BLACK);
+    void drawCenteredSmall(int16_t x, int16_t y, int16_t w, int16_t h, const char* text, uint16_t color = TFT_BLACK);
     void drawRight(int16_t rightX, int16_t y, const char* text, uint16_t color = TFT_BLACK);
 
 private:
@@ -47,6 +53,7 @@ private:
     uint16_t progmemUiFontSize_ = 0;
     uint16_t progmemUiBaseline_ = 0;
     uint32_t progmemUiBitmapStart_ = 0;
+    FontManager fontSmall_;
 };
 
 extern CjkTextRenderer g_cjkText;
