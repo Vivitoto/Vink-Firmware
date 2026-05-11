@@ -109,7 +109,7 @@ void ReaderTextRenderer::applyLayoutPresetToSettings() {
             on(settings_.formatting1, 3); // NewPage
             on(settings_.formatting1, 4); // DynamicLineHeight
             on(settings_.renderOpt1, 1);  // AntiAlias
-            on(settings_.renderOpt1, 3);  // PageTurnEffect
+            on(settings_.renderOpt1, 3);  // PageTurnEffect (native IT8951 DU4 sweep)
             level(settings_.spacing, 0, 0);
             level(settings_.spacing, 1, 0);
             level(settings_.spacing, 2, 0);
@@ -129,7 +129,7 @@ void ReaderTextRenderer::applyLayoutPresetToSettings() {
             on(settings_.formatting1, 3); // NewPage
             on(settings_.formatting1, 4); // DynamicLineHeight
             on(settings_.renderOpt1, 1);  // AntiAlias
-            on(settings_.renderOpt1, 3);  // PageTurnEffect
+            on(settings_.renderOpt1, 3);  // PageTurnEffect (native IT8951 DU4 sweep)
             level(settings_.spacing, 0, 1);
             level(settings_.spacing, 1, 1);
             level(settings_.spacing, 2, 1);
@@ -241,6 +241,15 @@ void ReaderTextRenderer::setPageMarginLevel(uint8_t level) {
     level &= 0x03;
     ReaderSettings::setSlot(settings_.spacing, 0, level);
     ReaderSettings::setSlot(settings_.spacing, 1, level);
+
+    static constexpr int16_t kTopMargins[4] = {68, 78, 92, 108};
+    static constexpr int16_t kBottomMargins[4] = {22, 30, 40, 52};
+    static constexpr int16_t kSideMargins[4] = {20, 28, 38, 48};
+    webMarginTop_ = static_cast<uint8_t>(kTopMargins[level]);
+    webMarginBottom_ = static_cast<uint8_t>(kBottomMargins[level]);
+    webMarginLeft_ = static_cast<uint8_t>(kSideMargins[level]);
+    webMarginRight_ = static_cast<uint8_t>(kSideMargins[level]);
+
     saveLocalSettings();
     Serial.printf("[vink3][reader] page margin -> %s spacing=0x%04x\n", pageMarginLabel(), settings_.spacing);
 }
@@ -263,7 +272,18 @@ void ReaderTextRenderer::cycleLineSpacing() {
 
 void ReaderTextRenderer::setLineSpacingLevel(uint8_t level) {
     if (settings_.schema == 0) applyLayoutPresetToSettings();
-    ReaderSettings::setSlot(settings_.spacing, 2, level & 0x03);
+    level &= 0x03;
+    ReaderSettings::setSlot(settings_.spacing, 2, level);
+
+    static constexpr int16_t kLineGaps[4] = {3, 7, 12, 17};
+    const int16_t gap = kLineGaps[level];
+    const uint16_t fz = fontSize();
+    uint16_t percent = (static_cast<int32_t>(gap) * 100 + static_cast<int32_t>(fz / 2))
+                          / static_cast<int32_t>(max<uint8_t>(fz, 1));
+    if (percent < 50) percent = 50;
+    if (percent > 200) percent = 200;
+    webLineSpacing_ = static_cast<uint8_t>(percent);
+
     saveLocalSettings();
     Serial.printf("[vink3][reader] line spacing -> %s spacing=0x%04x\n", lineSpacingLabel(), settings_.spacing);
 }
@@ -320,10 +340,10 @@ ReaderRenderOptions ReaderTextRenderer::currentOptions() const {
     ReaderRenderOptions opt;
     opt.fontSize = fontSize();
 
-    static constexpr int16_t kTopMargins[4] = {72, 74, 82, 90};
-    static constexpr int16_t kBottomMargins[4] = {26, 30, 36, 44};
-    static constexpr int16_t kSideMargins[4] = {24, 28, 34, 40};
-    static constexpr int16_t kLineGaps[4] = {5, 7, 10, 13};
+    static constexpr int16_t kTopMargins[4] = {68, 78, 92, 108};
+    static constexpr int16_t kBottomMargins[4] = {22, 30, 40, 52};
+    static constexpr int16_t kSideMargins[4] = {20, 28, 38, 48};
+    static constexpr int16_t kLineGaps[4] = {3, 7, 12, 17};
     // Vink keeps four letter-spacing levels. Clamp the tightest level to zero
     // for the current renderer
     // so glyphs do not overlap on the PaperS3 panel.
@@ -331,6 +351,7 @@ ReaderRenderOptions ReaderTextRenderer::currentOptions() const {
     static constexpr int16_t kParagraphGaps[4] = {0, 0, 0, 0};  // no paragraph spacing, per user preference
     static constexpr int16_t kUnderlineOffsets[4] = {1, 2, 4, 6};
 
+    // 本地设置作为预设基础，再以合并后的本机排版参数（含 Web 配置写回）形成最终运行值。
     opt.marginTop = kTopMargins[settings_.topBottomLevel()];
     opt.marginBottom = kBottomMargins[settings_.topBottomLevel()];
     opt.marginLeft = kSideMargins[settings_.leftRightLevel()];
@@ -346,6 +367,7 @@ ReaderRenderOptions ReaderTextRenderer::currentOptions() const {
     opt.underline = settings_.underlineEnabled();
     opt.firstLineIndentPx = opt.indentFirstLine ? max<int16_t>(fontSize() * 2, 56) : 0;
 
+    // Web 配置与本机排版配置合并后作为最终运行时源。
     opt.marginLeft = webMarginLeft_;
     opt.marginRight = webMarginRight_;
     opt.marginTop = max<int16_t>(webMarginTop_, kReaderBodyTopMin);
@@ -356,11 +378,26 @@ ReaderRenderOptions ReaderTextRenderer::currentOptions() const {
     opt.firstLineIndentPx = opt.indentFirstLine ? static_cast<int16_t>(fontSize() * webIndentFirstLine_) : 0;
     opt.justify = webJustify_;
 
-    // Original comparison mode intentionally disables the Vink formatting
-    // transforms but still keeps Vink's safe text box.
+    // Apply the quick in-reader layout preset after base values so the menu's
+    // “排版优化” switch has an immediately visible effect.
     if (layoutPreset_ == 0) {
+        // 原始：disable Vink formatting transforms for comparison.
+        opt.indentFirstLine = false;
+        opt.compactBlankLines = false;
+        opt.dynamicLineHeight = false;
+        opt.breakLineOpt = false;
+        opt.justify = false;
+        opt.firstLineIndentPx = 0;
         opt.letterGap = 0;
         opt.underlineOffset = 2;
+    } else if (layoutPreset_ == 2) {
+        // 紧凑：visibly tighter safe text box and line spacing.
+        opt.marginLeft = max<int16_t>(12, opt.marginLeft - 8);
+        opt.marginRight = max<int16_t>(12, opt.marginRight - 8);
+        opt.marginTop = max<int16_t>(kReaderBodyTopMin, opt.marginTop - 6);
+        opt.marginBottom = max<int16_t>(kReaderFooterReserve, opt.marginBottom - 6);
+        opt.lineGap = max<int16_t>(2, opt.lineGap - 3);
+        opt.paragraphGap = max<int16_t>(0, opt.paragraphGap - 2);
     }
     return opt;
 }

@@ -10,6 +10,10 @@ namespace {
 constexpr uint32_t kPollDelayMs = 10;
 constexpr uint32_t kDebounceMs = 35;
 constexpr uint32_t kMoveDiagnosticMs = 100;
+constexpr uint32_t kPowerBootIgnoreMs = 1200;
+constexpr uint32_t kPowerMinClickMs = 30;
+constexpr uint32_t kPowerMaxClickMs = 700;
+constexpr uint32_t kPowerDoubleClickWindowMs = 650;
 constexpr uint32_t kLongPressMs = 700;
 constexpr int16_t kTapSlopPx = 30;
 constexpr int16_t kLongPressMovePx = 34;
@@ -47,12 +51,15 @@ bool InputService::begin(StateMachine* stateMachine) {
             return false;
         }
     }
-    // Official PaperS3 documentation describes the side key as a hardware
-    // power key: single click powers on, double-click powers off, long press
-    // enters download mode. Current M5Unified does not expose that PMS150G
-    // side key as a readable BtnPWR state for board_M5PaperS3, so the input
-    // service must not pretend a software single-press shutdown exists.
-    Serial.println("[vink3][input] service started; PaperS3 side power key is hardware-managed");
+    // PaperS3's side key is primarily hardware-managed (single click powers on,
+    // double-click powers off, long press enters download mode). Some M5Unified
+    // builds expose BtnPWR before the PMIC cuts power; when available, mirror a
+    // double-click into Vink's graceful shutdown path so it shows the same final
+    // "Vink 已关机" page as the on-screen shutdown button. If the PMIC powers off
+    // first, this detector simply never fires.
+    M5.BtnPWR.setDebounceThresh(0);
+    M5.BtnPWR.setHoldThresh(0);
+    Serial.println("[vink3][input] service started; PaperS3 side power double-click detector enabled when exposed");
     return true;
 }
 
@@ -64,6 +71,7 @@ void InputService::taskLoop() {
     for (;;) {
         M5.update();
         const uint32_t now = millis();
+        pollPowerButton(now);
         pollTouch();
         vTaskDelay(pdMS_TO_TICKS(kPollDelayMs));
     }
@@ -87,6 +95,54 @@ void InputService::suppressUntilRelease(uint32_t cooldownMs) {
 
 void InputService::updateTouchCoordMode(int, int) {
     // Official baseline: no coordinate-mode guessing.
+}
+
+void InputService::pollPowerButton(uint32_t now) {
+    if (!stateMachine_) return;
+
+    const bool pressed = M5.BtnPWR.isPressed();
+    if (!powerArmed_) {
+        if (now > kPowerBootIgnoreMs && !pressed) {
+            powerArmed_ = true;
+            powerWasPressed_ = false;
+            powerPressStartedMs_ = 0;
+            lastPowerClickMs_ = 0;
+            Serial.println("[vink3][power] BtnPWR double-click detector armed");
+        }
+        return;
+    }
+
+    if (pressed) {
+        if (!powerWasPressed_) {
+            powerWasPressed_ = true;
+            powerPressStartedMs_ = now;
+        }
+        return;
+    }
+
+    if (!powerWasPressed_) return;
+
+    powerWasPressed_ = false;
+    const uint32_t heldMs = powerPressStartedMs_ ? now - powerPressStartedMs_ : 0;
+    powerPressStartedMs_ = 0;
+    if (heldMs < kPowerMinClickMs || heldMs > kPowerMaxClickMs) {
+        lastPowerClickMs_ = 0;
+        return;
+    }
+
+    if (lastPowerClickMs_ != 0 && now - lastPowerClickMs_ <= kPowerDoubleClickWindowMs) {
+        lastPowerClickMs_ = 0;
+        powerArmed_ = false;
+        Message msg;
+        msg.type = MessageType::PowerButton;
+        msg.timestampMs = now;
+        stateMachine_->post(msg, 0);
+        Serial.printf("[vink3][power] BtnPWR double click -> graceful shutdown (held=%lu)\n",
+                      static_cast<unsigned long>(heldMs));
+        return;
+    }
+
+    lastPowerClickMs_ = now;
 }
 
 void InputService::pollTouch() {

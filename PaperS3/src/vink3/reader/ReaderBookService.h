@@ -2,9 +2,17 @@
 #include <Arduino.h>
 #include <SD.h>
 #include "../../ChapterDetector.h"
+#include "../ReadPaper176.h"
 #include "ReaderTextRenderer.h"
 
 namespace vink3 {
+
+struct ShelfEntry {
+    uint64_t hash;
+    uint32_t lastOpenMs;
+    uint32_t addedMs;
+    char path[160];
+};
 
 class ReaderBookService {
 public:
@@ -15,8 +23,17 @@ public:
     int tocCount() const { return tocCount_; }
     const char* title() const { return title_; }
     const char* path() const { return bookPath_; }
+    bool isShowingToc() const { return showingToc_; }
 
     void renderReaderHome();
+    void renderShelfGrid(uint16_t page = 0);
+    bool nextShelfPage();
+    bool prevShelfPage();
+    bool handleShelfTap(int16_t x, int16_t y);
+    bool handleReaderHomeTap(int16_t x, int16_t y);
+    bool openLastBook();
+    bool restartReading();
+    void showTocForCurrentBook();
     void renderOpenOrHelp();
     void renderCurrent();
     void renderBookLoadingPage(const char* stage);
@@ -41,29 +58,57 @@ public:
     bool consumeReadingPageRendered();
     bool consumeLastTapPageTurn();
     bool consumeLastTapNextPage();
+    bool consumeLastTapBackHome();
 
 private:
     static constexpr int kMaxTocEntries = 2000;
     static constexpr int kTocEntriesPerPage = 15;
     static constexpr int kMaxBooks = 160;
     static constexpr int kBooksPerPage = 12;
+    static constexpr int kMaxShelfBooks = 36;
+    static constexpr int kShelfBooksPerPage = 9;
+    static constexpr int kShelfCols = 3;
+    static constexpr int kShelfRows = 3;
     static constexpr uint8_t kMaxLibraryScanDepth = 6;
     static constexpr uint8_t kBookHasTocCache = 0x01;
     static constexpr uint8_t kBookHasProgress = 0x02;
     static constexpr uint8_t kBookHasPageCache = 0x04;
     static constexpr uint8_t kBookIsDirectory = 0x80;
+    // List row touch width mirrors VinkUiRenderer::renderUiListPage() x/w.
+    static constexpr int16_t kListTouchX = 28;
+    static constexpr int16_t kListTouchW = kPaperS3Width - 56;
     static constexpr int16_t kListFirstRowY = 204;
     static constexpr int16_t kListRowH = 52;
     static constexpr int16_t kTocFirstRowY = 176;
     static constexpr int16_t kTocRowH = 48;
-    static constexpr int16_t kEntryButtonX = 70;
-    static constexpr int16_t kEntryButtonW = 400;
+    // Shelf grid geometry must match VinkUiRenderer drawBookCard() pixel-for-pixel.
+    static constexpr int16_t kShelfCardW = 148;
+    static constexpr int16_t kShelfCardH = 216;
+    static constexpr int16_t kShelfCardGap = 14;
+    static constexpr int16_t kShelfGridY = 228;
+    static constexpr int16_t kShelfBrowserEntryY = 158;
+    static constexpr int16_t kShelfBrowserEntryH = 52;
+
+    // Reader home geometry must match VinkUiRenderer::renderReaderHome().
+    static constexpr int16_t kReaderHomeTopY = 158;
+    static constexpr int16_t kReaderHomeTopH = 320;
+    static constexpr int16_t kReaderHomeTopW = 180;
+    static constexpr int16_t kReaderHomeRecentCardW = 140;
+    static constexpr int16_t kReaderHomeRecentCardH = 200;
+    static constexpr int16_t kReaderHomeRecentGap = 20;
+    static constexpr int16_t kUiMarginX = 28;
+
+    static constexpr int16_t kUiContentW = kPaperS3Width - kUiMarginX * 2;
+    // Must match VinkUiRenderer::renderUiActionPage() button geometry.
+    static constexpr int16_t kEntryButtonX = 64;
+    static constexpr int16_t kEntryButtonW = 416;
     static constexpr int16_t kEntryButtonH = 52;
-    static constexpr int16_t kEntryContinueY = 498;
-    static constexpr int16_t kEntryTocY = 570;
-    static constexpr int16_t kEntryRestartY = 642;
-    static constexpr int16_t kEntryRebuildTocY = 786;
-    static constexpr int16_t kEntryPageTurnY = 858;
+    static constexpr int16_t kEntryButtonGap = 16;
+    static constexpr int16_t kEntryContinueY = 540;
+    static constexpr int16_t kEntryTocY = kEntryContinueY + (kEntryButtonH + kEntryButtonGap);
+    static constexpr int16_t kEntryRestartY = kEntryTocY + (kEntryButtonH + kEntryButtonGap);
+    static constexpr int16_t kEntryRebuildTocY = kEntryRestartY + (kEntryButtonH + kEntryButtonGap);
+    static constexpr int16_t kEntryPageTurnY = kEntryRebuildTocY + (kEntryButtonH + kEntryButtonGap);
     static constexpr int kMaxChapterPages = 512;
 
     bool ensureTocBuffer();
@@ -108,8 +153,11 @@ private:
     void saveProgress();
     bool loadLastBookPath(char* out, size_t len) const;
     void saveLastBookPath();
+    bool addToShelf(const char* bookPath);
+    bool loadShelf();
+    bool saveShelf();
     bool readProgressForBook(const char* bookPath, uint16_t& chapter, uint16_t& page) const;
-    bool openLastBook();
+    bool readProgressPercentForBook(const char* bookPath, char* out, size_t len);
     bool measurePageEndOffset(uint32_t start, uint32_t fullEnd, uint32_t& outEnd) const;
     bool loadChapterPageCache(int index, uint32_t start, uint32_t end);
     void saveChapterPageCache(int index, uint32_t start, uint32_t end);
@@ -128,7 +176,6 @@ private:
     bool renderCurrentReadingPage();
     bool renderChapterPreview(int index);
     bool continueReading();
-    bool restartReading();
     bool openReaderMenu();
     bool closeReaderMenu();
     bool cycleRefreshStrategy();
@@ -159,6 +206,10 @@ private:
     uint16_t bookPage_ = 0;
     bool booksScanned_ = false;
     bool lastLibraryTapOpenedBook_ = false;
+    uint16_t shelfPage_ = 0;
+    bool shelfShowingBrowser_ = false;
+    ShelfEntry* shelf_ = nullptr;
+    int shelfCount_ = 0;
     int tocCount_ = 0;
     uint16_t tocPage_ = 0;
     int currentTocIndex_ = -1;
@@ -174,6 +225,7 @@ private:
     bool lastRenderWasReadingPage_ = false;
     bool lastTapPageTurn_ = false;
     bool lastTapNextPage_ = false;
+    bool lastTapBackHome_ = false;
     bool showingBookEntry_ = false;
     bool showingReaderMenu_ = false;
     bool showingToc_ = true;

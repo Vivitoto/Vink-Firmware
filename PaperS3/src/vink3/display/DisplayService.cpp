@@ -253,88 +253,25 @@ const char* DisplayService::readerRefreshStrategyLabel() const {
     return "标准";
 }
 
-// Strip-wipe page-turn animation. Keep this isolated in DisplayService so it
-// does not touch boot/runtime initialization. HorizontalShutter wipes left to
-// right; VerticalShutter wipes right to left. StateMachine maps next/previous
-// page onto these directions to match the EDCBook-style visual metaphor.
+// Native IT8951 DU4 sweep. Keep this isolated in DisplayService so it does not
+// touch boot/runtime initialization.
+//
+// Both directions use rotation 0 so pixel data stays upright. The scan
+// direction difference is cosmetic — the important part is a single clean
+// sweep with no software strips.
 void DisplayService::pushShutterAnimation(M5Canvas* canvas, DisplayEffect effect) {
     if (!canvas) return;
 
-    constexpr uint16_t kStripW = 200;
-    constexpr uint16_t kStepW = 24;
-    constexpr uint32_t kStripDelayMs = 0;
-    constexpr epd_mode_t kShutterMode = epd_mode_t::epd_text;
-
-    const uint16_t width = canvas->width();
-    const uint16_t height = canvas->height();
-    if (width == 0 || height == 0) return;
-
-    const uint16_t maxStripW = std::min<uint16_t>(kStripW, width);
-
-    M5Canvas strip(&M5.Display);
-    strip.setPsram(true);
-    strip.setColorDepth(canvas->getColorDepth());
-    if (!strip.createSprite(maxStripW, height)) {
-        M5.Display.setColorDepth(kTextColorDepthHigh);
-        M5.Display.setEpdMode(kNormalRefresh);
-        canvas->pushSprite(&M5.Display, 0, 0);
-        M5.Display.waitDisplay();
-        return;
-    }
-
-    const uint16_t bpp = static_cast<uint16_t>(canvas->getColorDepth()) & static_cast<uint16_t>(lgfx::bit_mask);
-    const bool byteAligned = (bpp == 8 || bpp == 16 || bpp == 24 || bpp == 32);
-    const size_t srcRowBytes = height ? canvas->bufferLength() / height : 0;
-    const size_t dstRowBytes = height ? strip.bufferLength() / height : 0;
-    const uint8_t* srcBase = reinterpret_cast<const uint8_t*>(canvas->getBuffer());
-    uint8_t* dstBase = reinterpret_cast<uint8_t*>(strip.getBuffer());
-
-    auto copyStrip = [&](uint16_t x, uint16_t w) {
-        strip.clear();
-        if (byteAligned && srcBase && dstBase && srcRowBytes > 0 && dstRowBytes > 0) {
-            const size_t bytesPerPixel = bpp / 8;
-            const size_t copyBytes = static_cast<size_t>(w) * bytesPerPixel;
-            const size_t srcXBytes = static_cast<size_t>(x) * bytesPerPixel;
-            for (uint16_t y = 0; y < height; y++) {
-                memcpy(dstBase + static_cast<size_t>(y) * dstRowBytes,
-                       srcBase + static_cast<size_t>(y) * srcRowBytes + srcXBytes,
-                       copyBytes);
-            }
-        } else {
-            for (uint16_t yy = 0; yy < height; yy++) {
-                for (uint16_t xx = 0; xx < w; xx++) {
-                    strip.drawPixel(xx, yy, canvas->readPixel(x + xx, yy));
-                }
-            }
-        }
-    };
+    const uint8_t savedRotation = M5.Display.getRotation();
+    M5.Display.setRotation(0);
 
     M5.Display.waitDisplay();
     M5.Display.setColorDepth(kTextColorDepthHigh);
-    M5.Display.setEpdMode(kShutterMode);
+    M5.Display.setEpdMode(epd_mode_t::epd_fast);  // DU4: one native sweep, medium speed
 
-    if (effect == DisplayEffect::HorizontalShutter) {
-        for (uint16_t x = 0; x < width; x += kStepW) {
-            // Overlap adjacent updates so partial-refresh strip boundaries do
-            // not leave pale/dark vertical seams on the e-paper panel.
-            const uint16_t w = std::min<uint16_t>(maxStripW, width - x);
-            copyStrip(x, w);
-            strip.pushSprite(&M5.Display, x, 0);
-            if (x + kStepW < width) delay(kStripDelayMs);
-        }
-    } else {
-        int32_t x = static_cast<int32_t>(width);
-        while (x > 0) {
-            x = std::max<int32_t>(0, x - kStepW);
-            const uint16_t w = std::min<uint16_t>(maxStripW, width - static_cast<uint16_t>(x));
-            copyStrip(static_cast<uint16_t>(x), w);
-            strip.pushSprite(&M5.Display, x, 0);
-            if (x > 0) delay(kStripDelayMs);
-        }
-    }
-
-    strip.deleteSprite();
+    canvas->pushSprite(&M5.Display, 0, 0);
     M5.Display.waitDisplay();
+    M5.Display.setRotation(savedRotation);
 }
 
 epd_mode_t DisplayService::chooseReaderRefreshMode(const DisplayRequest& request) {

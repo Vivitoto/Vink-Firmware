@@ -390,6 +390,11 @@ bool formValue(const String& body, const char* key, String& out) {
     return false;
 }
 
+bool formHasKey(const String& body, const char* key) {
+    String ignored;
+    return formValue(body, key, ignored);
+}
+
 uint8_t formU8(const String& body, const char* key, uint8_t fallback, uint8_t lo, uint8_t hi) {
     String v;
     if (!formValue(body, key, v)) return fallback;
@@ -478,6 +483,15 @@ esp_err_t configPost(httpd_req_t* req) {
     String body;
     if (!readRequestBody(req, body)) return errJson(req, "400 Bad Request", "Invalid body");
 
+    g_readerText.setLayoutPreset(formU8(body, "layoutPreset", g_readerText.layoutPreset(), 0, 2));
+    const bool hasPageMarginLevel = formHasKey(body, "pageMarginLevel");
+    if (hasPageMarginLevel) {
+        g_readerText.setPageMarginLevel(formU8(body, "pageMarginLevel", g_readerText.pageMarginLevel(), 0, 3));
+    }
+    const bool hasLineSpacingLevel = formHasKey(body, "lineSpacingLevel");
+    if (hasLineSpacingLevel) {
+        g_readerText.setLineSpacingLevel(formU8(body, "lineSpacingLevel", g_readerText.lineSpacingLevel(), 0, 3));
+    }
     g_readerText.setWebLayout(
         formU8(body, "fontSize", g_readerText.readerFontSizeSetting(), 16, 24),
         formU8(body, "lineSpacing", g_readerText.webLineSpacing(), 50, 200),
@@ -488,9 +502,6 @@ esp_err_t configPost(httpd_req_t* req) {
         formU8(body, "marginTop", g_readerText.webMarginTop(), 0, 160),
         formU8(body, "marginBottom", g_readerText.webMarginBottom(), 0, 160),
         formBool(body, "justify", g_readerText.webJustify()));
-    g_readerText.setLayoutPreset(formU8(body, "layoutPreset", g_readerText.layoutPreset(), 0, 2));
-    g_readerText.setPageMarginLevel(formU8(body, "pageMarginLevel", g_readerText.pageMarginLevel(), 0, 3));
-    g_readerText.setLineSpacingLevel(formU8(body, "lineSpacingLevel", g_readerText.lineSpacingLevel(), 0, 3));
     g_readerText.setAntiAlias(formBool(body, "antiAlias", g_readerText.antiAliasEnabled()));
     g_readerText.setUnderline(formBool(body, "underline", g_readerText.underlineEnabled()));
     g_readerText.setPageTurnEffect(formBool(body, "pageTurnEffect", g_readerText.pageTurnEffectEnabled()));

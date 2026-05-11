@@ -25,6 +25,8 @@ static constexpr const char* kVinkCacheRoot = "/config/vink-cache";
 static constexpr const char* kSidecarRoot = "/config/vink-cache/books";
 static constexpr const char* kLastBookRecordPath = "/config/vink-cache/.vink-last-book";
 static constexpr const char* kLegacyLastBookRecordPath = "/books/.vink-last-book";
+static constexpr const char* kShelfPath = "/config/vink-cache/.vink-shelf";
+static constexpr uint32_t kShelfMagic = 0x56534846UL; // VSHF
 }
 
 ReaderBookService g_readerBook;
@@ -35,6 +37,14 @@ bool ReaderBookService::begin() {
     if (!pageStarts_) {
         pageStarts_ = static_cast<uint32_t*>(heap_caps_calloc(kMaxChapterPages, sizeof(uint32_t), MALLOC_CAP_SPIRAM));
         if (!pageStarts_) pageStarts_ = static_cast<uint32_t*>(calloc(kMaxChapterPages, sizeof(uint32_t)));
+    }
+    if (!shelf_) {
+        shelf_ = static_cast<ShelfEntry*>(heap_caps_calloc(kMaxShelfBooks, sizeof(ShelfEntry), MALLOC_CAP_SPIRAM));
+        if (!shelf_) shelf_ = static_cast<ShelfEntry*>(calloc(kMaxShelfBooks, sizeof(ShelfEntry)));
+    }
+    if (!shelf_) {
+        Serial.println("[vink3][book] shelf alloc failed");
+        return false;
     }
     // Keep boot non-blocking: SD is initialized lazily when the user opens the
     // library/book path. Previous PaperS3 releases showed that SD work during
@@ -67,6 +77,7 @@ bool ReaderBookService::ensureSdReady() {
         if (!SD.exists(kConfigRoot)) SD.mkdir(kConfigRoot);
         if (!SD.exists(kVinkCacheRoot)) SD.mkdir(kVinkCacheRoot);
         if (!SD.exists(kSidecarRoot)) SD.mkdir(kSidecarRoot);
+        if (shelfCount_ <= 0) loadShelf();
     }
     Serial.printf("[vink3][book] SD %s\n", sdReady_ ? "ready" : "unavailable");
     return sdReady_;
@@ -755,6 +766,125 @@ void ReaderBookService::saveLastBookPath() {
     f.close();
 }
 
+// ── Shelf ────────────────────────────────────────────────────────────
+
+bool ReaderBookService::loadShelf() {
+    if (!ensureSdReady() || !shelf_) return false;
+    shelfCount_ = 0;
+    File f = SD.open(kShelfPath, FILE_READ);
+    if (!f) return true; // no shelf yet, not an error
+    uint32_t magic = 0;
+    f.read(reinterpret_cast<uint8_t*>(&magic), sizeof(magic));
+    if (magic != kShelfMagic) { f.close(); return true; }
+    uint16_t count = 0;
+    f.read(reinterpret_cast<uint8_t*>(&count), sizeof(count));
+    count = min<uint16_t>(count, kMaxShelfBooks);
+    for (uint16_t i = 0; i < count; ++i) {
+        ShelfEntry e;
+        memset(&e, 0, sizeof(e));
+        f.read(reinterpret_cast<uint8_t*>(&e.hash), sizeof(e.hash));
+        f.read(reinterpret_cast<uint8_t*>(&e.lastOpenMs), sizeof(e.lastOpenMs));
+        f.read(reinterpret_cast<uint8_t*>(&e.addedMs), sizeof(e.addedMs));
+        uint16_t plen = 0;
+        f.read(reinterpret_cast<uint8_t*>(&plen), sizeof(plen));
+        if (plen >= sizeof(e.path)) plen = sizeof(e.path) - 1;
+        f.read(reinterpret_cast<uint8_t*>(e.path), plen);
+        e.path[plen] = '\0';
+        if (e.path[0] == '/' && shelfCount_ < kMaxShelfBooks) {
+            memcpy(&shelf_[shelfCount_], &e, sizeof(ShelfEntry));
+            shelfCount_++;
+        }
+    }
+    f.close();
+    return true;
+}
+
+bool ReaderBookService::saveShelf() {
+    if (!ensureSdReady() || !shelf_) return false;
+    ensureParentDirForPath(kShelfPath);
+    File f = SD.open(kShelfPath, FILE_WRITE);
+    if (!f) return false;
+    uint32_t magic = kShelfMagic;
+    uint16_t count = static_cast<uint16_t>(shelfCount_);
+    f.write(reinterpret_cast<const uint8_t*>(&magic), sizeof(magic));
+    f.write(reinterpret_cast<const uint8_t*>(&count), sizeof(count));
+    for (int i = 0; i < shelfCount_; ++i) {
+        const ShelfEntry& e = shelf_[i];
+        f.write(reinterpret_cast<const uint8_t*>(&e.hash), sizeof(e.hash));
+        f.write(reinterpret_cast<const uint8_t*>(&e.lastOpenMs), sizeof(e.lastOpenMs));
+        f.write(reinterpret_cast<const uint8_t*>(&e.addedMs), sizeof(e.addedMs));
+        uint16_t plen = static_cast<uint16_t>(min<size_t>(strlen(e.path), sizeof(e.path) - 1));
+        f.write(reinterpret_cast<const uint8_t*>(&plen), sizeof(plen));
+        f.write(reinterpret_cast<const uint8_t*>(e.path), plen);
+    }
+    f.close();
+    return true;
+}
+
+bool ReaderBookService::addToShelf(const char* bookPath) {
+    if (!bookPath || !bookPath[0] || !shelf_) return false;
+    const uint64_t hash = hashBookPath(bookPath);
+    const uint32_t nowMs = millis();
+    // Update existing entry if found
+    for (int i = 0; i < shelfCount_; ++i) {
+        if (shelf_[i].hash == hash && strcmp(shelf_[i].path, bookPath) == 0) {
+            shelf_[i].lastOpenMs = nowMs;
+            // Bubble to front: move this entry to position 0
+            if (i > 0) {
+                ShelfEntry tmp = shelf_[i];
+                memmove(&shelf_[1], &shelf_[0], sizeof(ShelfEntry) * i);
+                shelf_[0] = tmp;
+            }
+            return saveShelf();
+        }
+    }
+    // New entry: insert at front, shift others down
+    if (shelfCount_ >= kMaxShelfBooks) shelfCount_ = kMaxShelfBooks - 1;
+    if (shelfCount_ > 0) memmove(&shelf_[1], &shelf_[0], sizeof(ShelfEntry) * shelfCount_);
+    shelf_[0].hash = hash;
+    shelf_[0].lastOpenMs = nowMs;
+    shelf_[0].addedMs = nowMs;
+    strlcpy(shelf_[0].path, bookPath, sizeof(shelf_[0].path));
+    shelfCount_++;
+    return saveShelf();
+}
+
+bool ReaderBookService::readProgressPercentForBook(const char* bookPath, char* out, size_t len) {
+    if (!out || len == 0) return false;
+    out[0] = '\0';
+    uint16_t chapter = 0, page = 0;
+    if (!readProgressForBook(bookPath, chapter, page)) {
+        strlcpy(out, "未开始", len);
+        return false;
+    }
+    // Try to read total chapter count from .vink-toc header (first 18 bytes).
+    uint16_t totalChapters = 0;
+    if (ensureSdReady()) {
+        char tocPath[kPathBufSize];
+        getSidecarPathForBook(tocPath, sizeof(tocPath), bookPath, ".vink-toc");
+        File f = SD.open(tocPath, FILE_READ);
+        if (!f) {
+            getLegacySidecarPathForBook(tocPath, sizeof(tocPath), bookPath, ".vink-toc");
+            f = SD.open(tocPath, FILE_READ);
+        }
+        if (f) {
+            uint32_t magic = 0;
+            uint16_t count = 0;
+            f.read(reinterpret_cast<uint8_t*>(&magic), sizeof(magic));
+            f.read(reinterpret_cast<uint8_t*>(&count), sizeof(count));
+            if (magic == kTocCacheMagic && count > 0) totalChapters = count;
+            f.close();
+        }
+    }
+    if (totalChapters > 0) {
+        uint8_t pct = min<uint8_t>(100, static_cast<uint8_t>((static_cast<uint32_t>(chapter + 1) * 100) / totalChapters));
+        snprintf(out, len, "第%u章 · %u%%", static_cast<unsigned>(chapter + 1), static_cast<unsigned>(pct));
+    } else {
+        snprintf(out, len, "第%u章", static_cast<unsigned>(chapter + 1));
+    }
+    return true;
+}
+
 bool ReaderBookService::openLastBook() {
     if (open_) return true;
     if (!ensureSdReady()) return false;
@@ -932,6 +1062,7 @@ bool ReaderBookService::openBook(const char* path) {
 
     open_ = true;
     saveLastBookPath();
+    addToShelf(path);
     if (!loadTocCache()) {
         showBlockingOpenStatus("正在分析目录");
         File f = SD.open(activeTextPath_, FILE_READ);
@@ -963,7 +1094,7 @@ void ReaderBookService::renderReaderHome() {
     bool hasLast = false;
     lastPath[0] = '\0';
     lastTitle[0] = '\0';
-    strlcpy(progressText, "上次进度:未开始", sizeof(progressText));
+    strlcpy(progressText, "未开始", sizeof(progressText));
 
     if (open_ && bookPath_[0]) {
         strlcpy(lastPath, bookPath_, sizeof(lastPath));
@@ -979,13 +1110,172 @@ void ReaderBookService::renderReaderHome() {
     }
 
     if (hasLast) {
-        uint16_t chapter = 0, page = 0;
-        if (readProgressForBook(lastPath, chapter, page)) {
-            snprintf(progressText, sizeof(progressText), "上次进度:第 %u 章 · 第 %u 页",
-                     static_cast<unsigned>(chapter + 1), static_cast<unsigned>(page + 1));
+        readProgressPercentForBook(lastPath, progressText, sizeof(progressText));
+    }
+
+    // Collect 3 most-recent shelf books, excluding the last-read book.
+    char recentTitles[3][72];
+    char recentSubs[3][80];
+    int recentCount = 0;
+    if (ensureSdReady()) {
+        for (int i = 0; i < shelfCount_ && recentCount < 3; ++i) {
+            if (hasLast && strcmp(shelf_[i].path, lastPath) == 0) continue;
+            const char* slash = strrchr(shelf_[i].path, '/');
+            const char* name = slash ? slash + 1 : shelf_[i].path;
+            strlcpy(recentTitles[recentCount], name, sizeof(recentTitles[0]));
+            char* dot = strrchr(recentTitles[recentCount], '.');
+            if (dot) *dot = '\0';
+            char progBuf[80];
+            readProgressPercentForBook(shelf_[i].path, progBuf, sizeof(progBuf));
+            strlcpy(recentSubs[recentCount], progBuf, sizeof(recentSubs[0]));
+            recentCount++;
         }
     }
-    g_uiRenderer.renderReaderHome(lastTitle, lastPath, progressText, hasLast);
+
+    const char* recentTitlesPtr[3] = {nullptr};
+    const char* recentSubsPtr[3] = {nullptr};
+    for (int i = 0; i < recentCount; ++i) {
+        recentTitlesPtr[i] = recentTitles[i];
+        recentSubsPtr[i] = recentSubs[i];
+    }
+
+    g_uiRenderer.renderReaderHome(lastTitle, lastPath, progressText, hasLast,
+                                  recentTitlesPtr, recentSubsPtr, recentCount);
+}
+
+void ReaderBookService::renderShelfGrid(uint16_t page) {
+    if (shelfShowingBrowser_) {
+        renderLibraryPage(page);
+        return;
+    }
+    if (!ensureSdReady()) {
+        const char* rows[] = {"SD 卡未就绪，请检查存储卡。"};
+        g_uiRenderer.renderUiListPage(SystemState::Library, "书架", "SD 未就绪", rows, 1,
+                                      kListFirstRowY, kListRowH, 1, 1);
+        return;
+    }
+    if (shelfCount_ <= 0) {
+        // Empty shelf: show the file browser entry + help
+        g_uiRenderer.renderShelfGrid(nullptr, nullptr, 0, 1, 1, kShelfCols, kShelfRows, true);
+        return;
+    }
+    const uint16_t totalPages = (shelfCount_ + kShelfBooksPerPage - 1) / kShelfBooksPerPage;
+    if (page >= totalPages) page = totalPages - 1;
+    shelfPage_ = page;
+    const int start = shelfPage_ * kShelfBooksPerPage;
+    const int end = min(shelfCount_, start + kShelfBooksPerPage);
+    const int count = end - start;
+    char titles[kShelfBooksPerPage][72];
+    char subs[kShelfBooksPerPage][80];
+    const char* titlePtrs[kShelfBooksPerPage];
+    const char* subPtrs[kShelfBooksPerPage];
+    for (int i = 0; i < count; ++i) {
+        const char* slash = strrchr(shelf_[start + i].path, '/');
+        const char* name = slash ? slash + 1 : shelf_[start + i].path;
+        strlcpy(titles[i], name, sizeof(titles[i]));
+        char* dot = strrchr(titles[i], '.');
+        if (dot) *dot = '\0';
+        char progBuf[80];
+        readProgressPercentForBook(shelf_[start + i].path, progBuf, sizeof(progBuf));
+        strlcpy(subs[i], progBuf, sizeof(subs[i]));
+        titlePtrs[i] = titles[i];
+        subPtrs[i] = subs[i];
+    }
+    g_uiRenderer.renderShelfGrid(titlePtrs, subPtrs, count, shelfPage_ + 1, totalPages,
+                                 kShelfCols, kShelfRows, true);
+}
+
+bool ReaderBookService::nextShelfPage() {
+    if (shelfShowingBrowser_) return nextLibraryPage();
+    if (shelfCount_ <= 0) return false;
+    const uint16_t totalPages = (shelfCount_ + kShelfBooksPerPage - 1) / kShelfBooksPerPage;
+    if (shelfPage_ + 1 >= totalPages) return false;
+    shelfPage_++;
+    renderShelfGrid(shelfPage_);
+    return true;
+}
+
+bool ReaderBookService::prevShelfPage() {
+    if (shelfShowingBrowser_) return prevLibraryPage();
+    if (shelfCount_ <= 0 || shelfPage_ == 0) return false;
+    shelfPage_--;
+    renderShelfGrid(shelfPage_);
+    return true;
+}
+
+bool ReaderBookService::handleShelfTap(int16_t x, int16_t y) {
+    if (shelfShowingBrowser_) return handleLibraryTap(x, y);
+    // "浏览书籍文件" entry: top card at kShelfBrowserEntryY
+    if (x >= kUiMarginX && x < kUiMarginX + kUiContentW && y >= kShelfBrowserEntryY && y < kShelfBrowserEntryY + kShelfBrowserEntryH) {
+        scanBooks();
+        shelfShowingBrowser_ = true;
+        bookPage_ = 0;
+        renderLibraryPage(0);
+        return true;
+    }
+    if (shelfCount_ <= 0) return false;
+    // Book cards grid: kShelfCols cols × kShelfRows rows
+    for (int row = 0; row < kShelfRows; ++row) {
+        for (int col = 0; col < kShelfCols; ++col) {
+            const int16_t cx = kUiMarginX + col * (kShelfCardW + kShelfCardGap);
+            const int16_t cy = kShelfGridY + row * (kShelfCardH + kShelfCardGap);
+            if (x >= cx && x < cx + kShelfCardW && y >= cy && y < cy + kShelfCardH) {
+                int index = shelfPage_ * kShelfBooksPerPage + row * kShelfCols + col;
+                if (index < shelfCount_) {
+                    lastLibraryTapOpenedBook_ = openBook(shelf_[index].path);
+                    return lastLibraryTapOpenedBook_;
+                }
+            }
+        }
+    }
+    return false;
+}
+
+bool ReaderBookService::handleReaderHomeTap(int16_t x, int16_t y) {
+    // Recent book cards: 3 in a row below the buttons.
+    // Must match VinkUiRenderer renderReaderHome() pixel-for-pixel.
+    constexpr int16_t kTopCardY = kReaderHomeTopY;
+    constexpr int16_t kTopCardH = kReaderHomeTopH;
+    constexpr int16_t kBtnY = kTopCardY + kTopCardH + 18;
+    constexpr int16_t kRecentY = kBtnY + 52 + 18;
+    constexpr int16_t kRecentCardW = kReaderHomeRecentCardW;
+    constexpr int16_t kRecentCardH = kReaderHomeRecentCardH;
+    constexpr int16_t kRecentGap = kReaderHomeRecentGap;
+
+    for (int i = 0; i < 3; ++i) {
+        const int16_t cx = kUiMarginX + i * (kRecentCardW + kRecentGap);
+        if (x >= cx && x < cx + kRecentCardW && y >= kRecentY && y < kRecentY + kRecentCardH) {
+            // Find the i-th recent book (excluding the last-read book)
+            char lastPath[sizeof(bookPath_)];
+            bool hasLast = false;
+            if (open_ && bookPath_[0]) {
+                strlcpy(lastPath, bookPath_, sizeof(lastPath));
+                hasLast = true;
+            } else if (ensureSdReady()) {
+                loadLastBookPath(lastPath, sizeof(lastPath));
+                hasLast = lastPath[0] != '\0';
+            }
+            int found = 0;
+            for (int j = 0; j < shelfCount_; ++j) {
+                if (hasLast && strcmp(shelf_[j].path, lastPath) == 0) continue;
+                if (found == i) {
+                    lastLibraryTapOpenedBook_ = openBook(shelf_[j].path);
+                    return lastLibraryTapOpenedBook_;
+                }
+                found++;
+            }
+            return false;
+        }
+    }
+    return false;
+}
+
+void ReaderBookService::showTocForCurrentBook() {
+    showingBookEntry_ = false;
+    showingReaderMenu_ = false;
+    showingToc_ = true;
+    if (currentTocIndex_ >= 0) tocPage_ = currentTocIndex_ / kTocEntriesPerPage;
+    renderTocPage(tocPage_);
 }
 
 void ReaderBookService::renderOpenOrHelp() {
@@ -1004,11 +1294,11 @@ void ReaderBookService::renderLibraryPage(uint16_t page) {
     scanBooks();
     char body[900];
     body[0] = '\0';
-    if (bookCount_ <= 0) {
+    if (bookCount_ <= 0 && !shelfShowingBrowser_) {
         const char* rows[] = {
-            "请把 .txt 文件放到 SD 卡 /books 目录。",
-            "支持 UTF-8 / GBK 文本和目录缓存。",
-            "书架页使用 UI 字体,正文页才使用阅读字体。",
+            "请把 .txt 文件放到 SD 卡 /books 目录",
+            "支持 UTF-8 / GBK 文本和目录缓存",
+            "书架页使用 UI 字体,正文页才使用阅读字体",
         };
         g_uiRenderer.renderUiListPage(SystemState::Library, "书架", "书架为空", rows, 3,
                                       kListFirstRowY, kListRowH, 1, 1);
@@ -1020,7 +1310,12 @@ void ReaderBookService::renderLibraryPage(uint16_t page) {
     const int start = bookPage_ * kBooksPerPage;
     const int end = min(bookCount_, start + kBooksPerPage);
     char summary[160];
-    snprintf(summary, sizeof(summary), "文件浏览器 %s · %d 项", currentLibraryDir_, bookCount_);
+    // In browser mode, add a prominent "back to shelf" as the summary
+    if (shelfShowingBrowser_) {
+        snprintf(summary, sizeof(summary), "← 返回书架  |  %s · %d 项", currentLibraryDir_, bookCount_);
+    } else {
+        snprintf(summary, sizeof(summary), "文件浏览器 %s · %d 项", currentLibraryDir_, bookCount_);
+    }
     char rows[kBooksPerPage][180];
     const char* rowPtrs[kBooksPerPage];
     int rowCount = 0;
@@ -1061,15 +1356,32 @@ bool ReaderBookService::prevLibraryPage() {
 }
 
 bool ReaderBookService::handleLibraryTap(int16_t x, int16_t y) {
-    (void)x;
     if (!booksScanned_) scanBooks();
     if (bookCount_ <= 0) return false;
+
+    // Check tap on summary/back-button area (y: summary area, ~158-204)
+    if (shelfShowingBrowser_ && y >= kShelfBrowserEntryY && y < kListFirstRowY) {
+        shelfShowingBrowser_ = false;
+        strlcpy(currentLibraryDir_, BOOKS_DIR, sizeof(currentLibraryDir_));
+        bookPage_ = 0;
+        booksScanned_ = false;
+        renderShelfGrid(shelfPage_);
+        return true;
+    }
+
+    if (x < kListTouchX || x >= kListTouchX + kListTouchW) return false;
     if (y < kListFirstRowY || y >= kListFirstRowY + kBooksPerPage * kListRowH) return false;
     int row = (y - kListFirstRowY) / kListRowH;
     int index = bookPage_ * kBooksPerPage + row;
     if (index < 0 || index >= bookCount_) return false;
     lastLibraryTapOpenedBook_ = false;
     if (bookFlags_[index] & kBookIsDirectory) {
+        // In shelf browser mode, tapping ".." at root returns to shelf grid.
+        if (shelfShowingBrowser_ && strcmp(bookPaths_[index], BOOKS_DIR) == 0) {
+            shelfShowingBrowser_ = false;
+            renderShelfGrid(shelfPage_);
+            return true;
+        }
         strlcpy(currentLibraryDir_, bookPaths_[index], sizeof(currentLibraryDir_));
         bookPage_ = 0;
         booksScanned_ = false;
@@ -1078,14 +1390,15 @@ bool ReaderBookService::handleLibraryTap(int16_t x, int16_t y) {
     }
     if (!isTxtPath(bookPaths_[index])) {
         const char* info[] = {
-            "当前版本先支持 TXT 阅读。",
-            "EPUB 文件已能在书架中识别显示,",
-            "正文解析会放到后续版本。",
+            "当前版本先支持 TXT 阅读",
+            "EPUB 文件已能在书架中识别显示",
+            "正文解析会放到后续版本",
         };
         g_uiRenderer.renderUiActionPage(SystemState::Library, "暂不支持", info, 3, nullptr, 0);
         return true;
     }
     lastLibraryTapOpenedBook_ = openBook(bookPaths_[index]);
+    if (lastLibraryTapOpenedBook_) shelfShowingBrowser_ = false;
     return lastLibraryTapOpenedBook_;
 }
 
@@ -1128,8 +1441,8 @@ void ReaderBookService::renderBookLoadingPage(const char* stage) {
         lineTitle,
         lineSize,
         lineStage,
-        "首次打开大书可能需要一会儿。",
-        "完成后会自动进入书籍入口。",
+        "首次打开大书可能需要一会儿",
+        "完成后会自动进入书籍入口",
     };
     g_uiRenderer.renderUiActionPage(SystemState::Library, "正在打开", info, 5, nullptr, 0);
 }
@@ -1144,8 +1457,8 @@ void ReaderBookService::renderChapterLoadingPage(int index) {
         lineTitle,
         lineChapter,
         "正在准备当前页...",
-        "长章节会按当前屏逐页测量。",
-        "不再读取或写入 .vink-pages。",
+        "长章节会按当前屏逐页测量",
+        "不再读取或写入旧的页缓存",
     };
     g_uiRenderer.renderUiActionPage(SystemState::Reader, "正在分页", info, 5, nullptr, 0);
 }
@@ -1277,9 +1590,12 @@ bool ReaderBookService::toggleAntiAlias() {
 bool ReaderBookService::toggleUnderline() {
     g_readerText.toggleUnderline();
     invalidatePaginationForLayoutChange();
+    // Rebuild the page underneath the menu immediately, then redraw the menu.
+    // Closing the menu later should reveal the already-updated typography.
+    const bool ok = continueReading();
     showingReaderMenu_ = true;
     renderReaderMenuPage();
-    return true;
+    return ok;
 }
 
 bool ReaderBookService::togglePageTurnEffect() {
@@ -1292,17 +1608,19 @@ bool ReaderBookService::togglePageTurnEffect() {
 bool ReaderBookService::cycleLayoutPreset() {
     g_readerText.cycleLayoutPreset();
     invalidatePaginationForLayoutChange();
+    const bool ok = continueReading();
     showingReaderMenu_ = true;
     renderReaderMenuPage();
-    return true;
+    return ok;
 }
 
 bool ReaderBookService::cyclePageMargin() {
     g_readerText.cyclePageMargin();
     invalidatePaginationForLayoutChange();
+    const bool ok = continueReading();
     showingReaderMenu_ = true;
     renderReaderMenuPage();
-    return true;
+    return ok;
 }
 
 void ReaderBookService::invalidatePaginationForLayoutChange() {
@@ -1386,16 +1704,16 @@ bool ReaderBookService::handleTap(int16_t x, int16_t y) {
     lastRenderWasReadingPage_ = false;
     lastTapPageTurn_ = false;
     lastTapNextPage_ = false;
+    lastTapBackHome_ = false;
     if (!open_) return false;
     if (showingReaderMenu_) {
         // ── Reader menu touch targets ──
         // Must match renderReaderMenuOverlay pixel-for-pixel.
-        // Card: (16,100,508,340). Items: 2 cols × 3 rows + 2 buttons.
-        constexpr int16_t kMCX = 16, kMCY = 100, kMCW = 508, kMCH = 360;
+        // Card/items/buttons must match renderReaderMenuOverlay pixel-for-pixel.
+        constexpr int16_t kMCX = 16, kMCY = 56, kMCW = 508, kMCH = 420;
         constexpr int16_t kIX = 40, kIX2 = 280, kIW = 220, kIH = 64;
-        constexpr int16_t kRY0 = 184, kRY1 = 258, kRY2 = 332;
-        constexpr int16_t kBtY = 400, kBtW = 200, kBtH = 48;
-        constexpr int16_t kBtX0 = 60, kBtX1 = 280;
+        constexpr int16_t kRY0 = 140, kRY1 = 214, kRY2 = 288;
+        constexpr int16_t kBtY = 362;
 
         auto inRect = [](int16_t tx, int16_t ty, int16_t rx, int16_t ry, int16_t rw, int16_t rh) -> bool {
             return tx >= rx && tx < rx + rw && ty >= ry && ty < ry + rh;
@@ -1414,13 +1732,20 @@ bool ReaderBookService::handleTap(int16_t x, int16_t y) {
         if (inRect(x, y, kIX,  kRY2, kIW, kIH)) return togglePageTurnEffect();
         if (inRect(x, y, kIX2, kRY2, kIW, kIH)) return cyclePageMargin();
         // Bottom buttons: 目录 | 返回
-        if (inRect(x, y, kBtX0, kBtY, kBtW, kBtH)) {
+        if (inRect(x, y, kIX, kBtY, kIW, kIH)) {
             showingReaderMenu_ = false;
             showingToc_ = true;
+            if (currentTocIndex_ >= 0) tocPage_ = currentTocIndex_ / kTocEntriesPerPage;
             renderTocPage(tocPage_);
             return true;
         }
-        if (inRect(x, y, kBtX1, kBtY, kBtW, kBtH)) return closeReaderMenu();
+        if (inRect(x, y, kIX2, kBtY, kIW, kIH)) {
+            showingReaderMenu_ = false;
+            showingBookEntry_ = false;
+            showingToc_ = false;
+            lastTapBackHome_ = true;
+            return true;
+        }
         // Tap inside card but outside items → also close
         return closeReaderMenu();
     }
@@ -1437,9 +1762,10 @@ bool ReaderBookService::handleTap(int16_t x, int16_t y) {
         return false;
     }
     if (!showingToc_) {
-        // PaperS3 e-paper reading should use coarse, forgiving zones. Keep the
-        // small top-left/menu affordances, but also support large reference-style
-        // zones: left third = previous page, right third = next page, center = menu.
+        // Touch zones, top-to-bottom:
+        //   y < 90: page header (book entry / TOC / nothing-top-elided)
+        //   y >= 90: reading area — left third=prev, right third=next, center=menu
+        // No zone covers the TAB bar (y 64-158 disappears from reading page).
         if (x < 170 && y < 90) {
             showingBookEntry_ = true;
             showingToc_ = false;
@@ -1451,6 +1777,8 @@ bool ReaderBookService::handleTap(int16_t x, int16_t y) {
             renderTocPage(tocPage_);
             return true;
         }
+        // Below header: only respond if Y is within the reading body
+        if (y < 90) return false;
         if (x < kPaperS3Width / 3) {
             lastTapPageTurn_ = true;
             lastTapNextPage_ = false;
@@ -1464,6 +1792,7 @@ bool ReaderBookService::handleTap(int16_t x, int16_t y) {
         return openReaderMenu();
     }
     if (tocCount_ <= 0) return false;
+    if (x < kListTouchX || x >= kListTouchX + kListTouchW) return false;
     if (y < kTocFirstRowY || y >= kTocFirstRowY + kTocEntriesPerPage * kTocRowH) return false;
     int row = (y - kTocFirstRowY) / kTocRowH;
     int index = tocPage_ * kTocEntriesPerPage + row;
@@ -1704,6 +2033,12 @@ bool ReaderBookService::consumeLastTapNextPage() {
     const bool wasNext = lastTapNextPage_;
     lastTapNextPage_ = false;
     return wasNext;
+}
+
+bool ReaderBookService::consumeLastTapBackHome() {
+    const bool wasBackHome = lastTapBackHome_;
+    lastTapBackHome_ = false;
+    return wasBackHome;
 }
 
 bool ReaderBookService::renderChapterPreview(int index) {

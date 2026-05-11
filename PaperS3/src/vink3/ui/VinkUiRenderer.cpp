@@ -12,13 +12,16 @@ VinkUiRenderer g_uiRenderer;
 namespace {
 // ── Design system ────────────────────────────────────────────────────────────
 // PaperS3 canvas: 540×960. E-paper has 4 tones.
-// Flat, clean design — no rounded corners. Alternating surfaces + hairlines.
+// Keep the structure flat; use 1) rich blacks and 2) richer gray planes
+// to avoid a flat/“dead” look without adding heavy imagery.
 constexpr uint16_t kInk           = 0x0000;  // black – primary text & key borders
-constexpr uint16_t kInkMid        = 0x630C;  // ~40% – secondary text, subtle fills
-constexpr uint16_t kInkLight      = 0xB5B6;  // ~70% – dividers, disabled text
+constexpr uint16_t kInkMid        = 0x4208;  // second-level text
+constexpr uint16_t kInkLight      = 0x8410;  // subtle divider / mute text
+constexpr uint16_t kInkWash       = 0xA514;  // slightly lighter line weight
 constexpr uint16_t kSurface       = 0xFFFF;  // white – page & card backgrounds
-constexpr uint16_t kSurfaceAlt    = 0xF7BE;  // ~95% – alternating row, subtle fill
-constexpr uint16_t kSurfaceDeep   = 0xE73C;  // ~90% – pressed/selected fill
+constexpr uint16_t kSurfaceAlt    = 0xF79E;  // very light paper tone (~94%)
+constexpr uint16_t kSurfaceDeep   = 0xDEDB;  // used for inactive/secondary surfaces
+constexpr uint16_t kSurfacePressed= 0xCE59;  // slightly darker tone for tactile feedback
 
 // Layout
 constexpr int16_t kMarginX        = 28;       // horizontal page margin
@@ -89,6 +92,23 @@ const char* touchCoordModeLabel() {
     return "official-raw";
 }
 
+void drawSurfacePanel(M5Canvas* canvas, int16_t x, int16_t y, int16_t w, int16_t h) {
+    if (!canvas || w <= 0 || h <= 0) return;
+    constexpr int16_t kThick = 2;
+
+    canvas->fillRect(x, y, w, h, kSurfaceDeep);
+    if (w > 8 && h > 8) {
+        canvas->fillRect(x + 3, y + 3, w - 6, h - 6, kSurface);
+        // Subtle top rule and bottom shade for richer paper-like contrast.
+        canvas->drawFastHLine(x + 3, y + 3, w - 6, kInkLight);
+        canvas->fillRect(x + 4, y + h - 4, w - 8, 2, kInkLight);
+    }
+    canvas->fillRect(x, y, w, kThick, kInk);
+    canvas->fillRect(x, y + h - kThick, w, kThick, kInk);
+    canvas->fillRect(x, y + kThick, kThick, h - 2 * kThick, kInk);
+    canvas->fillRect(x + w - kThick, y + kThick, kThick, h - 2 * kThick, kInk);
+}
+
 void formatBatteryPercent(char* out, size_t outSize) {
     if (!out || outSize == 0) return;
     int level = M5.Power.getBatteryLevel();
@@ -126,8 +146,12 @@ void VinkUiRenderer::drawStatusBar(const char* title) {
     formatStatusTime(timeText, sizeof(timeText));
     formatBatteryPercent(batteryText, sizeof(batteryText));
 
+    // Time, title and battery share the exact same text top so the notification
+    // bar reads as one horizontal line instead of a vertically-mixed row.
+    const char* titleText = title ? title : "Vink";
+    const int16_t titleX = (kPaperS3Width - g_cjkText.textWidth(titleText)) / 2;
     g_cjkText.drawText(kMarginX, kStatusTextY, timeText, kInkMid);
-    g_cjkText.drawCentered(kPaperS3Width / 2 - 200, 0, 400, kStatusH - 4, title ? title : "Vink", kInk);
+    g_cjkText.drawText(titleX, kStatusTextY, titleText, kInk);
     g_cjkText.drawRight(kPaperS3Width - kMarginX, kStatusTextY, batteryText, kInkMid);
 
     // Hairline below status bar
@@ -139,10 +163,13 @@ void VinkUiRenderer::drawTabs(SystemState active) {
         const int16_t x = kTabsLeft + i * (kTabW + kTabGap);
         const bool selected = active == kTabs[i].state;
 
-        if (selected) {
-            // Subtle background fill for selected tab
-            canvas_->fillRect(x + 2, kTabsY + 2, kTabW - 4, kTabsH - 4, kSurfaceAlt);
-        }
+        canvas_->fillRect(x, kTabsY, kTabW, kTabsH,
+                          selected ? kSurfaceAlt : kSurfaceDeep);
+        // Outlines keep tabs readable on busy backgrounds.
+        canvas_->drawRect(x, kTabsY, kTabW, kTabsH, selected ? kInk : kInkLight);
+        // subtle top rule on every tab
+        canvas_->drawFastHLine(x + 2, kTabsY + 2, kTabW - 4, kInkLight);
+        if (selected) drawThickBorder(x, kTabsY, kTabW, kTabsH, kInk);
 
         g_cjkText.drawCentered(x, kTabsY + 4, kTabW, kTabsH - 12,
                                kTabs[i].label, selected ? kInk : kInkMid);
@@ -151,7 +178,7 @@ void VinkUiRenderer::drawTabs(SystemState active) {
             // Thick underline bar
             constexpr int16_t kUnderlineW = 56;
             const int16_t ux = x + (kTabW - kUnderlineW) / 2;
-            canvas_->fillRect(ux, kTabsY + kTabsH - 6, kUnderlineW, 3, kInk);
+            canvas_->fillRect(ux, kTabsY + kTabsH - 7, kUnderlineW, 4, kInk);
         }
     }
 
@@ -161,16 +188,19 @@ void VinkUiRenderer::drawTabs(SystemState active) {
 
 void VinkUiRenderer::drawCard(int16_t x, int16_t y, int16_t w, int16_t h,
                                const char* title, const char* body) {
-    // Card: clean white surface, black outline, subtle left accent line for
-    // visual depth on e-paper.
-    canvas_->fillRect(x, y, w, h, kSurface);
+    // Card with a slightly warm, paper-like layered look so the block reads less flat.
+    canvas_->fillRect(x, y, w, h, kSurfaceDeep);
+    canvas_->fillRect(x + 3, y + 3, w - 6, h - 6, kSurface);
     drawThickBorder(x, y, w, h, kInk);
-    // Left accent
-    canvas_->fillRect(x + 4, y + 18, 3, h - 36, kInkLight);
+
+    // Fine top rule for rhythm.
+    canvas_->drawFastHLine(x + 6, y + 6, w - 12, kInkLight);
+    // Left accent line for depth.
+    canvas_->fillRect(x + 8, y + 18, 3, h - 36, kInkLight);
 
     constexpr int16_t kPad = 22;
     if (title && title[0]) {
-        g_cjkText.drawText(x + kPad + 6, y + kPad - 4, title, kInk);
+        g_cjkText.drawText(x + kPad + 8, y + kPad - 4, title, kInk);
     }
     if (body && body[0]) {
         // Wrap long body text across multiple lines within the card
@@ -185,7 +215,7 @@ void VinkUiRenderer::drawCard(int16_t x, int16_t y, int16_t w, int16_t h,
             if (*p == '\n') p++;
             line[n] = '\0';
             if (line[0]) {
-                g_cjkText.drawText(x + kPad + 6, by, line, kInkMid);
+                g_cjkText.drawText(x + kPad + 8, by, line, kInkMid);
                 by += static_cast<int16_t>(g_cjkText.fontSize()) + 6;
                 lines++;
             }
@@ -203,12 +233,18 @@ void VinkUiRenderer::drawThickBorder(int16_t x, int16_t y, int16_t w, int16_t h,
 
 void VinkUiRenderer::drawButton(int16_t x, int16_t y, int16_t w, int16_t h,
                                  const char* label, bool primary) {
-    const int16_t r = h / 2;  // pill-shaped button
-    canvas_->fillRect(x, y, w, h, primary ? kInk : kSurface);
-    drawThickBorder(x, y, w, h, kInk);
-    if (label && label[0]) {
-        g_cjkText.drawCentered(x, y + 2, w, h - 4, label,
-                               primary ? kSurface : kInk);
+    if (primary) {
+        canvas_->fillRect(x, y, w, h, kInk);
+        // Highlight strip at the top to avoid dead black block.
+        canvas_->fillRect(x + 2, y + 2, w - 4, 4, kInkWash);
+        g_cjkText.drawCentered(x, y + 2, w, h - 4, label ? label : "", kSurface);
+    } else {
+        canvas_->fillRect(x, y, w, h, kSurfaceDeep);
+        canvas_->fillRect(x + 2, y + 2, w - 4, h - 4, kSurfacePressed);
+        // Thin inset top line suggests pressable area.
+        canvas_->drawFastHLine(x + 3, y + 3, w - 6, kInkWash);
+        drawThickBorder(x, y, w, h, kInk);
+        g_cjkText.drawCentered(x, y + 2, w, h - 4, label ? label : "", kInk);
     }
 }
 
@@ -242,11 +278,11 @@ void VinkUiRenderer::drawSettingsGroup(int16_t x, int16_t y,
     // Dynamic-height settings card. Title at top-left inside, then rows with
     // dividers between them. Height is calculated from rowCount.
     const int16_t cardH = kSettingsPad + 16 + rowCount * kRowH;
-    canvas_->fillRect(x, y, kContentW, cardH, kSurface);
-    drawThickBorder(x, y, kContentW, cardH, kInk);
+    drawSurfacePanel(canvas_, x, y, kContentW, cardH);
 
     if (title && title[0]) {
         g_cjkText.drawText(x + 22, y + 16, title, kInkMid);
+        canvas_->drawFastHLine(x + 22, y + 30, kContentW - 44, kInkLight);
     }
 
     const int16_t rowX = x + 28;  // matches hitTest x=56 when x=kMarginX=28
@@ -266,56 +302,12 @@ void VinkUiRenderer::drawSettingsGroup(int16_t x, int16_t y,
 void VinkUiRenderer::renderBoot() {
     if (!canvas_) return;
     clear();
-    drawStatusBar("启动");
 
-    const int16_t cx = kPaperS3Width / 2;
-    const int16_t top = 260;
-    const int16_t bottom = 440;
-    const int16_t left = cx - 58;
-    const int16_t right = cx + 58;
-
-    // ── Hourglass ─────────────────────────────────────────────────────
-    const int16_t hcx = kPaperS3Width / 2;  // 270
-    const int16_t hcy = 360;                 // pinch point Y
-    const int16_t hw  = 68;                  // half-width at widest
-    const int16_t hh  = 125;                 // half-height
-    const int16_t hn  = 3;                   // half-neck width (narrow)
-    const int16_t ht  = hcy - hh;            // glass top = 235
-    const int16_t hb  = hcy + hh;            // glass bottom = 485
-
-    // Outer frame
-    drawThickBorder(hcx - 90, ht - 30, 180, 310, kInk);
-
-    // ── Top cap ───────────────────────────────────────────────────────
-    canvas_->fillRect(hcx - hw - 8, ht - 6, 2*hw + 16, 6, kInk);
-
-    // ── Upper glass: outline only (sand has fallen) ───────────────────
-    canvas_->drawLine(hcx - hw, ht,  hcx - hn, hcy, kInk);
-    canvas_->drawLine(hcx + hw, ht,  hcx + hn, hcy, kInk);
-    canvas_->drawFastHLine(hcx - hw, ht, 2*hw, kInk);
-
-    // ── Falling sand grains (above neck) ──────────────────────────────
-    canvas_->fillRect(hcx - 2, hcy - 30, 4, 12, kInkMid);
-    canvas_->fillRect(hcx - 1, hcy - 50, 3, 8,  kInkMid);
-
-    // ── Sand stream at neck ───────────────────────────────────────────
-    canvas_->fillRect(hcx - 2, hcy - 8, 4, 18, kInkMid);
-
-    // ── Lower glass: filled with sand, outline on top ─────────────────
-    canvas_->fillTriangle(hcx - hw, hb, hcx - hn, hcy, hcx + hw, hb, kInkMid);
-    canvas_->drawLine(hcx - hw, hb,  hcx - hn, hcy, kInk);
-    canvas_->drawLine(hcx + hw, hb,  hcx + hn, hcy, kInk);
-    canvas_->drawFastHLine(hcx - hw, hb, 2*hw, kInk);
-
-    // ── Bottom cap ────────────────────────────────────────────────────
-    canvas_->fillRect(hcx - hw - 8, hb - 2, 2*hw + 16, 6, kInk);
-
-    // ── Base stand ────────────────────────────────────────────────────
-    canvas_->fillRect(hcx - 38, hb + 10, 76, 6, kInk);
-    canvas_->fillRect(hcx - 26, hb + 16, 52, 4, kInkMid);
-
-    g_cjkText.drawCentered(0, 534, kPaperS3Width, 52, "Vink 加载中", kInk);
-    g_cjkText.drawCentered(0, 600, kPaperS3Width, 30, "正在准备书架与阅读器", kInkMid);
+    // Keep boot plain and centered. The previous hourglass was visually noisy
+    // and made the first screen feel like a debug/prototype page.
+    constexpr int16_t kCenterY = kPaperS3Height / 2;
+    g_cjkText.drawCentered(0, kCenterY - 54, kPaperS3Width, 52, "Vink 加载中", kInk);
+    g_cjkText.drawCentered(0, kCenterY + 8, kPaperS3Width, 34, "正在准备书架与阅读器", kInkMid);
     g_cjkText.drawCentered(0, kPaperS3Height - 88, kPaperS3Width, 28,
                            kVinkPaperS3FirmwareVersion, kInkLight);
 }
@@ -325,51 +317,272 @@ void VinkUiRenderer::renderHome(SystemState state) {
     (void)state;
 }
 
+void VinkUiRenderer::drawBookCard(int16_t x, int16_t y, int16_t w, int16_t h,
+                                  const char* title, const char* subtitle, bool isEmpty) {
+    // ── Book card shadow & paper layers ───────────────────────────────
+    constexpr int16_t kShadowOff = 4;
+    canvas_->fillRect(x + kShadowOff, y + kShadowOff, w, h, kInkLight);
+
+    canvas_->fillRect(x, y, w, h, kSurfaceDeep);
+    canvas_->fillRect(x + 3, y + 3, w - 6, h - 6, kSurface);
+
+    // ── Book spine (left edge, proportional width) ───────────────────
+    const int16_t spineW = max<int16_t>(6, w / 18);
+    canvas_->fillRect(x + 1, y + 1, spineW - 1, h - 2, kInk);
+    // spine highlight + binding texture
+    canvas_->fillRect(x + 2, y + 10, max<int16_t>(1, spineW - 3), h - 20, kInkMid);
+    for (int i = 0; i < 4; ++i) {
+        const int16_t ry = y + 14 + i * (h / 5);
+        canvas_->fillRect(x + 2, ry, max<int16_t>(1, spineW - 3), 1, kInkLight);
+    }
+
+    // ── Right edge: page stack lines (book-like) ──────────────────────
+    constexpr int kPageLines = 3;
+    const uint16_t pageColors[] = {kInkMid, kInkWash, kInkMid};
+    for (int i = 0; i < kPageLines; ++i) {
+        const int16_t px = x + w - 6 + i;
+        canvas_->drawFastVLine(px, y + 10, h - 20, pageColors[i]);
+    }
+
+    // ── Soft edge / depth separators ─────────────────────────────────
+    canvas_->drawFastHLine(x + 1, y + 1, w - 2, kInkLight);
+    canvas_->fillRect(x + 4, y + h - 3, w - 8, 3, kInkLight);
+    drawThickBorder(x, y, w, h, kInk);
+
+    // ── Spine/cover divider line ─────────────────────────────────────
+    canvas_->drawFastVLine(x + spineW, y, h, kInk);
+
+    if (isEmpty) {
+        g_cjkText.drawCentered(x + spineW, y, w - spineW, h, "暂无", kInkMid);
+        return;
+    }
+
+    // ── Title: truly centered within the cover area, up to 3 lines ──
+    const int16_t kPadX = 14;
+    const int16_t bodyX = x + spineW;
+    const int16_t bodyW = w - spineW;
+    const int16_t textW = bodyW - kPadX * 2;
+    const int16_t lineH = static_cast<int16_t>(g_cjkText.fontSize()) + 4;
+    const int16_t maxLines = 3;
+
+    // Pre-count actual title lines for accurate centering
+    int actualLines = 0;
+    const char* tp = title ? title : "";
+    while (*tp && actualLines < maxLines) {
+        int16_t accum = 0;
+        while (*tp) {
+            if ((static_cast<uint8_t>(*tp) & 0x80) == 0) {
+                const char* asciiStart = tp;
+                while (*tp && (static_cast<uint8_t>(*tp) & 0x80) == 0) tp++;
+                accum += static_cast<int16_t>(tp - asciiStart) * (g_cjkText.fontSize() / 2);
+                break;
+            } else {
+                uint8_t c = static_cast<uint8_t>(*tp);
+                size_t adv = 1;
+                if ((c & 0xE0) == 0xC0) adv = 2;
+                else if ((c & 0xF0) == 0xE0) adv = 3;
+                else if ((c & 0xF8) == 0xF0) adv = 4;
+                if (accum + g_cjkText.fontSize() > textW) break;
+                tp += adv;
+                accum += g_cjkText.fontSize();
+            }
+        }
+        actualLines++;
+        if (actualLines >= maxLines) break;
+    }
+
+    // Center title + subtitle as a group
+    const int16_t subtitleH = (subtitle && subtitle[0]) ? (lineH + 8) : 0;
+    const int16_t totalContentH = actualLines * lineH + subtitleH;
+    int16_t ty = y + (h - totalContentH) / 2;
+
+    const char* p = title ? title : "";
+    for (int line = 0; line < maxLines && *p; ++line) {
+        char lineBuf[128];
+        size_t n = 0;
+        int16_t accumW = 0;
+        while (*p && n < sizeof(lineBuf) - 1) {
+            size_t adv = 1;
+            int16_t cw = g_cjkText.fontSize();
+            if ((static_cast<uint8_t>(*p) & 0x80) == 0) {
+                const char* asciiStart = p;
+                while (*p && (static_cast<uint8_t>(*p) & 0x80) == 0) { p++; n++; }
+                size_t alen = p - asciiStart;
+                accumW += static_cast<int16_t>(alen) * (g_cjkText.fontSize() / 2);
+                if (n >= sizeof(lineBuf)) n = sizeof(lineBuf) - 1;
+                break;
+            } else {
+                uint8_t c = static_cast<uint8_t>(*p);
+                if ((c & 0xE0) == 0xC0) adv = 2;
+                else if ((c & 0xF0) == 0xE0) adv = 3;
+                else if ((c & 0xF8) == 0xF0) adv = 4;
+                if (accumW + cw > textW) break;
+                for (size_t k = 0; k < adv && *p && n < sizeof(lineBuf) - 1; ++k) lineBuf[n++] = *p++;
+                accumW += cw;
+            }
+        }
+        lineBuf[n] = '\0';
+        if (lineBuf[0]) {
+            int16_t lx = bodyX + (bodyW - accumW) / 2;
+            if (lx < bodyX + kPadX) lx = bodyX + kPadX;
+            g_cjkText.drawText(lx, ty, lineBuf, kInk);
+            ty += lineH;
+            if (line == maxLines - 1 && *p) {
+                g_cjkText.drawText(bodyX + bodyW - kPadX - g_cjkText.fontSize(), ty - lineH, "…", kInkMid);
+            }
+        }
+    }
+
+    // ── Subtitle / progress right after title, centered ────────────
+    if (subtitle && subtitle[0]) {
+        g_cjkText.drawCentered(bodyX, ty + 4, bodyW, g_cjkText.fontSize(), subtitle, kInkMid);
+    }
+}
+
 void VinkUiRenderer::renderReaderHome(const char* bookTitle, const char* bookPath,
-                                      const char* progressText, bool hasLastBook) {
+                                      const char* progressText, bool hasLastBook,
+                                      const char* const* recentTitles,
+                                      const char* const* recentSubs,
+                                      int recentCount) {
     if (!canvas_) return;
     clear();
     drawStatusBar("Vink");
     drawTabs(SystemState::Reader);
 
-    // Current book card
-    drawCard(kMarginX, kContentY, kContentW, 170,
-             hasLastBook ? "最近阅读" : "当前书籍", nullptr);
-    const int16_t bodyX = kMarginX + 28;
+    (void)bookPath; // path no longer displayed directly
+
+    // ── Top section: left large book card + right info ─────────────
+    // Book card ~1:1.78 portrait ratio (natural book proportions).
+    constexpr int16_t kTopY = kContentY;
+    constexpr int16_t kTopH = 320;
+    constexpr int16_t kCoverW = 180;
+    constexpr int16_t kInfoX = kMarginX + kCoverW + 12;
+    constexpr int16_t kInfoW = kContentW - kCoverW - 12;
+    const int16_t lineH = static_cast<int16_t>(g_cjkText.fontSize()) + 4;
+
+    // Left: large book card using drawBookCard (lighter + spine, book-like shape)
     if (hasLastBook) {
-        char titleLine[160];
-        g_cjkText.fitTextToWidth(bookTitle && bookTitle[0] ? bookTitle : "TXT",
-                                 titleLine, sizeof(titleLine), kContentW - 64);
-        g_cjkText.drawText(bodyX, kContentY + 52, titleLine, kInk);
-        if (progressText && progressText[0]) {
-            char progLine[96];
-            g_cjkText.fitTextToWidth(progressText, progLine, sizeof(progLine), kContentW - 64);
-            g_cjkText.drawText(bodyX, kContentY + 86, progLine, kInkMid);
-        }
-        if (bookPath && bookPath[0]) {
-            char pathLine[160];
-            g_cjkText.fitTextToWidth(bookPath, pathLine, sizeof(pathLine), kContentW - 64);
-            g_cjkText.drawText(bodyX, kContentY + 118, pathLine, kInkLight);
-        }
+        drawBookCard(kMarginX, kTopY, kCoverW, kTopH,
+                     bookTitle, progressText, false);
     } else {
-        g_cjkText.drawText(bodyX, kContentY + 56, "还没有最近阅读记录", kInkMid);
-        g_cjkText.drawText(bodyX, kContentY + 94, "先从书架选择一本 TXT", kInkLight);
+        drawBookCard(kMarginX, kTopY, kCoverW, kTopH,
+                     nullptr, nullptr, true);
     }
 
-    // Action buttons
-    drawButton(56, 350, 192, kButtonMinH, hasLastBook ? "继续" : "打开", true);
-    drawButton(296, 350, 192, kButtonMinH, "书架", false);
+    // Right: info panel with soft frame and stronger hierarchy.
+    canvas_->fillRect(kInfoX - 3, kTopY + 2, kInfoW + 2, kTopH - 4, kSurfaceDeep);
+    canvas_->fillRect(kInfoX, kTopY + 5, kInfoW - 4, kTopH - 10, kSurface);
+    drawThickBorder(kInfoX - 3, kTopY + 2, kInfoW + 2, kTopH - 4, kInkMid);
+    if (hasLastBook) {
+        g_cjkText.drawText(kInfoX + 10, kTopY + 12, "最近阅读", kInkMid);
+        canvas_->drawFastHLine(kInfoX + 10, kTopY + 34, kInfoW - 32, kInkWash);
 
-    // Quick-access cards row 1
-    constexpr int16_t kQuickY1 = 432;
-    constexpr int16_t kQuickW  = 248;
-    constexpr int16_t kQuickH  = 136;
-    drawCard(kMarginX,   kQuickY1, kQuickW, kQuickH, "目录", "章节浏览 / 跳页");
-    drawCard(kQuickW + 44, kQuickY1, kQuickW, kQuickH, "书签", "标注 / 截图");
+        // Title (auto-wrap, larger on first line)
+        const int titleLen = strlen(bookTitle);
+        const int maxChars = kInfoW / (static_cast<int16_t>(g_cjkText.fontSize()) / 2);
+        int start = 0;
+        int line = 0;
+        while (start < titleLen && line < 3) {
+            int chars = titleLen - start;
+            if (chars > maxChars) chars = maxChars;
+            char buf[64];
+            int n = chars;
+            if (n > (int)(sizeof(buf) - 1)) n = sizeof(buf) - 1;
+            memcpy(buf, bookTitle + start, n);
+            buf[n] = '\0';
+            g_cjkText.drawText(kInfoX + 10, kTopY + 44 + line * lineH, buf,
+                               line == 0 ? kInk : kInkMid);
+            start += chars;
+            line++;
+        }
 
-    // Quick-access cards row 2
-    drawCard(kMarginX, 592, kContentW, 174,
-             "正文设置", "字体 · 字号 · 刷新 · 简体中文");
+        // Progress info in a compact badge look
+        if (progressText && progressText[0]) {
+            constexpr int16_t kTagY = kTopY + kTopH - 42;
+            constexpr int16_t kTagH = 22;
+            canvas_->fillRect(kInfoX + 10, kTagY, kInfoW - 20, kTagH, kSurfaceDeep);
+            drawThickBorder(kInfoX + 10, kTagY, kInfoW - 20, kTagH, kInkLight);
+            g_cjkText.drawCentered(kInfoX + 10, kTagY + 2, kInfoW - 20, kTagH - 4, progressText, kInk);
+        }
+    } else {
+        g_cjkText.drawText(kInfoX + 10, kTopY + 14, "还没有打开过书籍", kInk);
+        g_cjkText.drawText(kInfoX + 10, kTopY + 44, "去书架浏览吧", kInkMid);
+    }
+
+    // ── Action buttons below the top card ─────────────────────────────
+    constexpr int16_t kBtnY = kTopY + kTopH + 18;
+    constexpr int16_t kBtnGap = 14;
+    constexpr int16_t kBtnW = (kContentW - kBtnGap * 2) / 3;
+    drawButton(kMarginX, kBtnY, kBtnW, kButtonMinH, hasLastBook ? "继续" : "打开", true);
+    if (hasLastBook) {
+        drawButton(kMarginX + kBtnW + kBtnGap, kBtnY, kBtnW, kButtonMinH, "目录", false);
+    }
+    drawButton(kMarginX + (kBtnW + kBtnGap) * 2, kBtnY, kBtnW, kButtonMinH, "从头开始", false);
+
+    // ── 3 recent book cards below ───────────────────────────────────────
+    constexpr int16_t kRecentY = kBtnY + kButtonMinH + 18;
+    constexpr int16_t kRecentCardW = 140;
+    constexpr int16_t kRecentCardH = 200;
+    constexpr int16_t kRecentGap = 20;
+
+    for (int i = 0; i < 3; ++i) {
+        const int16_t cx = kMarginX + i * (kRecentCardW + kRecentGap);
+        const bool empty = i >= recentCount || !recentTitles || !recentTitles[i];
+        drawBookCard(cx, kRecentY, kRecentCardW, kRecentCardH,
+                     empty ? nullptr : recentTitles[i],
+                     empty ? nullptr : (recentSubs ? recentSubs[i] : nullptr),
+                     empty);
+    }
+}
+
+void VinkUiRenderer::renderShelfGrid(const char* const* titles, const char* const* subs,
+                                     int bookCount, uint16_t page, uint16_t totalPages,
+                                     int cols, int rows, bool showBrowserEntry) {
+    if (!canvas_) return;
+    clear();
+    drawStatusBar("书架");
+    drawTabs(SystemState::Library);
+
+    // ── File browser entry ──────────────────────────────────────────────
+    if (showBrowserEntry) {
+        constexpr int16_t kEntryY = kContentY;
+        constexpr int16_t kEntryH = 52;
+        canvas_->fillRect(kMarginX, kEntryY, kContentW, kEntryH, kSurface);
+        drawThickBorder(kMarginX, kEntryY, kContentW, kEntryH, kInk);
+        g_cjkText.drawText(kMarginX + 22, kEntryY + (kEntryH - static_cast<int16_t>(g_cjkText.fontSize())) / 2,
+                           "浏览书籍文件", kInk);
+        g_cjkText.drawRight(kMarginX + kContentW - 22, kEntryY + (kEntryH - static_cast<int16_t>(g_cjkText.fontSize())) / 2,
+                            ">", kInkMid);
+    }
+
+    // ── Book cards grid ─────────────────────────────────────────────────
+    constexpr int16_t kCardW = 148;
+    constexpr int16_t kCardH = 216;
+    constexpr int16_t kGap = 14;
+    constexpr int16_t kGridY = 228;
+
+    for (int row = 0; row < rows; ++row) {
+        for (int col = 0; col < cols; ++col) {
+            const int index = row * cols + col;
+            const int16_t cx = kMarginX + col * (kCardW + kGap);
+            const int16_t cy = kGridY + row * (kCardH + kGap);
+            const bool empty = index >= bookCount || !titles || !titles[index];
+            drawBookCard(cx, cy, kCardW, kCardH,
+                         empty ? nullptr : titles[index],
+                         empty ? nullptr : (subs ? subs[index] : nullptr),
+                         empty);
+        }
+    }
+
+    // ── Page indicator at bottom center ──────────────────────────────────
+    if (totalPages > 1) {
+        char pageText[32];
+        snprintf(pageText, sizeof(pageText), "%u / %u",
+                 static_cast<unsigned>(page), static_cast<unsigned>(totalPages));
+        g_cjkText.drawCentered(0, kPaperS3Height - 48, kPaperS3Width, 28, pageText, kInkMid);
+    } else if (bookCount <= 0) {
+        g_cjkText.drawCentered(0, kGridY + 260, kPaperS3Width, 28, "从文件浏览器打开书籍即可加入书架", kInkLight);
+    }
 }
 
 void VinkUiRenderer::renderLibrary() {
@@ -414,18 +627,27 @@ void VinkUiRenderer::renderUiListPage(SystemState active, const char* title, con
 
     const int16_t x = kMarginX;
     const int16_t w = kContentW;
-    const bool plainRows = active == SystemState::Reader;
+    const bool readerList = active == SystemState::Reader;
+
     for (int i = 0; rows && i < rowCount; ++i) {
         const int16_t y = rowY + i * rowH;
         const bool isActive = i == activeRow;
-        if (!plainRows) {
-            // Card-style row: subtle bg for active, clean divider between rows
+
+        if (readerList) {
+            if (isActive) {
+                canvas_->fillRect(x, y + 2, w, rowH - 6, kSurfaceAlt);
+                drawThickBorder(x, y + 2, w, rowH - 6, kInk);
+            }
+            canvas_->drawRect(x, y + 2, w, rowH - 6, kInkLight);
+            if (i > 0) {
+                canvas_->drawFastHLine(x + 22, y - 3, w - 44, kInkLight);
+            }
+        } else {
+            // Library-like card row: subtle bg for active, clean divider between rows.
             if (isActive) {
                 canvas_->fillRect(x, y + 2, w, rowH - 6, kSurfaceAlt);
             }
             canvas_->drawRect(x, y + 2, w, rowH - 6, kInkLight);
-        } else if (i > 0) {
-            canvas_->drawFastHLine(x + 18, y - 3, w - 36, kInkLight);
         }
 
         char line[160];
@@ -435,20 +657,20 @@ void VinkUiRenderer::renderUiListPage(SystemState active, const char* title, con
         const int16_t textY = y + (rowH - lineH) / 2;
         g_cjkText.drawText(textX, textY, line, isActive ? kInk : kInkMid);
 
-        if (isActive && !plainRows) {
-            // Active indicator: left bar instead of underline for card-style
+        if (isActive) {
+            // Keep active-row rhythm similar to selected tab: edge accent + stronger ink.
             canvas_->fillRect(x + 4, y + 14, 4, rowH - 28, kInk);
-        } else if (isActive) {
-            int16_t underlineW = min<int16_t>(g_cjkText.textWidth(line), w - 36);
-            if (underlineW < 64) underlineW = 64;
-            canvas_->fillRect(textX, y + rowH - 8, underlineW, 3, kInk);
         }
     }
 
     if (totalPages > 1) {
         char footer[48];
         snprintf(footer, sizeof(footer), "%u / %u", static_cast<unsigned>(page), static_cast<unsigned>(totalPages));
-        g_cjkText.drawRight(kPaperS3Width - kMarginX, kPaperS3Height - 40, footer, kInkMid);
+        if (readerList) {
+            g_cjkText.drawCentered(0, kPaperS3Height - 40, kPaperS3Width, 28, footer, kInkMid);
+        } else {
+            g_cjkText.drawRight(kPaperS3Width - kMarginX, kPaperS3Height - 40, footer, kInkMid);
+        }
     }
 }
 
@@ -488,25 +710,18 @@ void VinkUiRenderer::renderUiActionPage(SystemState active, const char* title,
         }
     }
 
-    // Button area — positioned after info, flexible if many buttons
+    // Button area uses fixed geometry so display and touch mapping cannot drift
+    // when info text wraps differently. ReaderBookService mirrors these values.
     constexpr int16_t kBtnX = 64;
     constexpr int16_t kBtnW = 416;
+    constexpr int16_t kBtnH = kButtonMinH;
     constexpr int16_t kBtnGap = 16;
-    const int drawCount = min(actionCount, 8);
-    static constexpr int16_t kBtnH[] = {kButtonMinH, 48, 48, 48, 48, 48, 48, 48};
-
-    int16_t btnY = y + 24;
-    const int16_t totalBtnH = drawCount > 0 ? drawCount * (kBtnH[0] + kBtnGap) - kBtnGap : 0;
-    const int16_t maxBottom = kPaperS3Height - 32;
-    if (drawCount > 0 && btnY + totalBtnH > maxBottom) {
-        btnY = maxBottom - totalBtnH;
-        if (btnY < 500) btnY = 500;
-    }
+    constexpr int16_t kBtnY0 = 500;
+    const int drawCount = min(actionCount, 6);
 
     for (int i = 0; actions && i < drawCount; ++i) {
-        const int16_t bh = kBtnH[min(i, (int)(sizeof(kBtnH)/sizeof(kBtnH[0]) - 1))];
-        const int16_t by = btnY + i * (bh + kBtnGap);
-        drawButton(kBtnX, by, kBtnW, bh, actions[i] ? actions[i] : "", i == 0);
+        const int16_t by = kBtnY0 + i * (kBtnH + kBtnGap);
+        drawButton(kBtnX, by, kBtnW, kBtnH, actions[i] ? actions[i] : "", i == 0);
     }
 }
 
@@ -528,30 +743,36 @@ void VinkUiRenderer::renderTransfer() {
                  "点击启动热点后\n用手机连接 Vink-PaperS3");
     }
 
-    drawCard(kMarginX, kContentY, kContentW, 220, "WiFi 文件传输", ipLine);
+    drawCard(kMarginX, kContentY, kContentW, 210, "WiFi 文件传输", ipLine);
 
-    drawButton(56, 402, 192, kButtonMinH,
+    // Action area: surface panel sized to wrap the two buttons with spacing below.
+    drawSurfacePanel(canvas_, 46, 382, 448, 66);
+    drawButton(56, 392, 192, kButtonMinH,
                running ? "关闭热点" : "启动热点", running);
-    drawButton(296, 402, 192, kButtonMinH, "刷新状态", false);
+    drawButton(296, 392, 192, kButtonMinH, "刷新状态", false);
 
-    drawCard(kMarginX, 480, kContentW, 176,
+    drawCard(kMarginX, 500, kContentW, 166,
              "WebUI 功能",
              "文件浏览器\n上传 TXT\n新建目录\n重命名 / 删除");
-    drawCard(kMarginX, 680, kContentW, 168,
+    drawCard(kMarginX, 684, kContentW, 168,
              "使用方式",
              "把 TXT 上传到任意 SD 目录\n设备书架直接读取文件夹");
 }
 
 void VinkUiRenderer::drawMenuItem(int16_t x, int16_t y, int16_t w, int16_t h,
                                    const char* label, bool isToggle, bool isOn, const char* altText) {
-        canvas_->fillRect(x, y, w, h, kSurface);
+    canvas_->fillRect(x, y, w, h, kSurface);
     drawThickBorder(x, y, w, h, kInk);
 
     const int16_t lineH = static_cast<int16_t>(g_cjkText.fontSize());
     const int16_t textY = y + (h - lineH) / 2;
+    constexpr int16_t kLabelX = 46;
+    constexpr int16_t kPlainLabelX = 22;
+    constexpr int16_t kValueRightPad = 20;
 
     if (isToggle) {
-        // Filled circle = ON, hollow circle = OFF
+        // Filled circle = ON, hollow circle = OFF. The label always starts at a
+        // fixed x, so toggling does not make the item text jump.
         constexpr int16_t kDotR = 8;
         const int16_t dotX = x + 26;
         const int16_t dotY = y + h / 2;
@@ -561,13 +782,13 @@ void VinkUiRenderer::drawMenuItem(int16_t x, int16_t y, int16_t w, int16_t h,
             canvas_->fillCircle(dotX, dotY, kDotR, kSurface);
             canvas_->drawCircle(dotX, dotY, kDotR, kInk);
         }
-        g_cjkText.drawText(x + 46, textY, label ? label : "", kInk);
+        g_cjkText.drawText(x + kLabelX, textY, label ? label : "", kInk);
     } else if (altText && altText[0]) {
-        // Cycle item: show current value as indicator
-        g_cjkText.drawText(x + 22, textY, altText, kInkMid);
-        g_cjkText.drawText(x + 22 + g_cjkText.textWidth(altText) + 16, textY, label ? label : "", kInk);
+        // Cycle item: current value on the left (prominent), config name on the right.
+        g_cjkText.drawText(x + kPlainLabelX, textY, altText, kInk);
+        g_cjkText.drawRight(x + w - kValueRightPad, textY, label ? label : "", kInkMid);
     } else {
-        g_cjkText.drawText(x + 22, textY, label ? label : "", kInk);
+        g_cjkText.drawText(x + kPlainLabelX, textY, label ? label : "", kInk);
     }
 }
 
@@ -582,9 +803,9 @@ void VinkUiRenderer::renderReaderMenuOverlay(const char* bookTitle, const char* 
 
     // ── Menu card ──────────────────────────────────────────────────────
     constexpr int16_t kCardX   = 16;
-    constexpr int16_t kCardY   = 100;
+    constexpr int16_t kCardY   = 56;
     constexpr int16_t kCardW   = 508;
-    constexpr int16_t kCardH   = 360;
+    constexpr int16_t kCardH   = 420;
     
     canvas_->fillRect(kCardX, kCardY, kCardW, kCardH, kSurface);
     drawThickBorder(kCardX, kCardY, kCardW, kCardH, kInk);
@@ -624,12 +845,10 @@ void VinkUiRenderer::renderReaderMenuOverlay(const char* bookTitle, const char* 
     drawMenuItem(kCol0, kRow2Y, kItemW, kItemH, "翻页动画", true,  pageTurnEffectOn, nullptr);
     drawMenuItem(kCol1, kRow2Y, kItemW, kItemH, "页边距",   false, false, g_readerText.pageMarginLabel());
 
-    // ── Bottom buttons: 目录 + 返回 ────────────────────────────────────
-    constexpr int16_t kBtnY = kCardY + 300;
-    constexpr int16_t kBtnW = 200;
-    constexpr int16_t kBtnH = 48;
-    drawButton(kCardX + 44, kBtnY, kBtnW, kBtnH, "目录", false);
-    drawButton(kCardX + 264, kBtnY, kBtnW, kBtnH, "返回", false);
+    // ── Bottom buttons: same size as the setting cells above ───────────
+    constexpr int16_t kRow3Y = kCardY + 306;
+    drawMenuItem(kCol0, kRow3Y, kItemW, kItemH, "目录", false, false, nullptr);
+    drawMenuItem(kCol1, kRow3Y, kItemW, kItemH, "返回", false, false, nullptr);
 }
 
 void VinkUiRenderer::renderSettings() {
@@ -647,8 +866,7 @@ void VinkUiRenderer::renderSettings() {
     // "阅读设置" card → taps open sub-page
     constexpr int16_t kMainCardY = kContentY;
     constexpr int16_t kMainCardH = 52;
-    canvas_->fillRect(kMarginX, kMainCardY, kContentW, kMainCardH, kSurface);
-    drawThickBorder(kMarginX, kMainCardY, kContentW, kMainCardH, kInk);
+    drawSurfacePanel(canvas_, kMarginX, kMainCardY, kContentW, kMainCardH);
     g_cjkText.drawText(kMarginX + 22, kMainCardY + (kMainCardH - static_cast<int16_t>(g_cjkText.fontSize())) / 2,
                        "阅读设置", kInk);
     // Chevron >
@@ -668,6 +886,7 @@ void VinkUiRenderer::renderReaderSettings() {
     // ── Back button ───────────────────────────────────────────────────
     constexpr int16_t kBackY = kContentY;
     constexpr int16_t kBackH = 32;
+    drawSurfacePanel(canvas_, kMarginX, kBackY, 120, kBackH);
     g_cjkText.drawText(kMarginX + 6, kBackY, "< 返回", kInkMid);
 
     // Groups: 排版(2) + 阅读(2) + 显示(2) = 6 rows total
@@ -810,17 +1029,31 @@ UiAction VinkUiRenderer::hitTest(SystemState state, int16_t x, int16_t y) const 
     switch (state) {
         case SystemState::Reader:
         case SystemState::Home:
-            // Buttons sit inside the current-book card: check them before the card
-            // Buttons: (56,350,192,52) and (296,350,192,52)
-            if (inRect(x, y, 296, 350, 192, kButtonMinH)) return UiAction::OpenLibrary;
-            if (inRect(x, y, 56, 350, 192, kButtonMinH)) return UiAction::OpenCurrentBook;
-            if (inRect(x, y, kMarginX, kContentY, kContentW, 170)) return UiAction::OpenCurrentBook;
+            // Reader home geometry must mirror renderReaderHome() pixel-for-pixel.
+            {
+                constexpr int16_t kTopCardY = kContentY;
+                constexpr int16_t kTopCardW = 180;
+                constexpr int16_t kTopCardH = 320;
+                constexpr int16_t kBtnY = kTopCardY + kTopCardH + 18;
+                constexpr int16_t kBtnGap = 14;
+                constexpr int16_t kBtnW = (kContentW - kBtnGap * 2) / 3;
+
+                // Top card → open
+                if (inRect(x, y, kMarginX, kTopCardY, kTopCardW, kTopCardH)) return UiAction::OpenCurrentBook;
+                // "继续/打开" button
+                if (inRect(x, y, kMarginX, kBtnY, kBtnW, kButtonMinH)) return UiAction::OpenCurrentBook;
+                // "目录" button
+                if (inRect(x, y, kMarginX + kBtnW + kBtnGap, kBtnY, kBtnW, kButtonMinH)) return UiAction::OpenCurrentBookToc;
+                // "从头开始" button (kBtnY recalculated below with new kTopH)
+                if (inRect(x, y, kMarginX + (kBtnW + kBtnGap) * 2, kBtnY, kBtnW, kButtonMinH)) return UiAction::RestartCurrentBook;
+                // 3 recent book cards → handled by handleReaderHomeTap (touch coords passed via None)
+            }
             break;
         case SystemState::Library:
             break;
         case SystemState::Transfer:
-            if (inRect(x, y, 56, 402, 192, kButtonMinH)) return UiAction::ToggleWifiAp;
-            if (inRect(x, y, 296, 402, 192, kButtonMinH)) return UiAction::OpenTransfer;
+            if (inRect(x, y, 56, 392, 192, kButtonMinH)) return UiAction::ToggleWifiAp;
+            if (inRect(x, y, 296, 392, 192, kButtonMinH)) return UiAction::OpenTransfer;
             break;
         case SystemState::Settings:
             if (showReaderSettings_) {
@@ -834,14 +1067,12 @@ UiAction VinkUiRenderer::hitTest(SystemState state, int16_t x, int16_t y) const 
                 if (inRect(x, y, 56, g0 + 148 + 38 + kRowH, 424, kRowH)) return UiAction::ToggleReaderAntiAlias;
                 if (inRect(x, y, 56, g0 + 296 + 38,         424, kRowH)) return UiAction::CycleReaderRefreshStrategy;
                 if (inRect(x, y, 56, g0 + 296 + 38 + kRowH, 424, kRowH)) return UiAction::ToggleReaderPageTurnEffect;
-                if (y >= kContentY) return UiAction::OpenSettings;
                 break;
             }
             // Main page: "阅读设置" card + system group
             if (inRect(x, y, kMarginX, kContentY, kContentW, 52)) return UiAction::OpenReaderSettings;
             if (inRect(x, y, 56, kContentY + 52 + 24 + 38,         424, kRowH)) return UiAction::RequestShutdown;
             if (inRect(x, y, 56, kContentY + 52 + 24 + 38 + kRowH, 424, kRowH)) return UiAction::OpenSettings;
-            if (y >= kContentY) return UiAction::OpenSettings;
             break;
         case SystemState::ShutdownConfirm:
             if (inRect(x, y, 64, 530, 180, 56)) return UiAction::CancelShutdown;
