@@ -145,11 +145,16 @@ void ReaderTextRenderer::applyLayoutPresetToSettings() {
 
 void ReaderTextRenderer::loadLocalSettings() {
     Preferences prefs;
-    if (!prefs.begin("vink-reader", true)) return;
+    if (!prefs.begin("vink-reader", true)) {
+        Serial.println("[vink3][reader] loadLocalSettings: NVS open failed");
+        g_systemLog.append("reader NVS open fail");
+        return;
+    }
     const uint8_t preset = prefs.getUChar("preset", layoutPreset_);
     const uint16_t formatting = prefs.getUShort("fmt1", settings_.formatting1);
     const uint16_t render = prefs.getUShort("rend1", settings_.renderOpt1);
     const uint16_t spacing = prefs.getUShort("spacing", settings_.spacing);
+    const bool hasSaved = prefs.isKey("rend1");
     fontSizeSetting_ = prefs.getUChar("font", fontSizeSetting_);
     sdFontSize_ = prefs.getUChar("sdsz", sdFontSize_);
     if (sdFontSize_ < 16) sdFontSize_ = 16;
@@ -173,13 +178,19 @@ void ReaderTextRenderer::loadLocalSettings() {
     settings_.formatting1 = formatting;
     settings_.renderOpt1 = render;
     settings_.spacing = spacing;
+    Serial.printf("[vink3][reader] loadLocalSettings: hasSaved=%d preset=%u fmt1=0x%04x rend1=0x%04x spacing=0x%04x font=%u\n",
+                  hasSaved ? 1 : 0, preset, formatting, render, spacing, fontSizeSetting_);
+    g_systemLog.appendf("reader load rend1=0x%04x preset=%u", render, preset);
     // Apply persisted font choice without writing NVS during boot.
     applyReaderFontSize(fontSizeSetting_, false);
 }
 
 bool ReaderTextRenderer::saveLocalSettings() const {
     Preferences prefs;
-    if (!prefs.begin("vink-reader", false)) return false;
+    if (!prefs.begin("vink-reader", false)) {
+        Serial.println("[vink3][reader] saveLocalSettings: NVS open failed");
+        return false;
+    }
     prefs.putUChar("preset", layoutPreset_);
     prefs.putUShort("fmt1", settings_.formatting1);
     prefs.putUShort("rend1", settings_.renderOpt1);

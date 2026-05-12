@@ -127,86 +127,82 @@ void formatBatteryPercent(char* out, size_t outSize) {
     snprintf(out, outSize, "%s--%%", isOfficialUsbConnected() ? "USB " : "");
 }
 
-constexpr uint8_t kSystemLogMaxWrappedRows = SystemLogService::kMaxLines * 4;
 constexpr int16_t kSystemLogPanelH = 370;
 constexpr int16_t kSystemLogLineH = 22;
 constexpr uint8_t kSystemLogVisibleRows = (kSystemLogPanelH - 30) / kSystemLogLineH;
 
-size_t utf8CharLen(const char* s, size_t pos, size_t len) {
-    if (!s || pos >= len) return 0;
-    const uint8_t c = static_cast<uint8_t>(s[pos]);
-    if ((c & 0x80) == 0) return 1;
-    if ((c & 0xE0) == 0xC0 && pos + 1 < len) return 2;
-    if ((c & 0xF0) == 0xE0 && pos + 2 < len) return 3;
-    if ((c & 0xF8) == 0xF0 && pos + 3 < len) return 4;
-    return 1;
-}
+// Build wrapped log rows from the persisted system log, using the same 24px UI
+// font that the rest of the page already uses for info lines (drawText / textWidth).
+// Long records are split at the widest point that still fits maxWidth pixels;
+// continuation rows are indented so they are visually grouped.
+constexpr uint8_t kSystemLogMaxWrappedRows = SystemLogService::kMaxLines * 3;
 
-uint8_t appendWrappedLogLine(const char* src,
-                             char rows[][SystemLogService::kLineSize],
-                             uint8_t rowCount,
-                             uint8_t maxRows,
-                             int16_t maxWidth) {
-    if (!src || !src[0] || rowCount >= maxRows) return rowCount;
-
-    char current[SystemLogService::kLineSize];
-    size_t currentLen = 0;
-    current[0] = '\0';
-    const size_t len = strlen(src);
-    size_t pos = 0;
-
-    auto emitCurrent = [&]() {
-        if (currentLen == 0 || rowCount >= maxRows) return;
-        current[currentLen] = '\0';
-        strlcpy(rows[rowCount++], current, SystemLogService::kLineSize);
-        currentLen = 0;
-        current[0] = '\0';
-    };
-
-    while (pos < len && rowCount < maxRows) {
-        const size_t n = utf8CharLen(src, pos, len);
-        if (n == 0) break;
-        char next[SystemLogService::kLineSize];
-        const size_t copyLen = min(n, sizeof(next) - 1);
-        memcpy(next, src + pos, copyLen);
-        next[copyLen] = '\0';
-
-        char candidate[SystemLogService::kLineSize];
-        strlcpy(candidate, current, sizeof(candidate));
-        strlcat(candidate, next, sizeof(candidate));
-
-        if (currentLen > 0 && g_cjkText.textWidthSmall(candidate) > maxWidth) {
-            emitCurrent();
-            // Continuation rows are indented slightly so wrapped records are
-            // visually grouped instead of looking like separate log entries.
-            strlcpy(current, "  ", sizeof(current));
-            currentLen = strlen(current);
-            if (g_cjkText.textWidthSmall(next) > maxWidth) {
-                strlcpy(current, next, sizeof(current));
-                currentLen = strlen(current);
-                emitCurrent();
-            } else {
-                strlcat(current, next, sizeof(current));
-                currentLen = strlen(current);
-            }
-        } else {
-            strlcpy(current, candidate, sizeof(current));
-            currentLen = strlen(current);
-            if (currentLen >= sizeof(current) - 5) emitCurrent();
-        }
-        pos += n;
-    }
-    emitCurrent();
-    return rowCount;
-}
-
-uint8_t buildWrappedSystemLogRows(char rows[][SystemLogService::kLineSize], uint8_t maxRows, int16_t maxWidth) {
+uint8_t buildWrappedSystemLogRows(char rows[][SystemLogService::kLineSize],
+                                  uint8_t maxRows, int16_t maxWidth) {
     uint8_t rowCount = 0;
     const uint8_t count = g_systemLog.count();
     for (uint8_t i = 0; i < count && rowCount < maxRows; ++i) {
-        char logLine[SystemLogService::kLineSize];
-        if (!g_systemLog.line(i, logLine, sizeof(logLine))) continue;
-        rowCount = appendWrappedLogLine(logLine, rows, rowCount, maxRows, maxWidth);
+        char src[SystemLogService::kLineSize];
+        if (!g_systemLog.line(i, src, sizeof(src))) continue;
+
+        const char* remaining = src;
+        while (*remaining && rowCount < maxRows) {
+            if (g_cjkText.textWidth(remaining) <= maxWidth) {
+                // Rest of the source fits in one row.
+                // If it is a continuation (remaining != src), indent it.
+                if (remaining != src)
+                    snprintf(rows[rowCount++], SystemLogService::kLineSize, "  %s", remaining);
+                else
+                    strlcpy(rows[rowCount++], remaining, SystemLogService::kLineSize);
+                break;
+            }
+
+            // Find the widest prefix that fits within maxWidth.
+            const uint8_t* bytes = reinterpret_cast<const uint8_t*>(remaining);
+            size_t len = strlen(remaining);
+            size_t fitEnd = 0;
+            size_t pos = 0;
+            while (pos < len) {
+                uint8_t chLen = 0;
+                const uint8_t c = bytes[pos];
+                if ((c & 0x80) == 0)        chLen = 1;
+                else if ((c & 0xE0) == 0xC0) chLen = 2;
+                else if ((c & 0xF0) == 0xE0) chLen = 3;
+                else if ((c & 0xF8) == 0xF0) chLen = 4;
+                else                          chLen = 1;
+                if (pos + chLen > len) break;
+
+                char probe[SystemLogService::kLineSize];
+                memcpy(probe, remaining, pos + chLen);
+                probe[pos + chLen] = '\0';
+                if (g_cjkText.textWidth(probe) > maxWidth) break;
+                fitEnd = pos + chLen;
+                pos += chLen;
+            }
+
+            if (fitEnd == 0) {
+                // Even a single character is wider than maxWidth (should not
+                // happen with normal 24px fonts on 540px screen).
+                // Emit the first character anyway.
+                uint8_t chLen = 0;
+                const uint8_t c = bytes[0];
+                if ((c & 0x80) == 0)        chLen = 1;
+                else if ((c & 0xE0) == 0xC0) chLen = 2;
+                else if ((c & 0xF0) == 0xE0) chLen = 3;
+                else if ((c & 0xF8) == 0xF0) chLen = 4;
+                else                          chLen = 1;
+                fitEnd = chLen;
+            }
+
+            char row[SystemLogService::kLineSize];
+            memcpy(row, remaining, fitEnd);
+            row[fitEnd] = '\0';
+            if (remaining != src)
+                snprintf(rows[rowCount++], SystemLogService::kLineSize, "  %s", row);
+            else
+                strlcpy(rows[rowCount++], row, SystemLogService::kLineSize);
+            remaining += fitEnd;
+        }
     }
     return rowCount;
 }
@@ -553,7 +549,7 @@ void VinkUiRenderer::renderReaderHome(const char* bookTitle, const char* bookPat
     // Left: large book card using drawBookCard (lighter + spine, book-like shape)
     if (hasLastBook) {
         drawBookCard(kMarginX, kTopY, kCoverW, kTopH,
-                     bookTitle, progressText, false);
+                     bookTitle, nullptr, false);
     } else {
         drawBookCard(kMarginX, kTopY, kCoverW, kTopH,
                      nullptr, nullptr, true);
@@ -1222,7 +1218,7 @@ void VinkUiRenderer::renderSystemLogs() {
     char summary[96];
     snprintf(summary, sizeof(summary), "最近关键记录  %u/%u  上滑更早 下滑更新",
              static_cast<unsigned>(systemLogPage_ + 1), static_cast<unsigned>(pageCount));
-    g_cjkText.drawTextSmall(kMarginX, infoY + infoH + 20, summary, kInkMid);
+    g_cjkText.drawText(kMarginX, infoY + infoH + 20, summary, kInkMid);
 
     const int16_t panelY = infoY + infoH + 52;
     const int16_t panelH = kSystemLogPanelH;
