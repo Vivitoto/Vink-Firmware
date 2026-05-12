@@ -12,6 +12,7 @@ enum class SystemState : uint8_t {
     Transfer,
     Settings,
     Diagnostics,
+    SystemLogs,
     LegadoSync,
     ShutdownConfirm,
     Sleeping,

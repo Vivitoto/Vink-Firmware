@@ -18,6 +18,8 @@ enum class UiAction : uint8_t {
     OpenTransfer,
     OpenSettings,
     OpenDiagnostics,
+    OpenSystemLogs,
+    ClearSystemLogs,
     RequestShutdown,
     ConfirmShutdown,
     CancelShutdown,
@@ -72,6 +74,7 @@ public:
                                  const char* layoutLabel, bool underlineOn,
                                  bool pageTurnEffectOn);
     void renderDiagnostics(const Message& lastTouch, const char* eventName);
+    void renderSystemLogs();
     void renderShutdownConfirm();
     void renderShutdown(const char* reason);
     void renderPowerOffReady();

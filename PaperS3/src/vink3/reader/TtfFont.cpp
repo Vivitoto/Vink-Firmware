@@ -166,6 +166,14 @@ void TtfFont::recalcMetrics() {
     lineHeight_ = static_cast<int16_t>((asc - desc) * scale_);
 }
 
+bool TtfFont::hasGlyph(uint32_t unicode) const {
+    if (!loaded_ || !ttfData_) return false;
+    if (unicode == '\n' || unicode == '\r' || unicode == ' ' || unicode == '\t') return true;
+    stbtt_fontinfo info;
+    if (!stbtt_InitFont(&info, ttfData_, fontOffset_)) return false;
+    return stbtt_FindGlyphIndex(&info, static_cast<int>(unicode)) != 0;
+}
+
 int16_t TtfFont::charAdvance(uint32_t unicode) const {
     if (!loaded_ || !ttfData_) return pxSize_;
     stbtt_fontinfo info;
@@ -301,23 +309,23 @@ bool TtfFont::drawGlyphToBuffer(uint32_t unicode, uint8_t* buf,
     return true;
 }
 
-void TtfFont::drawGlyph(uint32_t unicode, int16_t x, int16_t y,
+bool TtfFont::drawGlyph(uint32_t unicode, int16_t x, int16_t y,
                          uint16_t color, M5Canvas* canvas) {
-    if (!loaded_ || !ttfData_ || !canvas) return;
+    if (!loaded_ || !ttfData_ || !canvas) return false;
 
     // Allocate on heap for safety; max reasonable glyph at 64px = ~4KB
     constexpr int kMaxGlyphPixels = 64 * 64;
     uint8_t* bmpBuf = static_cast<uint8_t*>(malloc(kMaxGlyphPixels));
-    if (!bmpBuf) return;
+    if (!bmpBuf) return false;
 
     int gw = 0, gh = 0, adv = 0;
     if (!drawGlyphToBuffer(unicode, bmpBuf, &gw, &gh, &adv)) {
         free(bmpBuf);
-        return;
+        return false;
     }
     if (gw <= 0 || gh <= 0 || gw > 64 || gh > 64) {
         free(bmpBuf);
-        return;
+        return false;
     }
 
     // Look up cached entry for bearing info
@@ -353,6 +361,7 @@ void TtfFont::drawGlyph(uint32_t unicode, int16_t x, int16_t y,
     }
 
     free(bmpBuf);
+    return true;
 }
 
 int TtfFont::scanSdFonts(char paths[][64], int maxCount) {

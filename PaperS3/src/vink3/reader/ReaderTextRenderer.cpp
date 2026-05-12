@@ -3,6 +3,7 @@
 #include "../ReadPaper176.h"
 #include "../text/WenkaiFullFont.h"
 #include "../text/CjkTextRenderer.h"
+#include "../system/SystemLog.h"
 #include "TtfFont.h"
 #include <Preferences.h>
 
@@ -70,20 +71,16 @@ uint16_t ReaderTextRenderer::fontSize() const {
 }
 
 void ReaderTextRenderer::applyReaderFontSize(uint8_t size, bool persist) {
-    if (size <= 18) size = 16;
-    else if (size <= 26) size = 20;
-    else size = 32;
-    fontSizeSetting_ = size;
-    if (size == 16) {
-        wenkai32Ready_ = false;
-        font_.loadBundledFont(FONT_FILE_16);
-    } else if (size == 20) {
-        wenkai32Ready_ = false;
-        font_.loadBundledFont(FONT_FILE_20);
-    } else {
-        font_.unload();
-        beginWenkai32Font();
-    }
+    // Until smaller generated reader fonts are proven on-device, keep the body
+    // renderer on the compiled full Wenkai font. The older 16/20px SPIFFS fonts
+    // are useful as UI/fallback resources but can silently miss large CJK ranges,
+    // which presents as a page with normal header/footer and completely blank
+    // body text. Prefer readable embedded Wenkai over honoring a stale small-size
+    // preference.
+    (void)size;
+    fontSizeSetting_ = 32;
+    font_.unload();
+    beginWenkai32Font();
     if (persist) saveLocalSettings();
 }
 
@@ -510,7 +507,7 @@ bool ReaderTextRenderer::findWenkai32Glyph(uint32_t unicode, GrayGlyph& out) con
 }
 
 uint8_t ReaderTextRenderer::charAdvance(uint32_t unicode) const {
-    if (sdCardFontActive_ && ttfFont_.isLoaded()) {
+    if (sdCardFontActive_ && ttfFont_.isLoaded() && ttfFont_.hasGlyph(unicode)) {
         int16_t a = ttfFont_.charAdvance(unicode);
         if (a > 0) return static_cast<uint8_t>(a > 255 ? 255 : a);
         return unicode < 128 ? static_cast<uint8_t>(ttfFont_.currentSize() / 2) : ttfFont_.currentSize();
@@ -560,10 +557,13 @@ uint16_t ReaderTextRenderer::pixelColorForNibble(uint8_t nibble, uint16_t color)
 
 void ReaderTextRenderer::drawGlyph(uint32_t unicode, int16_t x, int16_t y, uint16_t color) {
     if (!canvas_) return;
-    // SD card TTF font (highest priority)
-    if (sdCardFontActive_ && ttfFont_.isLoaded()) {
-        ttfFont_.drawGlyph(unicode, x, y, color, canvas_);
-        return;
+    // SD card TTF font (highest priority when it actually contains the glyph).
+    if (sdCardFontActive_ && ttfFont_.isLoaded() && ttfFont_.hasGlyph(unicode)) {
+        if (ttfFont_.drawGlyph(unicode, x, y, color, canvas_)) return;
+        // If an SD font is selected but cannot render this glyph, keep falling
+        // through to the built-in Wenkai/tofu path. Otherwise a Latin-only or
+        // broken SD font can make the whole body page blank while header/footer
+        // still look normal.
     }
     // Wenkai32 PROGMEM (4bpp GRAY format, primary)
     if (wenkai32Ready_) {
@@ -931,6 +931,7 @@ void ReaderTextRenderer::renderTextPage(const char* title, const char* body, uin
     const int16_t baseLineHeight = fontSize() + options.lineGap;
     const int16_t lineHeight = options.dynamicLineHeight ? max<int16_t>(fontSize() + 3, baseLineHeight) : baseLineHeight;
     const int16_t bottom = kPaperS3Height - options.marginBottom;
+    uint8_t drawnLines = 0;
     while (pos < len && y + lineHeight <= bottom) {
         bool skippedBlank = false;
         while (pos < len && (text[pos] == '\n' || text[pos] == '\r')) { pos++; skippedBlank = true; }
@@ -955,9 +956,17 @@ void ReaderTextRenderer::renderTextPage(const char* title, const char* body, uin
                 canvas_->drawFastHLine(x, uy, 3, mid);
             }
         }
+        drawnLines++;
         pos = end;
         y += lineHeight;
         if (hardBreak && options.paragraphGap > 0) y += options.paragraphGap;
+    }
+
+    if (len > 0 && drawnLines == 0) {
+        g_systemLog.appendf("reader blank body len=%u top=%d bottom=%d line=%d ready=%d font=%u",
+                            static_cast<unsigned>(len), static_cast<int>(options.marginTop),
+                            static_cast<int>(bottom), static_cast<int>(lineHeight),
+                            ready() ? 1 : 0, static_cast<unsigned>(fontSize()));
     }
 
 }

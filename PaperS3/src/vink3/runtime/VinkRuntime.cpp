@@ -5,10 +5,12 @@
 #include "../reader/ReaderTextRenderer.h"
 #include "../state/StateMachine.h"
 #include "../sync/LegadoService.h"
+#include "../system/SystemLog.h"
 #include "../ui/VinkUiRenderer.h"
 #include <SPIFFS.h>
 #include <SD.h>
 #include "esp_sleep.h"
+#include "esp_system.h"
 #include "driver/gpio.h"
 
 namespace vink3 {
@@ -18,6 +20,10 @@ volatile TouchCoordMode gPaperS3TouchCoordMode = TouchCoordMode::OfficialRaw540x
 VinkRuntime g_runtime;
 
 namespace {
+RTC_NOINIT_ATTR uint32_t s_runtimeRunningMagic;
+RTC_NOINIT_ATTR uint32_t s_runtimeRunningMagicInv;
+static constexpr uint32_t kRuntimeRunningMagic = 0x56494E4Bu; // "VINK"
+
 void configureOfficialPaperS3Gpios() {
     pinMode(static_cast<int>(kUsbDetectPin), INPUT);
     pinMode(static_cast<int>(kChargeStatePin), INPUT);
@@ -40,12 +46,29 @@ void applyOfficialPaperS3DisplaySetup() {
 
 } // namespace
 
+void markPaperS3RuntimeRunning() {
+    s_runtimeRunningMagic = kRuntimeRunningMagic;
+    s_runtimeRunningMagicInv = ~kRuntimeRunningMagic;
+}
+
+void clearPaperS3RuntimeRunning() {
+    s_runtimeRunningMagic = 0;
+    s_runtimeRunningMagicInv = 0;
+}
+
+bool wasPaperS3RuntimeRunningBeforeReset() {
+    return s_runtimeRunningMagic == kRuntimeRunningMagic &&
+           s_runtimeRunningMagicInv == ~kRuntimeRunningMagic;
+}
+
 bool VinkRuntime::begin() {
     Serial.printf("[vink3][runtime] starting %s from ReadPaper V1.7.6 baseline\n", kVinkPaperS3FirmwareVersion);
     if (!beginHardware()) return false;
     if (!beginCanvas()) return false;
+    if (handleSideKeyResetShutdown()) return false;
     if (!beginServices()) return false;
     drawBoot();
+    markPaperS3RuntimeRunning();
     return true;
 }
 
@@ -55,9 +78,14 @@ bool VinkRuntime::beginHardware() {
     Serial.begin(115200);
     delay(200);
     Serial.printf("\n[Vink %s] ReadPaper baseline %s @ %s\n", kVinkPaperS3FirmwareVersion, kReadPaperUpstreamVersion, kReadPaperUpstreamCommit);
-    Serial.printf("[vink3][boot] wake cause=%d psram size=%u free=%u flash=%u\n",
-                  static_cast<int>(esp_sleep_get_wakeup_cause()),
+    const int resetReason = static_cast<int>(esp_reset_reason());
+    const int wakeCause = static_cast<int>(esp_sleep_get_wakeup_cause());
+    const bool priorRunning = wasPaperS3RuntimeRunningBeforeReset();
+    Serial.printf("[vink3][boot] reset reason=%d wake cause=%d prior-running=%d psram size=%u free=%u flash=%u\n",
+                  resetReason, wakeCause, priorRunning ? 1 : 0,
                   ESP.getPsramSize(), ESP.getFreePsram(), ESP.getFlashChipSize());
+    g_systemLog.appendf("boot reset=%d wake=%d prior=%d", resetReason, wakeCause, priorRunning ? 1 : 0);
+    g_systemLog.appendf("boot fw=%s heap=%u psram=%u", kVinkPaperS3FirmwareVersion, ESP.getFreeHeap(), ESP.getFreePsram());
     Serial.printf("[vink3][boot] official PaperS3 profile: EPD %dx%d, GT911 SDA=%d SCL=%d INT=%d, SD CS=%d SCK=%d MOSI=%d MISO=%d, BAT_ADC=%d USB_DET=%d CHG=%d BUZZER=%d\n",
                   kPaperS3PhysicalWidth, kPaperS3PhysicalHeight,
                   static_cast<int>(kGt911SdaPin), static_cast<int>(kGt911SclPin), static_cast<int>(kGt911IntPin),
@@ -112,6 +140,40 @@ bool VinkRuntime::beginServices() {
     if (!g_inputService.begin(&g_stateMachine)) return false;
     if (!g_legadoService.begin(&g_stateMachine)) return false;
     return true;
+}
+
+bool VinkRuntime::handleSideKeyResetShutdown() {
+    // On PaperS3 the side key is not exposed as a normal ESP32-S3 GPIO button
+    // in M5Unified. On real devices a running-device side-key click can instead
+    // reset the ESP32. Treat that specific "external reset while Vink was already
+    // running" as a shutdown request: redraw the retained power-off page, pulse
+    // GPIO44, then fall back to deep sleep if the latch did not cut power.
+    if (esp_reset_reason() != ESP_RST_EXT || !wasPaperS3RuntimeRunningBeforeReset()) return false;
+
+    Serial.println("[vink3][power] external reset after running session -> side-key shutdown path");
+    g_systemLog.append("side-key external reset -> shutdown");
+    if (!g_uiRenderer.begin(&canvas_)) return false;
+    if (!g_displayService.begin(&canvas_)) return false;
+    g_uiRenderer.renderPowerOffReady();
+    g_displayService.enqueueFull(true, 100);
+    g_displayService.waitIdle(8000);
+    M5.Display.waitDisplay();
+    delay(800);
+    clearPaperS3RuntimeRunning();
+    Serial.println("[vink3][power] side-key reset page drawn; pulsing PaperS3 GPIO44 PWROFF");
+    g_systemLog.append("side-key page drawn; GPIO44 pulse");
+    Serial.flush();
+    pulsePaperS3PowerOffPin();
+
+    esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
+    esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_OFF);
+    esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_SLOW_MEM, ESP_PD_OPTION_OFF);
+    esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_FAST_MEM, ESP_PD_OPTION_OFF);
+    Serial.println("[vink3][power] side-key GPIO44 pulse returned; entering fallback ESP32-S3 deep sleep");
+    Serial.flush();
+    delay(100);
+    esp_deep_sleep_start();
+    for (;;) delay(1000);
 }
 
 void VinkRuntime::drawBoot() {

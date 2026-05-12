@@ -5,6 +5,21 @@
   "description": "面向 M5Stack PaperS3 的 Vink 电子书阅读固件。",
   "releases": [
     {
+      "version": "v0.4.17",
+      "name": "Vink-PaperS3 v0.4.17",
+      "summary": "修复正文页隐形 Tab 命中和正文空白防线，去除多余装饰横线，并增强系统日志诊断。",
+      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.17",
+      "changelog": "## Vink-PaperS3 v0.4.17\n\n### 正文阅读稳定性\n- 正文主体强制回到完整内嵌 PROGMEM 文楷路径，避免被旧 16/20px SPIFFS/fallback 小字体路径带偏后出现“页眉页脚正常、正文整页空白”。\n- 正文渲染新增 `reader blank body` 持久日志：当正文内容非空但一行都没画出来时，记录正文长度、正文区域、行高、字体 ready 状态和字号，方便真机复现时定位。\n\n### 阅读页触摸修复\n- 修复正文阅读页点击外部 Tab 对应坐标会跳回外部 Tab 的老问题：正文页不再响应不可见 Tab 区域，只有真正绘制四个 Tab 的页面才允许 Tab 命中。\n- 本地 smoke test 增加“正文页不可命中隐形 Tab”的回归检查。\n\n### UI 残影/重影观感\n- 去掉 Tab、卡片、设置分组中不承担结构作用的装饰性细横线，减少墨水屏上类似重影的观感。\n- 保留阅读 TAB 的“继续”按钮和设置页“确认关机”按钮现有干净实线效果。\n\n### 系统日志诊断\n- 系统日志页增加实时系统快照：固件版本、uptime、reset/wake/prior、旋转、heap/PSRAM、电池、USB、充电状态、SD、日志数量。\n- 启动时持久记录 reset/wake/prior 与固件/内存快照，便于排查侧键、复位和断电路径。\n\n### 验证\n- `python3 tests/local_firmware_smoke.py` 通过。\n- `python3 tests/local_firmware_smoke.py --build` 通过。\n- full 16MB 固件包重新生成。\n",
+      "assets": {
+        "full": {
+          "name": "Vink-PaperS3-v0.4.17-full-16MB.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.17/Vink-PaperS3-v0.4.17-full-16MB.bin",
+          "size": 16777216,
+          "flashOffset": "0x0"
+        }
+      }
+    },
+    {
       "version": "v0.4.16",
       "name": "Vink-PaperS3 v0.4.16",
       "summary": "修复 v0.4.15 正文空白根因：全量文楷覆盖+缺字占位，并统一 UI/阅读菜单/书架布局、TAB 低频清残影、60px native sweep 翻页",

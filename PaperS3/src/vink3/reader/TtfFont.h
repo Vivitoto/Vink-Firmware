@@ -29,6 +29,9 @@ public:
     /// Set pixel height (clamped to 16-64).
     void setSize(uint8_t pxSize);
 
+    /// Whether the font contains a real glyph for this codepoint.
+    bool hasGlyph(uint32_t unicode) const;
+
     /// Advance width for a single unicode codepoint.
     int16_t charAdvance(uint32_t unicode) const;
 
@@ -36,7 +39,8 @@ public:
     int16_t textWidth(const char* text) const;
 
     /// Draw a single glyph onto a canvas.
-    void drawGlyph(uint32_t unicode, int16_t x, int16_t y,
+    /// @return true if a glyph was drawn.
+    bool drawGlyph(uint32_t unicode, int16_t x, int16_t y,
                    uint16_t color, M5Canvas* canvas);
 
     /// Render glyph to a caller-provided buffer.

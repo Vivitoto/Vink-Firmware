@@ -1,5 +1,6 @@
 #include "InputService.h"
 #include "../display/DisplayService.h"
+#include "../system/SystemLog.h"
 #include "../ReadPaper176.h"
 
 namespace vink3 {
@@ -117,6 +118,7 @@ void InputService::pollPowerButton(uint32_t now) {
         msg.timestampMs = now;
         stateMachine_->post(msg, 0);
         Serial.println("[vink3][power] BtnPWR press edge -> graceful shutdown");
+        g_systemLog.append("BtnPWR press edge -> shutdown");
         return;
     }
 

@@ -4,10 +4,12 @@
 #include "../reader/ReaderTextRenderer.h"
 #include "../sync/LegadoService.h"
 #include "../sync/WifiService.h"
+#include "../system/SystemLog.h"
 #include "../ui/VinkUiRenderer.h"
 #include "../input/InputService.h"
 #include "../ReadPaper176.h"
 #include <esp_sleep.h>
+#include <driver/gpio.h>
 
 namespace vink3 {
 
@@ -26,6 +28,7 @@ SystemState tabStateForAction(UiAction action) {
 
 void shutdownPaperS3(const char* reason) {
     Serial.println("[vink3][power] shutdown requested");
+    g_systemLog.appendf("shutdown requested: %s", reason ? reason : "power");
     g_readerBook.saveCurrentProgress();
     g_uiRenderer.renderShutdown(reason ? reason : "正在关机");
     g_displayService.enqueueFull(true, 100);
@@ -33,28 +36,30 @@ void shutdownPaperS3(const char* reason) {
     delay(300);
 
     // ReadPaper-style shutdown: save state, give SD/display time to settle,
-    // then call M5.Power.powerOff(). M5Unified implements the PaperS3-specific
-    // GPIO44 power-hold pulse internally, so do not duplicate the pulse here.
+    // then cut PaperS3 power with the board-specific GPIO44 PWROFF pulse.
     delay(500);
     M5.Display.waitDisplay();
 
     // E-ink keeps its last image after power is cut. Draw a final, explicit
-    // "powered off" page before calling M5.Power.powerOff() so real-device
-    // testing can distinguish a completed shutdown path from a stuck busy page.
+    // "powered off" page before pulsing GPIO44 so real-device testing can
+    // distinguish a completed shutdown path from a stuck busy page.
     g_uiRenderer.renderPowerOffReady();
     g_displayService.enqueueFull(true, 100);
     g_displayService.waitIdle(8000);
     M5.Display.waitDisplay();
     delay(1500);
-    Serial.println("[vink3][power] final power-off page drawn; calling M5.Power.powerOff()");
+    clearPaperS3RuntimeRunning();
+    Serial.println("[vink3][power] final power-off page drawn; pulsing PaperS3 GPIO44 PWROFF");
+    g_systemLog.append("power-off page drawn; GPIO44 pulse");
     Serial.flush();
-    M5.Power.powerOff();
+    pulsePaperS3PowerOffPin();
 
     esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
     esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_OFF);
     esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_SLOW_MEM, ESP_PD_OPTION_OFF);
     esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_FAST_MEM, ESP_PD_OPTION_OFF);
-    Serial.println("[vink3][power] M5.Power.powerOff returned; entering fallback ESP32-S3 deep sleep");
+    Serial.println("[vink3][power] GPIO44 PWROFF pulse returned; entering fallback ESP32-S3 deep sleep");
+    g_systemLog.append("GPIO44 pulse returned; deep sleep fallback");
     Serial.flush();
     delay(100);
     esp_deep_sleep_start();
@@ -130,6 +135,9 @@ void renderState(SystemState state) {
             g_uiRenderer.renderDiagnostics(blank, "等待触摸");
             break;
         }
+        case SystemState::SystemLogs:
+            g_uiRenderer.renderSystemLogs();
+            break;
         case SystemState::ShutdownConfirm:
             g_uiRenderer.renderShutdownConfirm();
             break;
@@ -205,6 +213,21 @@ void StateMachine::handle(const Message& message) {
                 suppressAfterTransition();
                 break;
             }
+            if (state_ == SystemState::SystemLogs) {
+                const UiAction logAction = g_uiRenderer.hitTest(state_, message.touch.x, message.touch.y);
+                if (logAction == UiAction::ClearSystemLogs) {
+                    g_systemLog.clear();
+                    g_systemLog.append("system log cleared");
+                    state_ = SystemState::SystemLogs;
+                    renderState(state_);
+                } else if (logAction == UiAction::BackToSettings || logAction == UiAction::TabSettings) {
+                    state_ = SystemState::Settings;
+                    renderState(state_);
+                }
+                g_displayService.enqueueFull(false, 100);
+                suppressAfterTransition();
+                break;
+            }
             const UiAction action = g_uiRenderer.hitTest(state_, message.touch.x, message.touch.y);
             switch (action) {
                 case UiAction::TabReader:
@@ -245,6 +268,22 @@ void StateMachine::handle(const Message& message) {
                     state_ = SystemState::Diagnostics;
                     g_uiRenderer.renderDiagnostics(message, "进入诊断");
                     g_displayService.enqueueFull(true, 100);
+                    suppressAfterTransition();
+                    break;
+
+                case UiAction::OpenSystemLogs:
+                    state_ = SystemState::SystemLogs;
+                    g_uiRenderer.renderSystemLogs();
+                    g_displayService.enqueueFull(true, 100);
+                    suppressAfterTransition();
+                    break;
+
+                case UiAction::ClearSystemLogs:
+                    g_systemLog.clear();
+                    g_systemLog.append("system log cleared");
+                    state_ = SystemState::SystemLogs;
+                    g_uiRenderer.renderSystemLogs();
+                    g_displayService.enqueueFull(false, 100);
                     suppressAfterTransition();
                     break;
 

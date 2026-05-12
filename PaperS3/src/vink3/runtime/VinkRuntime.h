@@ -16,6 +16,7 @@ private:
     bool beginHardware();
     bool beginCanvas();
     bool beginServices();
+    bool handleSideKeyResetShutdown();
 
     M5Canvas canvas_{&M5.Display};
     bool hardwareReady_ = false;

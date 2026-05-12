@@ -3,9 +3,13 @@
 #include "../display/DisplayService.h"
 #include "../reader/ReaderTextRenderer.h"
 #include "../sync/WifiService.h"
+#include "../system/SystemLog.h"
 #include "../text/CjkTextRenderer.h"
 
 #include <cstring>
+#include <SD.h>
+#include <esp_sleep.h>
+#include <esp_system.h>
 
 namespace vink3 {
 
@@ -101,9 +105,6 @@ void drawSurfacePanel(M5Canvas* canvas, int16_t x, int16_t y, int16_t w, int16_t
     canvas->fillRect(x, y, w, h, kSurfaceDeep);
     if (w > 8 && h > 8) {
         canvas->fillRect(x + 3, y + 3, w - 6, h - 6, kSurface);
-        // Subtle top rule and bottom shade for richer paper-like contrast.
-        canvas->drawFastHLine(x + 3, y + 3, w - 6, kInkLight);
-        canvas->fillRect(x + 4, y + h - 4, w - 8, 2, kInkLight);
     }
     canvas->fillRect(x, y, w, kThick, kInk);
     canvas->fillRect(x, y + h - kThick, w, kThick, kInk);
@@ -167,10 +168,9 @@ void VinkUiRenderer::drawTabs(SystemState active) {
 
         canvas_->fillRect(x, kTabsY, kTabW, kTabsH,
                           selected ? kSurfaceAlt : kSurfaceDeep);
-        // Outlines keep tabs readable on busy backgrounds.
+        // Outlines keep tabs readable on busy backgrounds. Avoid inner hairlines:
+        // on e-paper they look like ghosting rather than depth.
         canvas_->drawRect(x, kTabsY, kTabW, kTabsH, selected ? kInk : kInkLight);
-        // subtle top rule on every tab
-        canvas_->drawFastHLine(x + 2, kTabsY + 2, kTabW - 4, kInkLight);
         if (selected) drawThickBorder(x, kTabsY, kTabW, kTabsH, kInk);
 
         g_cjkText.drawCentered(x, kTabsY + 4, kTabW, kTabsH - 12,
@@ -184,8 +184,6 @@ void VinkUiRenderer::drawTabs(SystemState active) {
         }
     }
 
-    // Full-width separator below tabs
-    canvas_->drawFastHLine(kMarginX, kTabsY + kTabsH + 2, kContentW, kInkLight);
 }
 
 void VinkUiRenderer::drawCard(int16_t x, int16_t y, int16_t w, int16_t h,
@@ -195,8 +193,6 @@ void VinkUiRenderer::drawCard(int16_t x, int16_t y, int16_t w, int16_t h,
     canvas_->fillRect(x + 3, y + 3, w - 6, h - 6, kSurface);
     drawThickBorder(x, y, w, h, kInk);
 
-    // Fine top rule for rhythm.
-    canvas_->drawFastHLine(x + 6, y + 6, w - 12, kInkLight);
     // Left accent line for depth.
     canvas_->fillRect(x + 8, y + 18, 3, h - 36, kInkLight);
 
@@ -895,9 +891,9 @@ void VinkUiRenderer::renderReaderMenuOverlay(const char* bookTitle, const char* 
     }
     fry += kFullH + 16;
 
-    // ── Bottom buttons. “返回阅读” returns to the Reader tab home, not body. ──
+    // ── Bottom buttons. The right button returns to the Reader tab home, not body. ──
     drawMenuItem(kCol0, fry, kItemW, kItemH, "目录", false, false, nullptr);
-    drawMenuItem(kCol1, fry, kItemW, kItemH, "返回阅读", false, false, nullptr);
+    drawMenuItem(kCol1, fry, kItemW, kItemH, "返回首页", false, false, nullptr);
 }
 
 void VinkUiRenderer::renderSettings() {
@@ -922,9 +918,11 @@ void VinkUiRenderer::renderSettings() {
     g_cjkText.drawRight(kMarginX + kContentW - 22, mainTextY, ">", kInkMid);
 
     // System group: title + rows use the same table row height.
-    static const char* kSysLabels[] = {"电源", "关于"};
-    const char* sysValues[] = {"点按关机", kVinkPaperS3FirmwareVersion};
-    drawSettingsGroup(kMarginX, kMainCardY + kMainCardH + kSettingsGap, "系统", kSysLabels, sysValues, 2);
+    static const char* kSysLabels[] = {"电源", "系统日志", "关于"};
+    char logValue[24];
+    snprintf(logValue, sizeof(logValue), "%u 条", static_cast<unsigned>(g_systemLog.count()));
+    const char* sysValues[] = {"点按关机", logValue, kVinkPaperS3FirmwareVersion};
+    drawSettingsGroup(kMarginX, kMainCardY + kMainCardH + kSettingsGap, "系统", kSysLabels, sysValues, 3);
 }
 
 void VinkUiRenderer::showReaderSettings()  { showReaderSettings_ = true; }
@@ -1093,6 +1091,73 @@ void VinkUiRenderer::renderDiagnostics(const Message& lastTouch, const char* eve
     canvas_->setTextSize(1);
 }
 
+void VinkUiRenderer::renderSystemLogs() {
+    if (!canvas_) return;
+    clear();
+    drawStatusBar("系统日志");
+    drawTabs(SystemState::Settings);
+
+    const uint8_t count = g_systemLog.count();
+
+    // Live snapshot: not persisted, so opening this page does not keep writing
+    // flash. A photo of this page is enough to diagnose reset/power/SD state.
+    const int16_t infoY = kContentY;
+    const int16_t infoH = 196;
+    canvas_->fillRect(kMarginX, infoY, kContentW, infoH, kSurface);
+    drawThickBorder(kMarginX, infoY, kContentW, infoH, kInk);
+
+    char line[128];
+    int16_t y = infoY + 16;
+    snprintf(line, sizeof(line), "FW:%s  uptime:%lus", kVinkPaperS3FirmwareVersion, static_cast<unsigned long>(millis() / 1000));
+    g_cjkText.drawText(kMarginX + 14, y, line, kInk); y += 30;
+
+    snprintf(line, sizeof(line), "reset:%d  wake:%d  prior:%d  rot:%u",
+             static_cast<int>(esp_reset_reason()),
+             static_cast<int>(esp_sleep_get_wakeup_cause()),
+             wasPaperS3RuntimeRunningBeforeReset() ? 1 : 0,
+             static_cast<unsigned>(gPaperS3ActiveDisplayRotation));
+    g_cjkText.drawText(kMarginX + 14, y, line, kInk); y += 30;
+
+    snprintf(line, sizeof(line), "heap:%u  psram:%u", ESP.getFreeHeap(), ESP.getFreePsram());
+    g_cjkText.drawText(kMarginX + 14, y, line, kInk); y += 30;
+
+    snprintf(line, sizeof(line), "bat:%.2fV  usb:%d  chg:%d",
+             readOfficialBatteryVoltage(), isOfficialUsbConnected() ? 1 : 0, isOfficialChargeStateActive() ? 1 : 0);
+    g_cjkText.drawText(kMarginX + 14, y, line, kInk); y += 30;
+
+    const uint8_t sdType = SD.cardType();
+    snprintf(line, sizeof(line), "sd:%u  log:%u/%u", static_cast<unsigned>(sdType),
+             static_cast<unsigned>(count), static_cast<unsigned>(SystemLogService::kMaxLines));
+    g_cjkText.drawText(kMarginX + 14, y, line, kInkMid);
+
+    char summary[72];
+    snprintf(summary, sizeof(summary), "最近关键记录（重启/关机后保留）");
+    g_cjkText.drawText(kMarginX, infoY + infoH + 18, summary, kInkMid);
+
+    const int16_t panelY = infoY + infoH + 52;
+    const int16_t panelH = 430;
+    canvas_->fillRect(kMarginX, panelY, kContentW, panelH, kSurface);
+    drawThickBorder(kMarginX, panelY, kContentW, panelH, kInk);
+
+    if (count == 0) {
+        g_cjkText.drawCentered(kMarginX, panelY + 160, kContentW, 42, "暂无日志", kInkMid);
+    } else {
+        constexpr int16_t kLineH = 28;
+        const uint8_t maxVisible = min<uint8_t>(count, 14);
+        const uint8_t start = count > maxVisible ? count - maxVisible : 0;
+        for (uint8_t i = 0; i < maxVisible; ++i) {
+            char logLine[SystemLogService::kLineSize];
+            if (!g_systemLog.line(start + i, logLine, sizeof(logLine))) continue;
+            char fitted[96];
+            g_cjkText.fitTextToWidth(logLine, fitted, sizeof(fitted), kContentW - 28);
+            g_cjkText.drawText(kMarginX + 14, panelY + 14 + i * kLineH, fitted, kInk);
+        }
+    }
+
+    drawButton(64, 824, 180, 56, "清除日志", false);
+    drawButton(296, 824, 180, 56, "返回设置", true);
+}
+
 void VinkUiRenderer::renderShutdownConfirm() {
     if (!canvas_) return;
     clear();
@@ -1102,8 +1167,8 @@ void VinkUiRenderer::renderShutdownConfirm() {
     drawThickBorder(36, 218, 468, 420, kInk);
     g_cjkText.drawCentered(60, 270, 420, 44, "确认关闭电源？", kInk);
     g_cjkText.drawCentered(70, 344, 400, 30, "会先保存当前阅读进度", kInkMid);
-    g_cjkText.drawCentered(70, 386, 400, 30, "然后调用 M5.Power.powerOff()", kInkMid);
-    g_cjkText.drawCentered(70, 428, 400, 30, "侧边键双击仍保留硬件关机", kInkMid);
+    g_cjkText.drawCentered(70, 386, 400, 30, "然后触发 PaperS3 断电脉冲", kInkMid);
+    g_cjkText.drawCentered(70, 428, 400, 30, "侧边键单击也会进入关机流程", kInkMid);
     drawButton(64, 530, 180, 56, "取消", false);
     drawButton(296, 530, 180, 56, "确认关机", true);
 }
@@ -1116,8 +1181,8 @@ void VinkUiRenderer::renderShutdown(const char* reason) {
     drawThickBorder(54, 300, 432, 300, kInk);
     g_cjkText.drawCentered(54, 350, 432, 48, reason ? reason : "正在关机", kInk);
     g_cjkText.drawCentered(72, 430, 396, 32, "正在保存进度并关闭电源", kInkMid);
-    g_cjkText.drawCentered(72, 482, 396, 32, "官方侧键：双击硬件关机", kInkMid);
-    g_cjkText.drawCentered(0, 690, kPaperS3Width, 28, "固件内关机请从设置页点电源", kInkMid);
+    g_cjkText.drawCentered(72, 482, 396, 32, "正在触发 PaperS3 断电脉冲", kInkMid);
+    g_cjkText.drawCentered(0, 690, kPaperS3Width, 28, "单击侧边键也会显示此关机页", kInkMid);
 }
 
 void VinkUiRenderer::renderPowerOffReady() {
@@ -1143,8 +1208,18 @@ UiAction VinkUiRenderer::hitTestTabs(int16_t x, int16_t y) const {
 }
 
 UiAction VinkUiRenderer::hitTest(SystemState state, int16_t x, int16_t y) const {
-    UiAction tab = hitTestTabs(x, y);
-    if (tab != UiAction::None) return tab;
+    // Only pages that actually draw the shell tabs may accept tab hits. Reading
+    // body pages use SystemState::ReaderMenu internally and have no visible tab
+    // bar; accepting tab hits there makes invisible buttons pull the user out of
+    // the book.
+    const bool tabsVisible = state == SystemState::Reader || state == SystemState::Home ||
+                             state == SystemState::Library || state == SystemState::Transfer ||
+                             state == SystemState::Settings || state == SystemState::Diagnostics ||
+                             state == SystemState::SystemLogs;
+    if (tabsVisible) {
+        UiAction tab = hitTestTabs(x, y);
+        if (tab != UiAction::None) return tab;
+    }
 
     switch (state) {
         case SystemState::Reader:
@@ -1219,7 +1294,8 @@ UiAction VinkUiRenderer::hitTest(SystemState state, int16_t x, int16_t y) const 
             {
                 const int16_t sysY = kContentY + kRowH + kSettingsGap;
                 if (inRect(x, y, 56, sysY + kRowH,          424, kRowH)) return UiAction::RequestShutdown;
-                if (inRect(x, y, 56, sysY + 2 * kRowH,      424, kRowH)) return UiAction::OpenSettings;
+                if (inRect(x, y, 56, sysY + 2 * kRowH,      424, kRowH)) return UiAction::OpenSystemLogs;
+                if (inRect(x, y, 56, sysY + 3 * kRowH,      424, kRowH)) return UiAction::OpenSettings;
             }
             break;
         case SystemState::ShutdownConfirm:
@@ -1229,6 +1305,11 @@ UiAction VinkUiRenderer::hitTest(SystemState state, int16_t x, int16_t y) const 
         case SystemState::Diagnostics:
             if (inRect(x, y, 408, 20, 96, 44)) return UiAction::TabSettings;
             if (y >= 316) return UiAction::OpenDiagnostics;
+            break;
+        case SystemState::SystemLogs:
+            if (inRect(x, y, 64, 824, 180, 56)) return UiAction::ClearSystemLogs;
+            if (inRect(x, y, 296, 824, 180, 56)) return UiAction::BackToSettings;
+            if (inRect(x, y, 408, 20, 96, 44)) return UiAction::TabSettings;
             break;
         default:
             break;

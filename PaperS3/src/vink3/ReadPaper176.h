@@ -5,7 +5,7 @@
 
 namespace vink3 {
 
-static constexpr const char* kVinkPaperS3FirmwareVersion = "v0.4.16";
+static constexpr const char* kVinkPaperS3FirmwareVersion = "v0.4.17";
 
 // Upstream baseline used for the v0.3.0 rewrite.
 // Source: https://github.com/shinemoon/M5ReadPaper main @ e910d29 (data/version: V1.7.6)
@@ -51,6 +51,20 @@ static constexpr gpio_num_t kBuzzerPin = GPIO_NUM_21;
 static constexpr gpio_num_t kLegacyM5PaperTouchIntPin = GPIO_NUM_36; // not PaperS3 power key; kept only as an audit note
 static constexpr gpio_num_t kPowerOffPulsePin = GPIO_NUM_44; // PMIC power-off pulse used by PaperS3 references
 static constexpr gpio_num_t kEpdPowerPin = GPIO_NUM_45;
+
+static inline void pulsePaperS3PowerOffPin(uint32_t highMs = 350, uint32_t settleMs = 150) {
+    // PaperS3 references name GPIO44 as PWROFF_PULSE_PIN. The shutdown pulse is
+    // active-high: drive HIGH long enough for the power latch, then return LOW.
+    pinMode(static_cast<int>(kPowerOffPulsePin), OUTPUT);
+    digitalWrite(static_cast<int>(kPowerOffPulsePin), HIGH);
+    delay(highMs);
+    digitalWrite(static_cast<int>(kPowerOffPulsePin), LOW);
+    delay(settleMs);
+}
+
+void markPaperS3RuntimeRunning();
+void clearPaperS3RuntimeRunning();
+bool wasPaperS3RuntimeRunningBeforeReset();
 
 static constexpr uint32_t kDisplayMiddleRefreshThreshold = 8;
 static constexpr uint32_t kDisplayQualityFastThreshold = 18;

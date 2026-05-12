@@ -1311,11 +1311,10 @@ void ReaderBookService::renderLibraryPage(uint16_t page) {
     const int start = bookPage_ * kBooksPerPage;
     const int end = min(bookCount_, start + kBooksPerPage);
     char summary[160];
-    // In browser mode, add a prominent "back to shelf" as the summary
+    // In browser mode, the summary/back strip always returns to the shelf grid.
+    // Directory traversal is handled by the explicit ".. 上级目录" row.
     if (shelfShowingBrowser_) {
-        const bool atRoot = strcmp(currentLibraryDir_, BOOKS_DIR) == 0;
-        snprintf(summary, sizeof(summary), "%s  |  %s · %d 项",
-                 atRoot ? "← 返回书架" : "← 上级目录",
+        snprintf(summary, sizeof(summary), "← 返回书架  |  %s · %d 项",
                  currentLibraryDir_, bookCount_);
     } else {
         snprintf(summary, sizeof(summary), "文件浏览器 %s · %d 项", currentLibraryDir_, bookCount_);
@@ -1363,24 +1362,15 @@ bool ReaderBookService::handleLibraryTap(int16_t x, int16_t y) {
     if (!booksScanned_) scanBooks();
     if (bookCount_ <= 0) return false;
 
-    // Check tap on summary/back area. In subdirectories this means "parent";
-    // only at /books does it return to the shelf grid.
+    // Check tap on summary/back area. This is always "return to shelf"; the
+    // visible ".. 上级目录" row is the only parent-directory action.
     if (shelfShowingBrowser_ && y >= kShelfBrowserEntryY && y < kListFirstRowY) {
         lastLibraryTapOpenedBook_ = false;
-        if (strcmp(currentLibraryDir_, BOOKS_DIR) == 0) {
-            shelfShowingBrowser_ = false;
-            strlcpy(currentLibraryDir_, BOOKS_DIR, sizeof(currentLibraryDir_));
-            bookPage_ = 0;
-            booksScanned_ = false;
-            renderShelfGrid(shelfPage_);
-            return true;
-        }
-        char parent[sizeof(currentLibraryDir_)];
-        parentDirOf(currentLibraryDir_, parent, sizeof(parent));
-        strlcpy(currentLibraryDir_, parent, sizeof(currentLibraryDir_));
+        shelfShowingBrowser_ = false;
+        strlcpy(currentLibraryDir_, BOOKS_DIR, sizeof(currentLibraryDir_));
         bookPage_ = 0;
         booksScanned_ = false;
-        renderLibraryPage(0);
+        renderShelfGrid(shelfPage_);
         return true;
     }
 
@@ -1391,13 +1381,8 @@ bool ReaderBookService::handleLibraryTap(int16_t x, int16_t y) {
     if (index < 0 || index >= bookCount_) return false;
     lastLibraryTapOpenedBook_ = false;
     if (bookFlags_[index] & kBookIsDirectory) {
-        // In shelf browser mode, tapping ".." at root returns to shelf grid.
-        if (shelfShowingBrowser_ && strcmp(bookPaths_[index], BOOKS_DIR) == 0) {
-            lastLibraryTapOpenedBook_ = false;
-            shelfShowingBrowser_ = false;
-            renderShelfGrid(shelfPage_);
-            return true;
-        }
+        // Directory rows always navigate within the SD browser. In particular,
+        // ".. 上级目录" moves to the parent directory, even when the parent is /books.
         strlcpy(currentLibraryDir_, bookPaths_[index], sizeof(currentLibraryDir_));
         bookPage_ = 0;
         booksScanned_ = false;
@@ -1894,17 +1879,44 @@ void ReaderBookService::renderTocPage(uint16_t page) {
 }
 
 size_t ReaderBookService::trimUtf8Tail(char* text, size_t len) const {
-    while (len > 0) {
-        uint8_t c = static_cast<uint8_t>(text[len - 1]);
-        if ((c & 0x80) == 0) break;
-        if ((c & 0xC0) == 0x80) {
-            len--;
-            continue;
-        }
-        // Drop an incomplete lead byte at the end.
-        len--;
-        break;
+    // Page buffers are byte ranges from a UTF-8 file. A fixed-size read can end
+    // in the middle of a multi-byte code point; drop only that incomplete tail.
+    // A complete Chinese character/punctuation at the page boundary must stay.
+    if (!text) return 0;
+    if (len == 0) {
+        text[0] = '\0';
+        return 0;
     }
+
+    const uint8_t* bytes = reinterpret_cast<const uint8_t*>(text);
+    const uint8_t last = bytes[len - 1];
+    if ((last & 0x80) == 0) {
+        text[len] = '\0';
+        return len;
+    }
+
+    size_t start = len - 1;
+    while (start > 0 && (bytes[start] & 0xC0) == 0x80) --start;
+
+    const uint8_t lead = bytes[start];
+    size_t expected = 0;
+    if ((lead & 0x80) == 0) expected = 1;
+    else if (lead >= 0xC2 && lead <= 0xDF) expected = 2;
+    else if (lead >= 0xE0 && lead <= 0xEF) expected = 3;
+    else if (lead >= 0xF0 && lead <= 0xF4) expected = 4;
+    else expected = 0;
+
+    bool complete = expected > 0 && start + expected <= len;
+    if (complete) {
+        for (size_t i = start + 1; i < start + expected; ++i) {
+            if ((bytes[i] & 0xC0) != 0x80) {
+                complete = false;
+                break;
+            }
+        }
+    }
+
+    if (!complete) len = start;
     text[len] = '\0';
     return len;
 }
