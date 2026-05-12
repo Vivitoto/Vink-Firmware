@@ -745,7 +745,7 @@ void VinkUiRenderer::renderUiListPage(SystemState active, const char* title, con
         g_cjkText.fitTextToWidth(rows[i] ? rows[i] : "", line, sizeof(line), w - 36);
         const int16_t textX = x + 22;
         const int16_t textY = g_cjkText.lineTopForBox(y, rowH);
-        g_cjkText.drawText(textX, textY, line, isActive ? kInk : kInkMid);
+        g_cjkText.drawText(textX, textY, line, isActive ? kInk : 0x2104);
 
         if (isActive) {
             // Keep active-row rhythm similar to selected tab: edge accent + stronger ink.

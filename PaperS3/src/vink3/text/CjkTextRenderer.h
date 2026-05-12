@@ -14,7 +14,7 @@ public:
     bool ready() const;
     uint16_t fontSize() const;
     uint16_t fontSizeSmall() const { return 16; }
-    bool hasSmallFont() const { return fontSmall_.isLoaded(); }
+    bool hasSmallFont() const { return progmemUi16Ready_ || fontSmall_.isLoaded(); }
     int16_t textWidth(const char* text);
     int16_t textWidthSmall(const char* text);
     void fitTextToWidth(const char* text, char* out, size_t outSize, int16_t maxWidth);
@@ -42,11 +42,19 @@ private:
     static uint16_t uiU16(uint32_t offset);
     static uint32_t uiU32(uint32_t offset);
     static int8_t uiI8(uint32_t offset);
+
+    // 24px PROGMEM UI font (g_vink_ui_font24_data)
     bool beginProgmemUiFont();
     void deriveProgmemUiMetrics();
     bool findProgmemUiGlyph(uint32_t unicode, GrayGlyph& out) const;
     void drawGlyph(uint32_t unicode, int16_t x, int16_t y, uint16_t color);
     void drawProgmemUiGlyph(const GrayGlyph& glyph, int16_t x, int16_t y, uint16_t color);
+
+    // 16px PROGMEM UI font (g_vink_ui_font16_data)
+    bool beginProgmemUi16Font();
+    bool findProgmemUi16Glyph(uint32_t unicode, GrayGlyph& out) const;
+    void drawSmallGlyph(uint32_t unicode, int16_t x, int16_t y, uint16_t color);
+
     uint16_t pixelColorForNibble(uint8_t nibble, uint16_t color) const;
 
     M5Canvas* canvas_ = nullptr;
@@ -57,6 +65,14 @@ private:
     int16_t progmemUiVisualTop_ = 0;
     int16_t progmemUiVisualBottom_ = 0;
     uint32_t progmemUiBitmapStart_ = 0;
+
+    // 16px PROGMEM
+    bool progmemUi16Ready_ = false;
+    uint32_t progmemUi16CharCount_ = 0;
+    uint16_t progmemUi16FontSize_ = 0;
+    uint16_t progmemUi16Baseline_ = 0;
+    uint32_t progmemUi16BitmapStart_ = 0;
+
     FontManager fontSmall_;
 };
 

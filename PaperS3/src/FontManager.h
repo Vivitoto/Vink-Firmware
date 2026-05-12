@@ -98,6 +98,8 @@ private:
     CharIndex_gray* _index_gray;
     
     uint8_t* _bitmapBuffer; // 临时点阵缓冲区（PSRAM）
+    uint8_t* _bitmapData;   // GRAY 全量位图 PSRAM 缓存，避免渲染时 SPIFFS 随机读
+    size_t   _dataStart;    // 位图数据在 GRAY 文件中的起始偏移
     
     int findCharIndex(uint32_t unicode);
 };

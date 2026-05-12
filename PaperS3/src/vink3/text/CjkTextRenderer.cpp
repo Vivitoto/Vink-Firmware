@@ -1,5 +1,6 @@
 #include "CjkTextRenderer.h"
 #include "VinkUiFont24.h"
+#include "VinkUiFont16.h"
 #include "../../Config.h"
 #include "../ReadPaper176.h"
 #include <pgmspace.h>
@@ -23,6 +24,11 @@ bool CjkTextRenderer::begin(M5Canvas* canvas) {
     progmemUiVisualTop_ = 0;
     progmemUiVisualBottom_ = 0;
     progmemUiBitmapStart_ = 0;
+    progmemUi16Ready_ = false;
+    progmemUi16CharCount_ = 0;
+    progmemUi16FontSize_ = 0;
+    progmemUi16Baseline_ = 0;
+    progmemUi16BitmapStart_ = 0;
     if (!canvas_) return false;
 
     const bool progmemUi = beginProgmemUiFont();
@@ -34,11 +40,19 @@ bool CjkTextRenderer::begin(M5Canvas* canvas) {
         Serial.println("[vink3][cjk] PROGMEM UI font unavailable");
     }
 
-    // Try loading 16px Bold UI font from SPIFFS for small labels
-    if (fontSmall_.loadFont("/fonts/noto_bold_16.fnt")) {
-        Serial.println("[vink3][cjk] SPIFFS Bold 16px small font loaded");
+    // Try PROGMEM 16px font first (always available, no SPIFFS dependency).
+    const bool progmemUi16 = beginProgmemUi16Font();
+    if (progmemUi16) {
+        Serial.printf("[vink3][cjk] PROGMEM 16px small font loaded: glyphs=%lu size=%lu\n",
+                      static_cast<unsigned long>(progmemUi16CharCount_),
+                      static_cast<unsigned long>(g_vink_ui_font16_size));
     } else {
-        Serial.println("[vink3][cjk] SPIFFS Bold 16px not found — small text will use 24px");
+        // Fallback: try SPIFFS 16px font (may be unreliable on real devices)
+        if (fontSmall_.loadFont("/fonts/noto_bold_16.fnt")) {
+            Serial.println("[vink3][cjk] SPIFFS Bold 16px small font loaded (fallback)");
+        } else {
+            Serial.println("[vink3][cjk] no 16px font available — small text will use 24px");
+        }
     }
 
     if (progmemUi) return true;
@@ -155,7 +169,7 @@ int16_t CjkTextRenderer::lineTopForBox(int16_t y, int16_t h) const {
 }
 
 int16_t CjkTextRenderer::smallLineTopForBox(int16_t y, int16_t h) const {
-    const int16_t lineH = fontSmall_.isLoaded() ? 16 : static_cast<int16_t>(fontSize());
+    const int16_t lineH = (progmemUi16Ready_ ? static_cast<int16_t>(progmemUi16FontSize_) : (fontSmall_.isLoaded() ? 16 : static_cast<int16_t>(fontSize())));
     return static_cast<int16_t>(y + (h - lineH) / 2);
 }
 
@@ -358,28 +372,143 @@ void CjkTextRenderer::drawRight(int16_t rightX, int16_t y, const char* text, uin
     drawText(rightX - textWidth(text ? text : ""), y, text, color);
 }
 
-// ── 16px small-text methods ──────────────────────────────────────────────
+// ── 16px PROGMEM font helpers ───────────────────────────────────────────
+
+static uint8_t ui16Byte(uint32_t offset) {
+    return pgm_read_byte(&g_vink_ui_font16_data[offset]);
+}
+static uint16_t ui16U16(uint32_t offset) {
+    return static_cast<uint16_t>(ui16Byte(offset)) | (static_cast<uint16_t>(ui16Byte(offset + 1)) << 8);
+}
+static uint32_t ui16U32(uint32_t offset) {
+    return static_cast<uint32_t>(ui16Byte(offset)) | (static_cast<uint32_t>(ui16Byte(offset + 1)) << 8) |
+           (static_cast<uint32_t>(ui16Byte(offset + 2)) << 16) | (static_cast<uint32_t>(ui16Byte(offset + 3)) << 24);
+}
+static int8_t ui16I8(uint32_t offset) {
+    return static_cast<int8_t>(ui16Byte(offset));
+}
+
+bool CjkTextRenderer::beginProgmemUi16Font() {
+    if (!g_vink_ui_font16_available || g_vink_ui_font16_size < kGrayHeaderSize) return false;
+    if (ui16Byte(0) != 'G' || ui16Byte(1) != 'R' || ui16Byte(2) != 'A' || ui16Byte(3) != 'Y') return false;
+    const uint16_t version = ui16U16(4);
+    progmemUi16FontSize_ = ui16U16(6);
+    progmemUi16CharCount_ = ui16U32(8);
+    const uint32_t bitmapBytes = ui16U32(12);
+    progmemUi16BitmapStart_ = kGrayHeaderSize + progmemUi16CharCount_ * kGrayEntrySize;
+    if (version != 1 || progmemUi16FontSize_ == 0 || progmemUi16CharCount_ == 0) return false;
+    if (progmemUi16BitmapStart_ >= g_vink_ui_font16_size) return false;
+    if (progmemUi16BitmapStart_ + bitmapBytes != g_vink_ui_font16_size) return false;
+    progmemUi16Ready_ = true;
+    progmemUi16Baseline_ = (progmemUi16FontSize_ * 7) / 8;
+    return true;
+}
+
+bool CjkTextRenderer::findProgmemUi16Glyph(uint32_t unicode, GrayGlyph& out) const {
+    if (!progmemUi16Ready_) return false;
+    uint32_t lo = 0, hi = progmemUi16CharCount_;
+    while (lo < hi) {
+        uint32_t mid = lo + (hi - lo) / 2;
+        uint32_t off = kGrayHeaderSize + mid * kGrayEntrySize;
+        uint32_t cu = ui16U32(off);
+        if (cu == unicode) {
+            out.bitmapOffset = ui16U32(off + 4);
+            out.width = ui16Byte(off + 8);
+            out.height = ui16Byte(off + 9);
+            out.bearingX = ui16I8(off + 10);
+            out.bearingY = ui16I8(off + 11);
+            out.advance = ui16Byte(off + 12);
+            return true;
+        }
+        if (cu < unicode) lo = mid + 1;
+        else hi = mid;
+    }
+    return false;
+}
+
+void CjkTextRenderer::drawSmallGlyph(uint32_t unicode, int16_t x, int16_t y, uint16_t color) {
+    if (!canvas_ || !progmemUi16Ready_) return;
+    GrayGlyph glyph;
+    if (!findProgmemUi16Glyph(unicode, glyph)) return;
+    if (glyph.width == 0 || glyph.height == 0) return;
+
+    const int16_t drawY = y + static_cast<int16_t>(progmemUi16Baseline_) - static_cast<int16_t>(glyph.bearingY);
+    const uint32_t bitmapOffset = glyph.bitmapOffset;
+    const uint8_t rowBytes = (glyph.width + 1) / 2;
+
+    for (int16_t row = 0; row < glyph.height; ++row) {
+        const int16_t py = drawY + row;
+        if (py < 0 || py >= kPaperS3Height) continue;
+        for (int16_t col = 0; col < glyph.width; ++col) {
+            const int16_t px = x + glyph.bearingX + col;
+            if (px < 0 || px >= kPaperS3Width) continue;
+            const uint8_t packed = pgm_read_byte(&g_vink_ui_font16_data[bitmapOffset + row * rowBytes + col / 2]);
+            const uint8_t nibble = (col % 2 == 0) ? ((packed >> 4) & 0x0F) : (packed & 0x0F);
+            if (nibble > 0)
+                canvas_->drawPixel(px, py, pixelColorForNibble(nibble, color));
+        }
+    }
+}
+
+// ── 16px small-text public API ───────────────────────────────────────────
 
 int16_t CjkTextRenderer::textWidthSmall(const char* text) {
-    if (!text || !fontSmall_.isLoaded()) return textWidth(text);
-    int16_t w = 0;
-    const uint8_t* bytes = reinterpret_cast<const uint8_t*>(text);
-    size_t pos = 0;
-    const size_t len = strlen(text);
-    while (pos < len) {
-        uint32_t ch = decodeUtf8(bytes, pos, len);
-        if (ch == '\n') break;
-        uint8_t adv = fontSmall_.getCharAdvance(ch);
-        w += adv > 0 ? adv : 8;
+    if (!text) return 0;
+    if (progmemUi16Ready_) {
+        int16_t w = 0;
+        const uint8_t* bytes = reinterpret_cast<const uint8_t*>(text);
+        size_t pos = 0;
+        const size_t len = strlen(text);
+        while (pos < len) {
+            uint32_t ch = decodeUtf8(bytes, pos, len);
+            if (ch == '\n') break;
+            GrayGlyph glyph;
+            if (findProgmemUi16Glyph(ch, glyph))
+                w += glyph.advance > 0 ? glyph.advance : (ch < 128 ? 8 : progmemUi16FontSize_);
+            else
+                w += ch < 128 ? 8 : progmemUi16FontSize_;
+        }
+        return w;
     }
-    return w;
+    if (fontSmall_.isLoaded()) {
+        int16_t w = 0;
+        const uint8_t* bytes = reinterpret_cast<const uint8_t*>(text);
+        size_t pos = 0;
+        const size_t len = strlen(text);
+        while (pos < len) {
+            uint32_t ch = decodeUtf8(bytes, pos, len);
+            if (ch == '\n') break;
+            uint8_t adv = fontSmall_.getCharAdvance(ch);
+            w += adv > 0 ? adv : 8;
+        }
+        return w;
+    }
+    return textWidth(text);
 }
 
 void CjkTextRenderer::drawTextSmall(int16_t x, int16_t y, const char* text, uint16_t color) {
     if (!text || !canvas_) return;
-    
+
+    if (progmemUi16Ready_) {
+        // PROGMEM 16px font — same reliable path as the 24px drawText
+        int16_t cx = x;
+        const uint8_t* bytes = reinterpret_cast<const uint8_t*>(text);
+        size_t pos = 0;
+        const size_t len = strlen(text);
+        while (pos < len && cx < kPaperS3Width) {
+            uint32_t ch = decodeUtf8(bytes, pos, len);
+            drawSmallGlyph(ch, cx, y, color);
+            GrayGlyph glyph;
+            if (findProgmemUi16Glyph(ch, glyph))
+                cx += glyph.advance > 0 ? glyph.advance : (ch < 128 ? 8 : progmemUi16FontSize_);
+            else
+                cx += ch < 128 ? 8 : progmemUi16FontSize_;
+        }
+        return;
+    }
+
+    // Fallback: SPIFFS font
     if (fontSmall_.isLoaded()) {
-        // Use 16px SPIFFS font
         const uint8_t* bytes = reinterpret_cast<const uint8_t*>(text);
         size_t pos = 0;
         const size_t len = strlen(text);
@@ -409,10 +538,11 @@ void CjkTextRenderer::drawTextSmall(int16_t x, int16_t y, const char* text, uint
                 cx += 8;
             }
         }
-    } else {
-        // Fallback: use 24px PROGMEM font (larger but works)
-        drawText(x, y, text, color);
+        return;
     }
+
+    // No 16px font — use 24px PROGMEM
+    drawText(x, y, text, color);
 }
 
 void CjkTextRenderer::drawCenteredSmall(int16_t x, int16_t y, int16_t w, int16_t h,

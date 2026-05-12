@@ -5,6 +5,21 @@
   "description": "面向 M5Stack PaperS3 的 Vink 电子书阅读固件。",
   "releases": [
     {
+      "version": "v0.4.19",
+      "name": "Vink-PaperS3 v0.4.19",
+      "summary": "16px PROGMEM 小字体（771字形），系统日志换行分页，启动屏闪优化，书卡进度显示，TOC 加深。",
+      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.19",
+      "changelog": "## Vink-PaperS3 v0.4.19\n\n> SHA256: 7bd99953f7e60d2e97d9f96c78fd7e757f8625050665f858e5d8dc5637f7d663\n\n### 16px PROGMEM 小字体\n- 新增 16px PROGMEM UI 字体（771 字形，96KB），编译进固件，不再依赖 SPIFFS。\n- 与 24px PROGMEM 大字同一条渲染路径，`pgm_read_byte` 直读，稳定可靠。\n- 覆盖：ASCII 全、大小写、数字、符号、UI 标签、系统日志关键字、进度文字（第X章·Y%）、错误提示。\n\n### 系统日志\n- 长记录自动换行（24px 宽判断，16px 字体渲染），续行缩进。\n- 上滑更早 / 下滑更新，页码提示。\n\n### 启动屏闪优化\n- 关闭 M5Unified 默认 `clear_display`，冷启动屏闪从约 4 次降到约 2 次。\n\n### 阅读进度\n- 书架卡片 + 阅读 Tab 底部 3 个小书卡：书名下方 16px 显示 `第X章 · Y%`。\n- 阅读 Tab 大书卡只显示书名（右侧已有进度）。\n\n### TOC 文字加深\n- 目录非当前行文字颜色从 0x4208 加深到 0x2104。\n\n### 排版诊断\n- `loadLocalSettings` / `saveLocalSettings` 增加 NVS 日志。\n\n### 验证\n- 本地 smoke test 全绿。\n- Flash 79.1% RAM 15.2%。\n- full 16MB 固件包 16777216 bytes。",
+      "assets": {
+        "full": {
+          "name": "Vink-PaperS3-v0.4.19-full-16MB.bin",
+          "url": "",
+          "size": 16777216,
+          "flashOffset": 0
+        }
+      }
+    },
+    {
       "version": "v0.4.18",
       "name": "Vink-PaperS3 v0.4.18",
       "summary": "启动屏闪优化、系统日志换行分页、书卡章节进度、排版NVS诊断日志。SHA256: fe33c96f...",
@@ -76,66 +91,6 @@
           "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.14/Vink-PaperS3-v0.4.14-full-16MB.bin",
           "size": 16777216,
           "flashOffset": "0x0"
-        }
-      }
-    },
-    {
-      "version": "v0.4.13",
-      "name": "Vink-PaperS3 v0.4.13",
-      "summary": "阅读内核重建：目录识别重写/书卡长方形比例/3x3书架/返回按钮/间距句号修正",
-      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.13",
-      "changelog": "**阅读内核**\n- ChapterDetector 完全重写：去预过滤、放宽阈值、关键字白名单扩展到20个\n- 目录识别准确率大幅提升，解决1000章只识别50章的问题\n\n**UI 优化**\n- 阅读TAB顶卡 180×320（比例1:1.78），迷你卡 140×200（1:1.43）\n- 书架TAB改为3列×3排，书卡 148×216（比例1:1.46，真正的书本比例）\n- 文件浏览器新增显式「← 返回书架」点击入口\n- 同步页按钮与注释卡片增加14px间隔\n- 书名在书卡中真正居中（预计算行数后整体居中）\n\n**修正**\n- TOC/状态提示移除多余句号\n- hitTest 触摸区域与渲染尺寸全量对齐",
-      "assets": {
-        "full": {
-          "name": "Vink-PaperS3-v0.4.13-full-16MB.bin",
-          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.13/Vink-PaperS3-v0.4.13-full-16MB.bin",
-          "size": 16777216,
-          "flashOffset": "0x0"
-        }
-      }
-    },
-    {
-      "version": "v0.4.12",
-      "name": "Vink-PaperS3 v0.4.12",
-      "summary": "单层目录保护并修复TOC页切换与配置源一致性，确保WEB与本机排版不打架。",
-      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.12",
-      "changelog": "## Vink-PaperS3 v0.4.12\\n\\n### 目录稳定性\\n- 大书目录识别回退到单层模式，避免某些 1000+ 章文本出现双关键词标题导致章节序号跳变/尾部缺失。\\n- 对含\"第一章 第一回\"等复合标题，不再强制二级层级划分，完整章节列表更稳定。\\n\\n### 目录页交互\\n- ReaderMenu 中左/右滑动现在区分模式：若当前在 TOC 列表，滑动切换 TOC 页；否则保留正文翻页。\\n- TOC 翻页与状态机对齐，减少菜单交互误判。\\n\\n### 排版配置一致性\\n- 统一排版配置来源：Web 下发的行距、边距、缩进、间距等参数直接写回本机配置并参与最终生效。\\n- 修复“网页排版保存后没生效”的覆盖冲突问题。",
-      "assets": {
-        "full": {
-          "name": "Vink-PaperS3-v0.4.12-full-16MB.bin",
-          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.12/Vink-PaperS3-v0.4.12-full-16MB.bin",
-          "size": 16777216,
-          "flashOffset": 0
-        }
-      }
-    },
-    {
-      "version": "v0.4.11",
-      "name": "Vink-PaperS3 v0.4.11",
-      "summary": "目录白名单识别/版式四档生效/阅读TAB大书卡/触摸防穿透/书架加长。",
-      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.11",
-      "changelog": "## Vink-PaperS3 v0.4.11\n\n### 目录识别重构\n- 黑名单→白名单：只认 章/节/卷/回/篇/部/集/幕/折/则 十字。\n- \"第三批\"\"第九场\"\"第二天\"等量词误判全部消除。\n\n### 版式设置生效\n- 页边距四档差距拉大：68/78/92/108（档差10-16px），肉眼可辨。\n- 行间距四档差距拉大：3/7/12/17（档差4-5px）。\n\n### 阅读 TAB 重新设计\n- 左大书卡 230×220（drawBookCard 浅底+accent线）+ 右信息区。\n- 不再有黑方块封面。\n\n### 触摸防穿透\n- 正文翻页区加 y>=90 约束，TAB 区域点击不再触发翻页。\n- 只在当前页面做当前页面的事。\n\n### 书架优化\n- 书卡高度 200→215，更修长。\n\n### 开机基线\n- main.cpp、VinkRuntime.cpp 零改动。\n",
-      "assets": {
-        "full": {
-          "name": "Vink-PaperS3-v0.4.11-full-16MB.bin",
-          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.11/Vink-PaperS3-v0.4.11-full-16MB.bin",
-          "size": 16777216,
-          "flashOffset": 0
-        }
-      }
-    },
-    {
-      "version": "v0.4.10",
-      "name": "Vink-PaperS3 v0.4.10",
-      "summary": "热修复：前向翻页、重建目录卡死、阅读TAB/书架/菜单UI优化、页边距修复。",
-      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.10",
-      "changelog": "## Vink-PaperS3 v0.4.10\n\n### Bug 修复\n- **翻页动画显示错误**：向前翻页不再旋转上半屏内容。统一使用 rotation 0，扫描方向改为 epd_fast。\n- **重建目录卡死**：rebuildTocCache 结束后 StateMachine 现在正确调用 renderCurrent() 重新渲染，不再卡在加载页。\n- **页边距设置无效**：根因同「重建目录卡死」—— 菜单关闭后不重新渲染页面。\n\n### UI 优化\n- **阅读 TAB**：左封面(140×176) + 右信息(书名/进度百分比) 布局，不再整张宽卡。\n- **书架**：3×2 → 2×3 布局，封面卡放大到 232×200。\n- **阅读菜单**：上移至页眉正下方(56px)，视觉上像从页眉下拉展开。\n- **阅读菜单右侧配置项**：当前值和名称左右互换，当前值在左更醒目。\n- **翻页动画速度**：降一档（epd_fast），更舒适。\n\n### 开机基线\n- main.cpp、VinkRuntime.cpp 零改动。\n",
-      "assets": {
-        "full": {
-          "name": "Vink-PaperS3-v0.4.10-full-16MB.bin",
-          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.10/Vink-PaperS3-v0.4.10-full-16MB.bin",
-          "size": 16777216,
-          "flashOffset": 0
         }
       }
     }

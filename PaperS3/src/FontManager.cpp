@@ -22,7 +22,9 @@ FontManager::FontManager() :
     _builtinBitmapData(nullptr),
     _index_1bpp(nullptr), 
     _index_gray(nullptr),
-    _bitmapBuffer(nullptr) {
+    _bitmapBuffer(nullptr),
+    _bitmapData(nullptr),
+    _dataStart(0) {
     memset(&_header_1bpp, 0, sizeof(_header_1bpp));
     memset(&_header_gray, 0, sizeof(_header_gray));
 }
@@ -290,6 +292,26 @@ bool FontManager::loadGrayFont() {
         unload();
         return false;
     }
+
+    // Load the entire 4bpp bitmap blob into PSRAM once, so per-glyph
+    // rendering never touches the SPIFFS/SD file again.  SPIFFS file random
+    // seek + read can fail silently on real devices after font init.
+    _dataStart = dataStart;
+    _bitmapData = (uint8_t*)heap_caps_malloc(_header_gray.bitmapSize, MALLOC_CAP_SPIRAM);
+    if (_bitmapData) {
+        _file.seek(dataStart);
+        if (_file.read(_bitmapData, _header_gray.bitmapSize) != _header_gray.bitmapSize) {
+            Serial.println("[Font] Failed to read full gray bitmap into PSRAM");
+            heap_caps_free(_bitmapData);
+            _bitmapData = nullptr;
+        } else {
+            Serial.printf("[Font] Gray bitmap cached in PSRAM: %u bytes\n",
+                          static_cast<unsigned>(_header_gray.bitmapSize));
+        }
+    } else {
+        Serial.println("[Font] Could not alloc PSRAM for gray bitmap cache");
+    }
+    // If _bitmapData stayed null the renderer will keep using file reads.
     
     Serial.printf("[Font] Loaded gray: size=%d, chars=%d\n", 
                   _header_gray.fontSize, _header_gray.charCount);
@@ -310,6 +332,10 @@ void FontManager::unload() {
     if (_bitmapBuffer) {
         heap_caps_free(_bitmapBuffer);
         _bitmapBuffer = nullptr;
+    }
+    if (_bitmapData) {
+        heap_caps_free(_bitmapData);
+        _bitmapData = nullptr;
     }
     if (_file) {
         _file.close();
@@ -468,10 +494,20 @@ const uint8_t* FontManager::getCharBitmapGray(uint32_t unicode, uint8_t& outWidt
         outWidth = 0; outHeight = 0; outBearingX = outBearingY = outAdvance = 0; return nullptr;
     }
     
+    // Prefer PSRAM-cached bitmap loaded at init time.  Fall back to file
+    // reads only when PSRAM allocation failed.
+    if (_bitmapData) {
+        const size_t bufOff = static_cast<size_t>(ci.offset) - _dataStart;
+        if (bufOff + bitmapSize <= static_cast<size_t>(_header_gray.bitmapSize)) {
+            memcpy(_bitmapBuffer, _bitmapData + bufOff, bitmapSize);
+            return _bitmapBuffer;
+        }
+    }
+
     if (!_file.seek(ci.offset) || _file.read(_bitmapBuffer, bitmapSize) != bitmapSize) {
         outWidth = 0; outHeight = 0; outBearingX = outBearingY = outAdvance = 0; return nullptr;
     }
-    
+
     return _bitmapBuffer;
 }
 
