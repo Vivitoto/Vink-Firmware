@@ -93,6 +93,7 @@ private:
 
     M5Canvas* canvas_ = nullptr;
     bool showReaderSettings_ = false;
+    bool lastReaderHomeHasBook_ = false;
 };
 
 extern VinkUiRenderer g_uiRenderer;

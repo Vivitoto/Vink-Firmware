@@ -1,9 +1,9 @@
 {
   "magic": "GRAY",
   "version": 1,
-  "fontSize": 24,
-  "charCount": 11450,
-  "bitmapDataSize": 3196131,
+  "fontSize": 16,
+  "charCount": 414,
+  "bitmapDataSize": 44239,
   "fontFamily": "Noto Sans CJK SC",
   "fontStyle": "Bold",
   "sourceFile": "NotoSansCJK-Bold.ttc",

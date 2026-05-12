@@ -208,12 +208,11 @@ static const char kHtml[] PROGMEM = R"rawliteral(
 </div>
 <div id="panelConfig" style="display:none">
   <div class="card"><h2>阅读排版</h2>
-    <div class="row"><label>字体大小</label><select id="fontSize"><option value="16">16 px</option><option value="20">20 px</option><option value="24">24 px</option></select></div>
-    <div class="row"><label>行间距</label><input type="number" id="lineSpacing" min="50" max="200"><span>50~200%</span></div>
+    <div class="row"><label>字体大小</label><select id="fontSize"><option value="16">16 px</option><option value="20">20 px</option><option value="32">32 px</option></select></div>
+    <div class="row"><label>行间距</label><input type="number" id="lineSpacing" min="0" max="200"><span>0~200%</span></div>
     <div class="row"><label>段间距</label><input type="number" id="paragraphSpacing" min="0" max="100"><span>0~100%</span></div>
     <div class="row"><label>首行缩进</label><input type="number" id="indentFirstLine" min="0" max="4"><span>0~4 字</span></div>
-    <div class="row"><label>左边距</label><input type="number" id="marginLeft" min="0" max="120"><span>px</span></div>
-    <div class="row"><label>右边距</label><input type="number" id="marginRight" min="0" max="120"><span>px</span></div>
+    <div class="row"><label>左右边距</label><input type="number" id="marginLeft" min="0" max="120"><span>px</span><input type="hidden" id="marginRight"></div>
     <div class="row"><label>上边距</label><input type="number" id="marginTop" min="0" max="160"><span>px</span></div>
     <div class="row"><label>下边距</label><input type="number" id="marginBottom" min="0" max="160"><span>px</span></div>
     <div class="row"><label>两端对齐</label><input type="checkbox" id="justify"></div>
@@ -493,8 +492,8 @@ esp_err_t configPost(httpd_req_t* req) {
         g_readerText.setLineSpacingLevel(formU8(body, "lineSpacingLevel", g_readerText.lineSpacingLevel(), 0, 3));
     }
     g_readerText.setWebLayout(
-        formU8(body, "fontSize", g_readerText.readerFontSizeSetting(), 16, 24),
-        formU8(body, "lineSpacing", g_readerText.webLineSpacing(), 50, 200),
+        formU8(body, "fontSize", g_readerText.readerFontSizeSetting(), 16, 32),
+        formU8(body, "lineSpacing", g_readerText.webLineSpacing(), 0, 200),
         formU8(body, "paragraphSpacing", g_readerText.webParagraphSpacing(), 0, 100),
         formU8(body, "indentFirstLine", g_readerText.webIndentFirstLine(), 0, 4),
         formU8(body, "marginLeft", g_readerText.webMarginLeft(), 0, 120),

@@ -262,8 +262,10 @@ void StateMachine::handle(const Message& message) {
                     break;
 
                 case UiAction::CycleReaderFontSize:
-                    g_readerText.cycleReaderFontSize();
-                    g_readerBook.invalidatePaginationForLayoutChange();
+                    if (!g_readerText.isSdFont()) {
+                        g_readerText.cycleReaderFontSize();
+                        g_readerBook.invalidatePaginationForLayoutChange();
+                    }
                     state_ = SystemState::Settings;
                     renderState(state_);
                     g_displayService.enqueueFull(false, 100);
@@ -280,8 +282,10 @@ void StateMachine::handle(const Message& message) {
                     break;
 
                 case UiAction::DecreaseSdFontSizeBig:
-                    g_readerText.stepSdFontSize(-4);
-                    g_readerBook.invalidatePaginationForLayoutChange();
+                    if (g_readerText.isSdFont()) {
+                        g_readerText.stepSdFontSize(-4);
+                        g_readerBook.invalidatePaginationForLayoutChange();
+                    }
                     state_ = SystemState::Settings;
                     renderState(state_);
                     g_displayService.enqueueFull(false, 100);
@@ -289,8 +293,10 @@ void StateMachine::handle(const Message& message) {
                     break;
 
                 case UiAction::DecreaseSdFontSize:
-                    g_readerText.stepSdFontSize(-1);
-                    g_readerBook.invalidatePaginationForLayoutChange();
+                    if (g_readerText.isSdFont()) {
+                        g_readerText.stepSdFontSize(-1);
+                        g_readerBook.invalidatePaginationForLayoutChange();
+                    }
                     state_ = SystemState::Settings;
                     renderState(state_);
                     g_displayService.enqueueFull(false, 100);
@@ -298,8 +304,10 @@ void StateMachine::handle(const Message& message) {
                     break;
 
                 case UiAction::IncreaseSdFontSize:
-                    g_readerText.stepSdFontSize(1);
-                    g_readerBook.invalidatePaginationForLayoutChange();
+                    if (g_readerText.isSdFont()) {
+                        g_readerText.stepSdFontSize(1);
+                        g_readerBook.invalidatePaginationForLayoutChange();
+                    }
                     state_ = SystemState::Settings;
                     renderState(state_);
                     g_displayService.enqueueFull(false, 100);
@@ -307,8 +315,10 @@ void StateMachine::handle(const Message& message) {
                     break;
 
                 case UiAction::IncreaseSdFontSizeBig:
-                    g_readerText.stepSdFontSize(4);
-                    g_readerBook.invalidatePaginationForLayoutChange();
+                    if (g_readerText.isSdFont()) {
+                        g_readerText.stepSdFontSize(4);
+                        g_readerBook.invalidatePaginationForLayoutChange();
+                    }
                     state_ = SystemState::Settings;
                     renderState(state_);
                     g_displayService.enqueueFull(false, 100);

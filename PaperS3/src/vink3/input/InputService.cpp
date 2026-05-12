@@ -53,13 +53,12 @@ bool InputService::begin(StateMachine* stateMachine) {
     }
     // PaperS3's side key is primarily hardware-managed (single click powers on,
     // double-click powers off, long press enters download mode). Some M5Unified
-    // builds expose BtnPWR before the PMIC cuts power; when available, mirror a
-    // double-click into Vink's graceful shutdown path so it shows the same final
-    // "Vink 已关机" page as the on-screen shutdown button. If the PMIC powers off
-    // first, this detector simply never fires.
+    // builds expose BtnPWR while the firmware is running; when available, mirror
+    // a single click into Vink's graceful shutdown path so it shows the same final
+    // "Vink 已关机" page as the on-screen shutdown button.
     M5.BtnPWR.setDebounceThresh(0);
     M5.BtnPWR.setHoldThresh(0);
-    Serial.println("[vink3][input] service started; PaperS3 side power double-click detector enabled when exposed");
+    Serial.println("[vink3][input] service started; PaperS3 side power single-click detector enabled when exposed");
     return true;
 }
 
@@ -107,7 +106,7 @@ void InputService::pollPowerButton(uint32_t now) {
             powerWasPressed_ = false;
             powerPressStartedMs_ = 0;
             lastPowerClickMs_ = 0;
-            Serial.println("[vink3][power] BtnPWR double-click detector armed");
+            Serial.println("[vink3][power] BtnPWR single-click detector armed");
         }
         return;
     }

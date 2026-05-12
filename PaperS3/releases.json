@@ -7,9 +7,9 @@
     {
       "version": "v0.4.15",
       "name": "Vink-PaperS3 v0.4.15",
-      "summary": "霞鹜文楷正文/Noto Bold UI/双字号/stb_truetype/侧键单击关机/页边距统一/排版独立/抗锯齿Gamma/菜单重构",
+      "summary": "v0.4.15 覆盖热修：SD TTF缓存/64×64溢出防护、UI字库补全、长标题省略、WebUI/本机设置一致性、SPIFFS空间修复",
       "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.15",
-      "changelog": "**字体系统**\n- 正文换霞鹜文楷32px(PROGMEM)+16/20px(SPIFFS)，Flash 52.7%\n- UI换Noto Sans CJK SC Bold 24px，预置16px小字\n- stb_truetype SD卡TTF支持，字号16-64自由调节\n- Gamma-0.7抗锯齿曲线，边沿不再被Bayer抖动打散\n\n**UI重构**\n- 阅读设置页：分组卡片+横线分隔+字号步进器(◀◀/◀/值/▶/▶▶)\n- 阅读菜单：字体/字号独立行，thickBorder统一风格\n- 阅读TAB右半区分块(最近阅读盒/《书名》/进度盒)\n- 书卡右边缘对齐(阅读+书架)，目录/返回居中\n\n**排版修正**\n- 页边距左右统一走webMarginLeft_，消除NVS独立key漂移\n- 排版预设不再整体清零settings_，只改formatting1+spacing\n- 预设不再捆绑renderOpt1(抗锯齿/翻页动画独立于排版)\n\n**交互**\n- 侧键单击即关机(原双击)，保留关机画面\n- 字体来源切换(内置文楷↔SD卡TTF)\n- 字号16/20/32px设置页+菜单双向\n\n**书卡**\n- kPadX14留白不贴书脊+阴影\n- 副标题16px小字\n- 同步页注释16px小字",
+      "changelog": "**字体系统**\n- 正文换霞鹜文楷32px(PROGMEM)+16/20px(SPIFFS)，Flash 52.7%\n- UI换Noto Sans CJK SC Bold 24px，预置16px小字\n- stb_truetype SD卡TTF支持，字号16-64自由调节\n- Gamma-0.7抗锯齿曲线，边沿不再被Bayer抖动打散\n\n**UI重构**\n- 阅读设置页：分组卡片+横线分隔+字号步进器(◀◀/◀/值/▶/▶▶)\n- 阅读菜单：字体/字号独立行，thickBorder统一风格\n- 阅读TAB右半区分块(最近阅读盒/《书名》/进度盒)\n- 书卡右边缘对齐(阅读+书架)，目录/返回居中\n\n**排版修正**\n- 页边距左右统一走webMarginLeft_，消除NVS独立key漂移\n- 排版预设不再整体清零settings_，只改formatting1+spacing\n- 预设不再捆绑renderOpt1(抗锯齿/翻页动画独立于排版)\n\n**交互**\n- 侧键单击即关机(原双击)，保留关机画面\n- 字体来源切换(内置文楷↔SD卡TTF)\n- 字号16/20/32px设置页+菜单双向\n\n**书卡**\n- kPadX14留白不贴书脊+阴影\n- 副标题16px小字\n- 同步页注释16px小字\n\n**覆盖热修（2026-05-12）**\n- 修复 SD TTF glyph cache 命中后未复制 bitmap 导致的乱码/花屏。\n- 修复 SD TTF 单字 64×64 临时 buffer 先拷贝后判断的潜在溢出，超限字形会安全跳过。\n- 24px UI 字库扩展到 GB2312 完整汉字 + 英文大小写 + 数字 + ASCII/中文/全角标点，补齐“第/章/终/番/记/楔/零/百”等章节名常用字。\n- 重新压缩 16px 小字库，降低 SPIFFS 占用，避免资源分区写满。\n- 修复中英混排书名 ASCII 部分不显示/乱码、最近阅读副标题不显示、无书状态隐藏目录区域误触。\n- 阅读首页、目录、阅读菜单、阅读设置、书籍入口页的长标题/章节名/字体名改为安全省略，避免挤出屏幕。\n- 修复书籍入口页中文 UTF-8 被字节截断的风险。\n- WebUI 与本机阅读设置对齐：字体字号、行距、边距、SD 字体字号等配置保持一致。",
       "assets": {
         "full": {
           "name": "Vink-PaperS3-v0.4.15-full-16MB.bin",

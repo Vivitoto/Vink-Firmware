@@ -4,6 +4,7 @@
 #include "../text/stb_truetype.h"
 
 #include "../ReadPaper176.h"
+#include <SPI.h>
 #include <cstring>
 
 // ── Gamma-0.7 4bpp → RGB565 table (same as CjkTextRenderer / ReaderTextRenderer) ──
@@ -264,6 +265,13 @@ bool TtfFont::drawGlyphToBuffer(uint32_t unicode, uint8_t* buf,
         *w = 0; *h = 0; *advance = 0;
         return false;
     }
+    // drawGlyph() uses a fixed 64×64 scratch buffer. Reject oversized glyphs
+    // before any memcpy into the caller buffer or cache.
+    if (cw > 64 || ch > 64) {
+        stbtt_FreeBitmap(rendered, nullptr);
+        *w = 0; *h = 0; *advance = 0;
+        return false;
+    }
 
     int adv, lsb;
     stbtt_GetCodepointHMetrics(&info, static_cast<int>(unicode), &adv, &lsb);
@@ -276,11 +284,15 @@ bool TtfFont::drawGlyphToBuffer(uint32_t unicode, uint8_t* buf,
     uint8_t adv8 = static_cast<uint8_t>(fa > 255 ? 255 : fa);
 
     // Store in cache
-    insertCacheSlot(unicode, cw8, ch8,
-                    static_cast<int8_t>(xoff), static_cast<int8_t>(yoff), adv8);
+    const int slot = insertCacheSlot(unicode, cw8, ch8,
+                                     static_cast<int8_t>(xoff), static_cast<int8_t>(yoff), adv8);
+    const size_t bmpSize = static_cast<size_t>(cw) * ch;
+    if (slot >= 0 && cache_[slot].bitmap) {
+        memcpy(cache_[slot].bitmap, rendered, bmpSize);
+    }
 
     // Copy to caller's buffer
-    memcpy(buf, rendered, static_cast<size_t>(cw) * ch);
+    memcpy(buf, rendered, bmpSize);
     stbtt_FreeBitmap(rendered, nullptr);
 
     *w = cw;
@@ -346,6 +358,19 @@ void TtfFont::drawGlyph(uint32_t unicode, int16_t x, int16_t y,
 int TtfFont::scanSdFonts(char paths[][64], int maxCount) {
     if (maxCount <= 0) return 0;
     int count = 0;
+
+    // User-triggered path only: initialize SD lazily here too, so font source
+    // switching works even before the library/shelf has touched the card.
+    SPI.begin(kSdSckPin, kSdMisoPin, kSdMosiPin, kSdCsPin);
+    if (SD.cardType() == CARD_NONE) {
+        const uint32_t freqs[] = {kSdPrimaryFrequency, kSdFallbackFrequency1, kSdFallbackFrequency2};
+        bool ok = false;
+        for (uint32_t freq : freqs) {
+            if (SD.begin(kSdCsPin, SPI, freq)) { ok = true; break; }
+            delay(50);
+        }
+        if (!ok) return 0;
+    }
 
     // Try opening the /fonts directory first
     File root = SD.open("/fonts");

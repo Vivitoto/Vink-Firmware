@@ -1744,11 +1744,12 @@ bool ReaderBookService::handleTap(int16_t x, int16_t y) {
             const int16_t sX = kCol0 + kFW - 20 - 5 * 64;
             const int16_t sH = kFH - 16;
             bool hit = false;
-            if (inRect(x, y, sX,       sY + 8, 60, sH)) { g_readerText.stepSdFontSize(-4); hit = true; }
-            else if (inRect(x, y, sX + 64,  sY + 8, 60, sH)) { g_readerText.stepSdFontSize(-1); hit = true; }
-            else if (inRect(x, y, sX + 128, sY + 8, 60, sH)) { g_readerText.cycleReaderFontSize(); hit = true; }
-            else if (inRect(x, y, sX + 192, sY + 8, 60, sH)) { g_readerText.stepSdFontSize(1); hit = true; }
-            else if (inRect(x, y, sX + 256, sY + 8, 60, sH)) { g_readerText.stepSdFontSize(4); hit = true; }
+            const bool isSd = g_readerText.isSdFont();
+            if (isSd && inRect(x, y, sX,       sY + 8, 60, sH)) { g_readerText.stepSdFontSize(-4); hit = true; }
+            else if (isSd && inRect(x, y, sX + 64,  sY + 8, 60, sH)) { g_readerText.stepSdFontSize(-1); hit = true; }
+            else if (!isSd && inRect(x, y, sX + 128, sY + 8, 60, sH)) { g_readerText.cycleReaderFontSize(); hit = true; }
+            else if (isSd && inRect(x, y, sX + 192, sY + 8, 60, sH)) { g_readerText.stepSdFontSize(1); hit = true; }
+            else if (isSd && inRect(x, y, sX + 256, sY + 8, 60, sH)) { g_readerText.stepSdFontSize(4); hit = true; }
             if (hit) {
                 g_readerBook.invalidatePaginationForLayoutChange();
                 renderReaderMenuPage();
@@ -1766,11 +1767,7 @@ bool ReaderBookService::handleTap(int16_t x, int16_t y) {
             return true;
         }
         if (inRect(x, y, kCol1, kBtY, kIW, kIH)) {
-            showingReaderMenu_ = false;
-            showingBookEntry_ = false;
-            showingToc_ = false;
-            lastTapBackHome_ = true;
-            return true;
+            return closeReaderMenu();
         }
         // Tap inside card but outside items → also close
         return closeReaderMenu();

@@ -140,7 +140,7 @@ public:
     uint8_t webParagraphSpacing() const { return webParagraphSpacing_; }
     uint8_t webIndentFirstLine() const { return webIndentFirstLine_; }
     uint8_t webMarginLeft() const { return webMarginLeft_; }
-    uint8_t webMarginRight() const { return webMarginRight_; }
+    uint8_t webMarginRight() const { return webMarginLeft_; }
     uint8_t webMarginTop() const { return webMarginTop_; }
     uint8_t webMarginBottom() const { return webMarginBottom_; }
     bool webJustify() const { return webJustify_; }
@@ -214,7 +214,6 @@ private:
     uint8_t webParagraphSpacing_ = 50;
     uint8_t webIndentFirstLine_ = 2;
     uint8_t webMarginLeft_ = 24;
-    uint8_t webMarginRight_ = 24;
     uint8_t webMarginTop_ = 68;
     uint8_t webMarginBottom_ = 48;
     bool webJustify_ = false;

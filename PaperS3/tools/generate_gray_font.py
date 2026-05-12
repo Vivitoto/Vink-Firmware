@@ -38,8 +38,10 @@ def load_chars(chars_file):
     if chars_file and os.path.exists(chars_file):
         with open(chars_file, 'r', encoding='utf-8') as f:
             for line in f:
-                line = line.strip()
-                if not line or line.startswith('#'):
+                # Preserve intentional whitespace glyphs such as U+3000 IDEOGRAPHIC SPACE.
+                # Plain ASCII spaces are forced below; only remove line terminators here.
+                line = line.rstrip('\r\n')
+                if line == '' or line.lstrip().startswith('#'):
                     continue
                 for ch in line:
                     chars.add(ch)
@@ -63,8 +65,10 @@ def load_chars(chars_file):
     for c in range(32, 127):
         chars.add(chr(c))
     
-    # 强制包含常用标点
-    for ch in '，。！？、；：""''（）《》【】—…·\n\r\t ':
+    # 强制包含常用中英文/全角标点；章节名、书名、文件名会混用这些符号。
+    common_punct = '，。！？、；：「」『』（）《》〈〉【】—…·“”‘’￥％℃　\n\r\t '
+    common_punct += '！＂＃＄％＆＇（）＊＋，－．／：；＜＝＞？＠［＼］＾＿｀｛｜｝～'
+    for ch in common_punct:
         chars.add(ch)
     
     return sorted(chars, key=lambda c: ord(c))

@@ -60,7 +60,7 @@ bool ReaderTextRenderer::loadFont(const char* path) {
 }
 
 bool ReaderTextRenderer::ready() const {
-    return canvas_ && (wenkai32Ready_ || font_.isLoaded());
+    return canvas_ && (wenkai32Ready_ || font_.isLoaded() || (sdCardFontActive_ && ttfFont_.isLoaded()));
 }
 
 uint16_t ReaderTextRenderer::fontSize() const {
@@ -154,6 +154,9 @@ void ReaderTextRenderer::loadLocalSettings() {
     const uint16_t render = prefs.getUShort("rend1", settings_.renderOpt1);
     const uint16_t spacing = prefs.getUShort("spacing", settings_.spacing);
     fontSizeSetting_ = prefs.getUChar("font", fontSizeSetting_);
+    sdFontSize_ = prefs.getUChar("sdsz", sdFontSize_);
+    if (sdFontSize_ < 16) sdFontSize_ = 16;
+    if (sdFontSize_ > 64) sdFontSize_ = 64;
     webLineSpacing_ = prefs.getUChar("line", webLineSpacing_);
     webParagraphSpacing_ = prefs.getUChar("para", webParagraphSpacing_);
     webIndentFirstLine_ = prefs.getUChar("indent", webIndentFirstLine_);
@@ -185,10 +188,12 @@ bool ReaderTextRenderer::saveLocalSettings() const {
     prefs.putUShort("rend1", settings_.renderOpt1);
     prefs.putUShort("spacing", settings_.spacing);
     prefs.putUChar("font", fontSizeSetting_);
+    prefs.putUChar("sdsz", sdFontSize_);
     prefs.putUChar("line", webLineSpacing_);
     prefs.putUChar("para", webParagraphSpacing_);
     prefs.putUChar("indent", webIndentFirstLine_);
     prefs.putUChar("mleft", webMarginLeft_);
+    prefs.putUChar("mtop", webMarginTop_);
     prefs.putUChar("mbot", webMarginBottom_);
     prefs.putBool("justify", webJustify_);
     prefs.end();
@@ -279,7 +284,6 @@ void ReaderTextRenderer::setLineSpacingLevel(uint8_t level) {
     const uint16_t fz = fontSize();
     uint16_t percent = (static_cast<int32_t>(gap) * 100 + static_cast<int32_t>(fz / 2))
                           / static_cast<int32_t>(max<uint8_t>(fz, 1));
-    if (percent < 50) percent = 50;
     if (percent > 200) percent = 200;
     webLineSpacing_ = static_cast<uint8_t>(percent);
 
@@ -338,11 +342,16 @@ const char* ReaderTextRenderer::layoutPresetLabel() const {
 void ReaderTextRenderer::setWebLayout(uint8_t fontSize, uint8_t lineSpacing, uint8_t paragraphSpacing,
                                       uint8_t indentFirstLine, uint8_t marginLeft, uint8_t marginRight,
                                       uint8_t marginTop, uint8_t marginBottom, bool justify) {
-    webLineSpacing_ = constrain(lineSpacing, static_cast<uint8_t>(50), static_cast<uint8_t>(200));
+    webLineSpacing_ = constrain(lineSpacing, static_cast<uint8_t>(0), static_cast<uint8_t>(200));
     webParagraphSpacing_ = constrain(paragraphSpacing, static_cast<uint8_t>(0), static_cast<uint8_t>(100));
     webIndentFirstLine_ = constrain(indentFirstLine, static_cast<uint8_t>(0), static_cast<uint8_t>(4));
-    webMarginLeft_ = constrain(marginLeft, static_cast<uint8_t>(0), static_cast<uint8_t>(120));
+    // Keep body side margins symmetric. WebUI keeps the old marginRight field
+    // for API compatibility, but runtime and NVS use one local side-margin value.
+    uint8_t sideMargin = marginLeft;
+    if (marginRight != marginLeft) sideMargin = static_cast<uint8_t>((static_cast<uint16_t>(marginLeft) + marginRight) / 2);
+    webMarginLeft_ = constrain(sideMargin, static_cast<uint8_t>(0), static_cast<uint8_t>(120));
     webMarginTop_ = constrain(marginTop, static_cast<uint8_t>(0), static_cast<uint8_t>(160));
+    webMarginBottom_ = constrain(marginBottom, static_cast<uint8_t>(0), static_cast<uint8_t>(160));
     webJustify_ = justify;
     setReaderFontSize(fontSize);
     saveLocalSettings();
@@ -601,7 +610,7 @@ void ReaderTextRenderer::drawGlyph(uint32_t unicode, int16_t x, int16_t y, uint1
 
 void ReaderTextRenderer::drawText(int16_t x, int16_t y, const char* text, uint16_t color, int16_t letterGap) {
     if (!canvas_ || !text) return;
-    if (!wenkai32Ready_ && !font_.isLoaded()) return;
+    if (!wenkai32Ready_ && !font_.isLoaded() && !(sdCardFontActive_ && ttfFont_.isLoaded())) return;
     int16_t cx = x;
     const uint8_t* bytes = reinterpret_cast<const uint8_t*>(text);
     size_t pos = 0;

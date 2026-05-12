@@ -28,6 +28,8 @@ bool CjkTextRenderer::begin(M5Canvas* canvas) {
         Serial.printf("[vink3][cjk] PROGMEM Bold 24px UI font loaded: glyphs=%lu size=%lu\n",
                       static_cast<unsigned long>(progmemUiCharCount_),
                       static_cast<unsigned long>(g_vink_ui_font24_size));
+    } else {
+        Serial.println("[vink3][cjk] PROGMEM UI font unavailable");
     }
 
     // Try loading 16px Bold UI font from SPIFFS for small labels
@@ -382,9 +384,10 @@ void CjkTextRenderer::drawTextSmall(int16_t x, int16_t y, const char* text, uint
 void CjkTextRenderer::drawCenteredSmall(int16_t x, int16_t y, int16_t w, int16_t h,
                                          const char* text, uint16_t color) {
     if (!text || !text[0]) return;
+    const int16_t lineH = fontSmall_.isLoaded() ? 16 : static_cast<int16_t>(fontSize());
     const int16_t tw = textWidthSmall(text);
     const int16_t lx = x + (w - tw) / 2;
-    const int16_t ly = y + (h - 16) / 2;
+    const int16_t ly = y + (h - lineH) / 2;
     drawTextSmall(lx > x + 6 ? lx : x + 6, ly, text, color);
 }
 
