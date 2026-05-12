@@ -253,13 +253,14 @@ const char* DisplayService::readerRefreshStrategyLabel() const {
     return "标准";
 }
 
-// Native IT8951 DU4 sweep. Keep this isolated in DisplayService so it does not
-// touch boot/runtime initialization.
+// Native IT8951 page-turn sweep. Keep this isolated in DisplayService so it
+// does not touch boot/runtime initialization.
 //
-// Both directions use rotation 0 so pixel data stays upright. The scan
-// direction difference is cosmetic — the important part is a single clean
-// sweep with no software strips.
-void DisplayService::pushShutterAnimation(M5Canvas* canvas, DisplayEffect effect) {
+// Do not draw software refresh bars: each strip pushes real new page pixels and
+// asks the EPD controller to refresh that region with a cleaner text waveform.
+// The visual direction is centralized here so it can be flipped after real-device
+// validation without changing tap/swipe handlers.
+void DisplayService::pushShutterAnimation(M5Canvas* canvas, DisplayEffect effect, epd_mode_t mode) {
     if (!canvas) return;
 
     const uint8_t savedRotation = M5.Display.getRotation();
@@ -267,10 +268,34 @@ void DisplayService::pushShutterAnimation(M5Canvas* canvas, DisplayEffect effect
 
     M5.Display.waitDisplay();
     M5.Display.setColorDepth(kTextColorDepthHigh);
-    M5.Display.setEpdMode(epd_mode_t::epd_fast);  // DU4: one native sweep, medium speed
+    if (mode == kLowRefresh || mode == epd_mode_t::epd_fast || mode == epd_mode_t::epd_fastest) {
+        mode = kNormalRefresh;
+    }
+    M5.Display.setEpdMode(mode);
 
-    canvas->pushSprite(&M5.Display, 0, 0);
-    M5.Display.waitDisplay();
+    // Native sweep contract:
+    // - next page  / VerticalShutter   -> right-to-left strip refresh
+    // - prev page  / HorizontalShutter -> left-to-right strip refresh
+    // If real PaperS3 visual direction feels reversed, flip only this mapping.
+    constexpr int16_t kSweepStripW = 60;
+    const bool rightToLeft = (effect == DisplayEffect::VerticalShutter);
+    if (rightToLeft) {
+        for (int16_t sx = kPaperS3Width; sx > 0; sx -= kSweepStripW) {
+            const int16_t x = max<int16_t>(0, sx - kSweepStripW);
+            const int16_t w = sx - x;
+            M5.Display.setClipRect(x, 0, w, kPaperS3Height);
+            canvas->pushSprite(&M5.Display, 0, 0);
+            M5.Display.waitDisplay();
+        }
+    } else {
+        for (int16_t x = 0; x < kPaperS3Width; x += kSweepStripW) {
+            const int16_t w = min<int16_t>(kSweepStripW, kPaperS3Width - x);
+            M5.Display.setClipRect(x, 0, w, kPaperS3Height);
+            canvas->pushSprite(&M5.Display, 0, 0);
+            M5.Display.waitDisplay();
+        }
+    }
+    M5.Display.clearClipRect();
     M5.Display.setRotation(savedRotation);
 }
 
@@ -344,7 +369,7 @@ void DisplayService::push(const DisplayRequest& request, M5Canvas* canvasToPush)
             canvasToPush->pushSprite(&M5.Display, 0, 0);
             M5.Display.waitDisplay();
         } else {
-            pushShutterAnimation(canvasToPush, request.effect);
+            pushShutterAnimation(canvasToPush, request.effect, readerMode);
         }
         pushCount_++;
         g_inDisplayPush = false;

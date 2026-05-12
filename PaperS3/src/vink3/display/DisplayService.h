@@ -64,7 +64,7 @@ private:
     epd_mode_t chooseRefreshMode(const DisplayRequest& request);
     void loadLocalSettings();
     epd_mode_t chooseReaderRefreshMode(const DisplayRequest& request);
-    void pushShutterAnimation(M5Canvas* canvas, DisplayEffect effect);
+    void pushShutterAnimation(M5Canvas* canvas, DisplayEffect effect, epd_mode_t mode);
 
     M5Canvas* canvas_ = nullptr;
     QueueHandle_t queue_ = nullptr;

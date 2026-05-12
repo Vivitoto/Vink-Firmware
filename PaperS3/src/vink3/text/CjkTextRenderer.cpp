@@ -20,6 +20,8 @@ bool CjkTextRenderer::begin(M5Canvas* canvas) {
     progmemUiCharCount_ = 0;
     progmemUiFontSize_ = 0;
     progmemUiBaseline_ = 0;
+    progmemUiVisualTop_ = 0;
+    progmemUiVisualBottom_ = 0;
     progmemUiBitmapStart_ = 0;
     if (!canvas_) return false;
 
@@ -120,6 +122,41 @@ void CjkTextRenderer::deriveProgmemUiMetrics() {
         }
     }
     if (maxBearing > 0) progmemUiBaseline_ = maxBearing;
+
+    // Derive a real visual line box from representative UI glyphs. Boxed text
+    // (tabs/buttons/cards/settings rows) should align its optical glyph center,
+    // not the nominal fontSize(), otherwise labels sit high/low in their frames.
+    bool haveBounds = false;
+    int16_t top = 0;
+    int16_t bottom = static_cast<int16_t>(progmemUiFontSize_);
+    for (uint32_t sample : samples) {
+        GrayGlyph glyph;
+        if (!findProgmemUiGlyph(sample, glyph)) continue;
+        const int16_t gt = static_cast<int16_t>(progmemUiBaseline_) - static_cast<int16_t>(glyph.bearingY);
+        const int16_t gb = gt + static_cast<int16_t>(glyph.height);
+        if (!haveBounds) {
+            top = gt;
+            bottom = gb;
+            haveBounds = true;
+        } else {
+            if (gt < top) top = gt;
+            if (gb > bottom) bottom = gb;
+        }
+    }
+    progmemUiVisualTop_ = top;
+    progmemUiVisualBottom_ = bottom;
+}
+
+int16_t CjkTextRenderer::lineTopForBox(int16_t y, int16_t h) const {
+    const int16_t visualTop = progmemUiReady_ ? progmemUiVisualTop_ : 0;
+    const int16_t visualBottom = progmemUiReady_ ? progmemUiVisualBottom_ : static_cast<int16_t>(fontSize());
+    const int16_t visualCenter = static_cast<int16_t>((visualTop + visualBottom) / 2);
+    return static_cast<int16_t>(y + h / 2 - visualCenter);
+}
+
+int16_t CjkTextRenderer::smallLineTopForBox(int16_t y, int16_t h) const {
+    const int16_t lineH = fontSmall_.isLoaded() ? 16 : static_cast<int16_t>(fontSize());
+    return static_cast<int16_t>(y + (h - lineH) / 2);
 }
 
 bool CjkTextRenderer::findProgmemUiGlyph(uint32_t unicode, GrayGlyph& out) const {
@@ -314,10 +351,7 @@ void CjkTextRenderer::drawText(int16_t x, int16_t y, const char* text, uint16_t 
 
 void CjkTextRenderer::drawCentered(int16_t x, int16_t y, int16_t w, int16_t h, const char* text, uint16_t color) {
     const int16_t tw = textWidth(text ? text : "");
-    // Leave room for descenders below the baseline; otherwise g/p/y look like
-    // uppercase-height glyphs when centered in buttons and tabs.
-    const int16_t th = static_cast<int16_t>(fontSize()) + 6;
-    drawText(x + (w - tw) / 2, y + (h - th) / 2, text, color);
+    drawText(x + (w - tw) / 2, lineTopForBox(y, h), text, color);
 }
 
 void CjkTextRenderer::drawRight(int16_t rightX, int16_t y, const char* text, uint16_t color) {
@@ -384,10 +418,9 @@ void CjkTextRenderer::drawTextSmall(int16_t x, int16_t y, const char* text, uint
 void CjkTextRenderer::drawCenteredSmall(int16_t x, int16_t y, int16_t w, int16_t h,
                                          const char* text, uint16_t color) {
     if (!text || !text[0]) return;
-    const int16_t lineH = fontSmall_.isLoaded() ? 16 : static_cast<int16_t>(fontSize());
     const int16_t tw = textWidthSmall(text);
     const int16_t lx = x + (w - tw) / 2;
-    const int16_t ly = y + (h - lineH) / 2;
+    const int16_t ly = smallLineTopForBox(y, h);
     drawTextSmall(lx > x + 6 ? lx : x + 6, ly, text, color);
 }
 

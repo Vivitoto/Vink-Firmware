@@ -16,6 +16,7 @@ import json
 import os
 import re
 import shutil
+import struct
 import subprocess
 import sys
 from pathlib import Path
@@ -60,6 +61,18 @@ def assert_contains(text: str, needle: str, label: str) -> None:
 def assert_not_contains(text: str, needle: str, label: str) -> None:
     if needle in text:
         fail(f"forbidden pattern present: {label} ({needle})")
+    ok(label)
+
+
+def assert_gray_font_covers(path: str, chars: str, label: str) -> None:
+    data = (PROJECT / path).read_bytes()
+    if data[:4] != b"GRAY" or len(data) < 16:
+        fail(f"invalid GRAY font for {label}: {path}")
+    count = struct.unpack_from("<I", data, 8)[0]
+    codepoints = {struct.unpack_from("<I", data, 16 + i * 16)[0] for i in range(count)}
+    missing = "".join(ch for ch in chars if ord(ch) not in codepoints)
+    if missing:
+        fail(f"font coverage missing for {label}: {missing[:80]}")
     ok(label)
 
 
@@ -160,6 +173,7 @@ def vink3_source_invariants(main_cpp: str) -> None:
     assert_contains(input_cpp, "g_inDisplayPush", "v0.3 input task suppresses events during display push")
     assert_contains(input_cpp, "M5.update();", "v0.3 input task owns M5.update polling")
     assert_contains(input_cpp, "side key is primarily hardware-managed", "input task documents that PaperS3 side key is hardware-managed")
+    assert_contains(input_cpp, "press edge", "input task requests shutdown on the side-key press edge before the PMIC/reset path can consume release")
     assert_contains(input_cpp, "pollPowerButton", "input task has the requested side-key graceful shutdown bridge")
     assert_contains(input_cpp, "M5.BtnPWR.isPressed()", "side-key bridge uses M5Unified BtnPWR when exposed")
     assert_not_contains(input_cpp, "digitalRead(static_cast<int>(kPowerKeyPin))", "power input must not read unverified GPIO36 as PaperS3 side key")
@@ -216,6 +230,8 @@ def vink3_source_invariants(main_cpp: str) -> None:
     assert_contains(ui_cpp, "UiAction::CycleReaderRefreshStrategy", "settings tab can cycle refresh strategy")
     assert_contains(ui_cpp, "UiAction::ToggleReaderPageTurnEffect", "settings tab can toggle page-turn effect")
     assert_contains(ui_cpp, "kRowH / 2", "settings row label/value/arrow share one computed centerline")
+    assert_contains(cjk_cpp, "lineTopForBox", "boxed UI text uses glyph visual bounds for vertical centering")
+    assert_contains(ui_cpp, "lineTopForBox", "buttons/tabs/cards/settings rows use the shared UI vertical-centering helper")
     assert_contains(ui_cpp, "同一水平线", "settings page documents row alignment intent")
     assert_contains(ui_cpp, "formatStatusTime", "status bar shows system time at the left")
     assert_contains(ui_cpp, "formatBatteryPercent", "status bar shows battery percentage at the right")
@@ -236,7 +252,17 @@ def vink3_source_invariants(main_cpp: str) -> None:
     assert_contains(cjk_cpp, "one common baseline", "UI gray font rendering must not baseline-stagger Latin letters")
     assert_contains(cjk_cpp, "g/p/y", "UI baseline must preserve Latin descenders")
     assert_contains(reader_cpp, "Wenkai32 PROGMEM", "reader Wenkai glyph rendering is the primary body-font path")
-    assert_contains(reader_cpp, "const int16_t drawY = y", "reader gray fallback uses a stable visual top coordinate")
+    assert_contains(read("src/vink3/text/WenkaiFullFont.h"), "g_wenkai_font32", "compiled reader body font is linked")
+    assert_contains(read("src/vink3/text/WenkaiFullFont.cpp"), "GB2312完整汉字", "reader body font covers full GB2312 instead of a sparse contiguous subset")
+    assert_gray_font_covers(
+        "tools/fonts/wenkai_32.fnt",
+        "的第章测试一是在不了有和人这中大为上个国我以要他时来用们生到作地于出就分对成会可主发年动同工也能下过子说产种面而方后多定行学法所民得经十三之进着等部度家电力里如水化高自二理起小物现实加量都两体制机当使点从业本去把性好应开它合还因由其些然前外天政四日那社义事平形相全表间样与关各重新线内数正心反你明看原又么利比或但质气",
+        "reader body Wenkai font covers common Chinese text characters",
+    )
+    assert_contains(reader_cpp, "fontSize()) - glyph.bearingY", "reader Wenkai body font aligns glyphs to a shared baseline")
+    assert_contains(reader_cpp, "Keep true grayscale anti-aliasing", "reader body text keeps 16-gray anti-aliasing with contrast boost")
+    assert_contains(reader_cpp, "never let a missing body glyph silently disappear", "reader body missing glyphs render visible tofu instead of blank pages")
+    assert_contains(reader_cpp, "v0.4.15 shipped with a sparse Wenkai font", "smoke test documents the v0.4.15 blank-body root cause")
     assert_contains(reader_cpp, "ReaderTextRenderer", "v0.3 has a separate reader body renderer")
     assert_contains(reader_cpp, "beginWenkai32Font", "reader body renderer uses full Wenkai PROGMEM font")
     assert_contains(reader_book_cpp, "ReaderBookService", "v0.3 has reader book service for opening TXT books")
@@ -284,7 +310,11 @@ def vink3_source_invariants(main_cpp: str) -> None:
     assert_contains(reader_cpp, "renderListPage", "reader text renderer can draw list rows aligned with tap zones")
     assert_contains(reader_cpp, "drawShellTabs", "reader management pages show the same four-tab shell")
     assert_contains(ui_cpp, "Thick underline bar", "reader tabs use underline bar indicator for selected tab")
-    assert_contains(reader_book_h, "kListFirstRowY = 204", "reader list touch rows start below visible top tabs")
+    assert_contains(reader_book_h, "kListFirstRowY = 222", "reader list touch rows start below the 64px browser summary row")
+    assert_contains(reader_book_h, "kShelfBrowserEntryH = 64", "shelf browser entry matches the settings row height")
+    assert_contains(reader_book_h, "kShelfCardH = 206", "shelf book cards are slightly compressed to preserve the 3x3 layout")
+    assert_contains(ui_cpp, "kLabelBoxH = kRowH", "reader home recent-reading label uses the shared cell height")
+    assert_contains(ui_cpp, "Progress text: no box", "reader home progress text is unboxed and visually centered")
     assert_contains(ui_cpp, "renderUiListPage", "UI list renderer exists for tab/list pages")
     assert_contains(reader_book_cpp, "renderUiListPage(SystemState::Library", "library tab uses UI font renderer, not reading font")
     assert_contains(reader_book_cpp, "renderUiListPage(SystemState::Reader", "TOC/navigation list uses UI font renderer, not reading font")
@@ -297,6 +327,9 @@ def vink3_source_invariants(main_cpp: str) -> None:
     assert_contains(reader_book_cpp, "renderReaderMenuPage", "reading center tap opens a formal reader menu")
     assert_contains(reader_book_cpp, "renderReaderMenuOverlay", "reader menu uses UI font renderer via overlay, not body reading font")
     assert_not_contains(reader_book_cpp, "g_readerText.renderActionPage(\"阅读菜单\"", "reader menu must not use body reading font")
+    assert_contains(ui_cpp, "kCardH = 596", "reader menu has roomier 64px-cell layout instead of cramped overlay")
+    assert_contains(ui_cpp, "返回阅读", "reader menu return button clearly means Reader tab home")
+    assert_contains(reader_book_cpp, "lastTapBackHome_ = true", "reader menu return button goes back to Reader tab home, not body text")
     assert_contains(reader_book_cpp, "cycleRefreshStrategy", "reader menu can trigger refresh strategy setting")
     assert_contains(reader_book_cpp, "toggleAntiAlias", "reader menu can trigger anti-alias setting")
     assert_contains(reader_book_cpp, "cycleLayoutPreset", "reader menu can trigger book layout optimization setting")
@@ -329,8 +362,19 @@ def vink3_source_invariants(main_cpp: str) -> None:
     assert_contains(display_cpp, "ReaderRefreshStrategy::Clear", "display service has a clear refresh strategy")
     assert_contains(display_cpp, "request.effect != DisplayEffect::None", "page-turn effect changes the actual display refresh path")
     assert_contains(display_cpp, "pushShutterAnimation", "page-turn animation uses the isolated native shutter path")
+    assert_contains(display_cpp, "mode = kNormalRefresh", "page-turn effect avoids ghost-prone DU/DU4 fast refresh")
+    assert_contains(display_cpp, "kSweepStripW = 60", "page-turn effect uses native 60px strip sweep")
+    assert_contains(display_cpp, "right-to-left strip refresh", "next-page native sweep direction is documented")
+    assert_contains(display_cpp, "left-to-right strip refresh", "previous-page native sweep direction is documented")
+    assert_contains(display_cpp, "setClipRect", "native sweep uses clipped real-page strip refreshes instead of drawing software bars")
+    assert_contains(state_cpp, "shouldQualityRefreshTabSwitch", "tab switching balances fast GL16 refresh with periodic quality cleanup")
+    assert_contains(state_cpp, "kQualityEveryTabSwitches = 8", "tab switching does not quality-refresh every tap")
     assert_contains(state_cpp, "g_readerText.pageTurnEffectEnabled()", "state machine routes page turns through the page-turn effect toggle")
-    assert_contains(state_cpp, "? DisplayEffect::VerticalShutter", "next-page animation uses the corrected wipe direction")
+    assert_contains(state_cpp, "next page  -> DisplayEffect::VerticalShutter", "page-turn direction contract documents next-page effect")
+    assert_contains(state_cpp, "prev page  -> DisplayEffect::HorizontalShutter", "page-turn direction contract documents previous-page effect")
+    assert_contains(state_cpp, "? DisplayEffect::VerticalShutter", "tap-driven next-page animation uses the corrected wipe direction")
+    assert_contains(state_cpp, "enqueueReaderAwareRefresh(DisplayEffect::VerticalShutter);", "swipe/up-driven next-page animation uses the corrected wipe direction")
+    assert_contains(state_cpp, "enqueueReaderAwareRefresh(DisplayEffect::HorizontalShutter);", "previous-page animation uses the corrected wipe direction")
     assert_contains(reader_book_cpp, "ChapterDetector", "reader book service detects TXT table of contents")
     assert_contains(reader_book_cpp, "no TOC found, using whole-book fallback", "reader falls back to whole-book reading when TOC detection fails")
     assert_contains(reader_book_cpp, "the \"第\" in \"第一章 你好\"", "chapter pagination starts at the TOC title byte offset")

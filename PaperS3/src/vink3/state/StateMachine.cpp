@@ -77,8 +77,28 @@ void enqueueReaderDisplay(bool pageTurnCandidate = false, DisplayEffect effect =
     g_displayService.enqueueFull(false, 100);
 }
 
+bool shouldQualityRefreshTabSwitch() {
+    // TAB switching should feel responsive. Most switches use the GL16/text
+    // waveform (enqueueFull(false)); every few switches, use quality refresh to
+    // clean accumulated ghosting without making every tab tap feel like a full
+    // black/white flash.
+    static uint8_t s_tabSwitchesSinceQuality = 0;
+    constexpr uint8_t kQualityEveryTabSwitches = 8;
+    s_tabSwitchesSinceQuality++;
+    if (s_tabSwitchesSinceQuality >= kQualityEveryTabSwitches) {
+        s_tabSwitchesSinceQuality = 0;
+        return true;
+    }
+    return false;
+}
+
 void enqueueReaderAwareRefresh(DisplayEffect effect = DisplayEffect::HorizontalShutter) {
     if (g_readerBook.consumeReadingPageRendered()) {
+        // Page-turn direction contract:
+        // - next page  -> DisplayEffect::VerticalShutter
+        // - prev page  -> DisplayEffect::HorizontalShutter
+        // Keep this centralized so tap/swipe handlers cannot accidentally flip
+        // the visual refresh direction when the native EPD path uses it.
         enqueueReaderDisplay(true, effect);
     } else {
         g_displayService.enqueueFull(false, 100);
@@ -194,7 +214,10 @@ void StateMachine::handle(const Message& message) {
                     g_uiRenderer.hideReaderSettings();
                     state_ = tabStateForAction(action);
                     renderState(state_);
-                    g_displayService.enqueueFull(false, 100);
+                    // Tab pages are high-contrast full-screen transitions. Use
+                    // fast GL16/text refresh by default, then periodic quality
+                    // refresh to balance responsiveness and ghost cleanup.
+                    g_displayService.enqueueFull(shouldQualityRefreshTabSwitch(), 100);
                     suppressAfterTransition();
                     break;
 

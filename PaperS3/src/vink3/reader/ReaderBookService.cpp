@@ -1313,7 +1313,10 @@ void ReaderBookService::renderLibraryPage(uint16_t page) {
     char summary[160];
     // In browser mode, add a prominent "back to shelf" as the summary
     if (shelfShowingBrowser_) {
-        snprintf(summary, sizeof(summary), "← 返回书架  |  %s · %d 项", currentLibraryDir_, bookCount_);
+        const bool atRoot = strcmp(currentLibraryDir_, BOOKS_DIR) == 0;
+        snprintf(summary, sizeof(summary), "%s  |  %s · %d 项",
+                 atRoot ? "← 返回书架" : "← 上级目录",
+                 currentLibraryDir_, bookCount_);
     } else {
         snprintf(summary, sizeof(summary), "文件浏览器 %s · %d 项", currentLibraryDir_, bookCount_);
     }
@@ -1360,14 +1363,24 @@ bool ReaderBookService::handleLibraryTap(int16_t x, int16_t y) {
     if (!booksScanned_) scanBooks();
     if (bookCount_ <= 0) return false;
 
-    // Check tap on summary/back-button area (y: summary area, ~158-204)
+    // Check tap on summary/back area. In subdirectories this means "parent";
+    // only at /books does it return to the shelf grid.
     if (shelfShowingBrowser_ && y >= kShelfBrowserEntryY && y < kListFirstRowY) {
         lastLibraryTapOpenedBook_ = false;
-        shelfShowingBrowser_ = false;
-        strlcpy(currentLibraryDir_, BOOKS_DIR, sizeof(currentLibraryDir_));
+        if (strcmp(currentLibraryDir_, BOOKS_DIR) == 0) {
+            shelfShowingBrowser_ = false;
+            strlcpy(currentLibraryDir_, BOOKS_DIR, sizeof(currentLibraryDir_));
+            bookPage_ = 0;
+            booksScanned_ = false;
+            renderShelfGrid(shelfPage_);
+            return true;
+        }
+        char parent[sizeof(currentLibraryDir_)];
+        parentDirOf(currentLibraryDir_, parent, sizeof(parent));
+        strlcpy(currentLibraryDir_, parent, sizeof(currentLibraryDir_));
         bookPage_ = 0;
         booksScanned_ = false;
-        renderShelfGrid(shelfPage_);
+        renderLibraryPage(0);
         return true;
     }
 
@@ -1709,8 +1722,9 @@ bool ReaderBookService::handleTap(int16_t x, int16_t y) {
     lastTapBackHome_ = false;
     if (!open_) return false;
     if (showingReaderMenu_) {
-        constexpr int16_t kMCX = 16, kMCY = 56, kMCW = 508, kMCH = 508;
+        constexpr int16_t kMCX = 16, kMCY = 56, kMCW = 508, kMCH = 596;
         constexpr int16_t kIW = 220, kIH = 64;
+        constexpr int16_t kGapY = 10;
         constexpr int16_t kCol0 = kMCX + 24, kCol1 = kMCX + 264;
 
         auto inRect = [](int16_t tx, int16_t ty, int16_t rx, int16_t ry, int16_t rw, int16_t rh) -> bool {
@@ -1719,18 +1733,18 @@ bool ReaderBookService::handleTap(int16_t x, int16_t y) {
 
         if (x < kMCX || x >= kMCX + kMCW || y < kMCY || y >= kMCY + kMCH) return closeReaderMenu();
 
-        // Grid: 3 rows starting at kMCY+76, 4px gap between rows
-        constexpr int16_t kGY = kMCY + 76;
+        // Grid: 3 rows of 64px cells, same vertical rhythm as Settings rows.
+        constexpr int16_t kGY = kMCY + 104;
         if (inRect(x, y, kCol0, kGY, kIW, kIH)) return toggleAntiAlias();
         if (inRect(x, y, kCol1, kGY, kIW, kIH)) return cycleRefreshStrategy();
-        if (inRect(x, y, kCol0, kGY + kIH + 4, kIW, kIH)) return toggleUnderline();
-        if (inRect(x, y, kCol1, kGY + kIH + 4, kIW, kIH)) return cycleLayoutPreset();
-        if (inRect(x, y, kCol0, kGY + 2 * (kIH + 4), kIW, kIH)) return togglePageTurnEffect();
-        if (inRect(x, y, kCol1, kGY + 2 * (kIH + 4), kIW, kIH)) return cyclePageMargin();
+        if (inRect(x, y, kCol0, kGY + kIH + kGapY, kIW, kIH)) return toggleUnderline();
+        if (inRect(x, y, kCol1, kGY + kIH + kGapY, kIW, kIH)) return cycleLayoutPreset();
+        if (inRect(x, y, kCol0, kGY + 2 * (kIH + kGapY), kIW, kIH)) return togglePageTurnEffect();
+        if (inRect(x, y, kCol1, kGY + 2 * (kIH + kGapY), kIW, kIH)) return cyclePageMargin();
 
         // Font source (below grid)
         constexpr int16_t kFW = 460, kFH = 64;
-        constexpr int16_t kFY = kGY + 3 * kIH + 2 * 4 + 6;
+        constexpr int16_t kFY = kGY + 3 * kIH + 2 * kGapY + 16;
         if (inRect(x, y, kCol0, kFY, kFW, kFH)) {
             g_readerText.cycleFontSource();
             g_readerBook.invalidatePaginationForLayoutChange();
@@ -1738,18 +1752,19 @@ bool ReaderBookService::handleTap(int16_t x, int16_t y) {
             renderReaderMenuPage();
             return true;
         }
-        // Font size stepper: y=kFY+kFH+4, segX=kCol0+kFW-20-320
+        // Font size stepper: y=kFY+kFH+10, segX=kCol0+kFW-20-320
         {
-            const int16_t sY = kFY + kFH + 4;
+            const int16_t sY = kFY + kFH + 10;
             const int16_t sX = kCol0 + kFW - 20 - 5 * 64;
-            const int16_t sH = kFH - 16;
+            constexpr int16_t sH = 44;
+            const int16_t segY = sY + (kFH - sH) / 2;
             bool hit = false;
             const bool isSd = g_readerText.isSdFont();
-            if (isSd && inRect(x, y, sX,       sY + 8, 60, sH)) { g_readerText.stepSdFontSize(-4); hit = true; }
-            else if (isSd && inRect(x, y, sX + 64,  sY + 8, 60, sH)) { g_readerText.stepSdFontSize(-1); hit = true; }
-            else if (!isSd && inRect(x, y, sX + 128, sY + 8, 60, sH)) { g_readerText.cycleReaderFontSize(); hit = true; }
-            else if (isSd && inRect(x, y, sX + 192, sY + 8, 60, sH)) { g_readerText.stepSdFontSize(1); hit = true; }
-            else if (isSd && inRect(x, y, sX + 256, sY + 8, 60, sH)) { g_readerText.stepSdFontSize(4); hit = true; }
+            if (isSd && inRect(x, y, sX,       segY, 60, sH)) { g_readerText.stepSdFontSize(-4); hit = true; }
+            else if (isSd && inRect(x, y, sX + 64,  segY, 60, sH)) { g_readerText.stepSdFontSize(-1); hit = true; }
+            else if (!isSd && inRect(x, y, sX + 128, segY, 60, sH)) { g_readerText.cycleReaderFontSize(); hit = true; }
+            else if (isSd && inRect(x, y, sX + 192, segY, 60, sH)) { g_readerText.stepSdFontSize(1); hit = true; }
+            else if (isSd && inRect(x, y, sX + 256, segY, 60, sH)) { g_readerText.stepSdFontSize(4); hit = true; }
             if (hit) {
                 g_readerBook.invalidatePaginationForLayoutChange();
                 renderReaderMenuPage();
@@ -1757,8 +1772,8 @@ bool ReaderBookService::handleTap(int16_t x, int16_t y) {
             }
         }
 
-        // Bottom buttons: y=kFY+kFH+4+kFH+6
-        constexpr int16_t kBtY = kFY + kFH + 4 + kFH + 6;
+        // Bottom buttons: y=kFY+kFH+10+kFH+16
+        constexpr int16_t kBtY = kFY + kFH + 10 + kFH + 16;
         if (inRect(x, y, kCol0, kBtY, kIW, kIH)) {
             showingReaderMenu_ = false;
             showingToc_ = true;
@@ -1767,9 +1782,13 @@ bool ReaderBookService::handleTap(int16_t x, int16_t y) {
             return true;
         }
         if (inRect(x, y, kCol1, kBtY, kIW, kIH)) {
-            return closeReaderMenu();
+            showingReaderMenu_ = false;
+            showingToc_ = false;
+            showingBookEntry_ = false;
+            lastTapBackHome_ = true;
+            return true;
         }
-        // Tap inside card but outside items → also close
+        // Tap inside card but outside items → close to body reading, like a modal backdrop.
         return closeReaderMenu();
     }
     if (showingBookEntry_) {

@@ -18,6 +18,8 @@ public:
     int16_t textWidth(const char* text);
     int16_t textWidthSmall(const char* text);
     void fitTextToWidth(const char* text, char* out, size_t outSize, int16_t maxWidth);
+    int16_t lineTopForBox(int16_t y, int16_t h) const;
+    int16_t smallLineTopForBox(int16_t y, int16_t h) const;
     void drawText(int16_t x, int16_t y, const char* text, uint16_t color = TFT_BLACK);
     void drawTextSmall(int16_t x, int16_t y, const char* text, uint16_t color = TFT_BLACK);
     void drawCentered(int16_t x, int16_t y, int16_t w, int16_t h, const char* text, uint16_t color = TFT_BLACK);
@@ -52,6 +54,8 @@ private:
     uint32_t progmemUiCharCount_ = 0;
     uint16_t progmemUiFontSize_ = 0;
     uint16_t progmemUiBaseline_ = 0;
+    int16_t progmemUiVisualTop_ = 0;
+    int16_t progmemUiVisualBottom_ = 0;
     uint32_t progmemUiBitmapStart_ = 0;
     FontManager fontSmall_;
 };

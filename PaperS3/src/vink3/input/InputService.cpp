@@ -11,9 +11,6 @@ constexpr uint32_t kPollDelayMs = 10;
 constexpr uint32_t kDebounceMs = 35;
 constexpr uint32_t kMoveDiagnosticMs = 100;
 constexpr uint32_t kPowerBootIgnoreMs = 1200;
-constexpr uint32_t kPowerMinClickMs = 30;
-constexpr uint32_t kPowerMaxClickMs = 700;
-constexpr uint32_t kPowerDoubleClickWindowMs = 650;
 constexpr uint32_t kLongPressMs = 700;
 constexpr int16_t kTapSlopPx = 30;
 constexpr int16_t kLongPressMovePx = 34;
@@ -52,10 +49,10 @@ bool InputService::begin(StateMachine* stateMachine) {
         }
     }
     // PaperS3's side key is primarily hardware-managed (single click powers on,
-    // double-click powers off, long press enters download mode). Some M5Unified
-    // builds expose BtnPWR while the firmware is running; when available, mirror
-    // a single click into Vink's graceful shutdown path so it shows the same final
-    // "Vink 已关机" page as the on-screen shutdown button.
+    // double-click powers off, long press enters download mode). On real hardware
+    // the short press can be consumed by the PMIC/reset path before a release
+    // event is usable, so Vink triggers graceful shutdown on the press edge, not
+    // after release, matching the on-screen shutdown button as closely as possible.
     M5.BtnPWR.setDebounceThresh(0);
     M5.BtnPWR.setHoldThresh(0);
     Serial.println("[vink3][input] service started; PaperS3 side power single-click detector enabled when exposed");
@@ -111,31 +108,22 @@ void InputService::pollPowerButton(uint32_t now) {
         return;
     }
 
-    if (pressed) {
-        if (!powerWasPressed_) {
-            powerWasPressed_ = true;
-            powerPressStartedMs_ = now;
-        }
+    if (pressed && !powerWasPressed_) {
+        powerWasPressed_ = true;
+        powerPressStartedMs_ = now;
+        powerArmed_ = false;
+        Message msg;
+        msg.type = MessageType::PowerButton;
+        msg.timestampMs = now;
+        stateMachine_->post(msg, 0);
+        Serial.println("[vink3][power] BtnPWR press edge -> graceful shutdown");
         return;
     }
 
-    if (!powerWasPressed_) return;
-
-    powerWasPressed_ = false;
-    const uint32_t heldMs = powerPressStartedMs_ ? now - powerPressStartedMs_ : 0;
-    powerPressStartedMs_ = 0;
-    if (heldMs < kPowerMinClickMs || heldMs > kPowerMaxClickMs) {
-        return;
+    if (!pressed && powerWasPressed_) {
+        powerWasPressed_ = false;
+        powerPressStartedMs_ = 0;
     }
-
-    // Single-click → shutdown (no double-click required)
-    powerArmed_ = false;
-    Message msg;
-    msg.type = MessageType::PowerButton;
-    msg.timestampMs = now;
-    stateMachine_->post(msg, 0);
-    Serial.printf("[vink3][power] BtnPWR single click -> graceful shutdown (held=%lu)\n",
-                  static_cast<unsigned long>(heldMs));
 }
 
 void InputService::pollTouch() {

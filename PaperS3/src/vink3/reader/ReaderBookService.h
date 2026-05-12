@@ -64,7 +64,7 @@ private:
     static constexpr int kMaxTocEntries = 2000;
     static constexpr int kTocEntriesPerPage = 15;
     static constexpr int kMaxBooks = 160;
-    static constexpr int kBooksPerPage = 12;
+    static constexpr int kBooksPerPage = 9;
     static constexpr int kMaxShelfBooks = 36;
     static constexpr int kShelfBooksPerPage = 9;
     static constexpr int kShelfCols = 3;
@@ -77,21 +77,21 @@ private:
     // List row touch width mirrors VinkUiRenderer::renderUiListPage() x/w.
     static constexpr int16_t kListTouchX = 28;
     static constexpr int16_t kListTouchW = kPaperS3Width - 56;
-    static constexpr int16_t kListFirstRowY = 204;
-    static constexpr int16_t kListRowH = 52;
+    static constexpr int16_t kListFirstRowY = 222;
+    static constexpr int16_t kListRowH = 64;
     static constexpr int16_t kTocFirstRowY = 196;
     static constexpr int16_t kTocRowH = 48;
     // Shelf grid geometry must match VinkUiRenderer drawBookCard() pixel-for-pixel.
     static constexpr int16_t kShelfCardW = 148;
-    static constexpr int16_t kShelfCardH = 216;
-    static constexpr int16_t kShelfCardGap = 20;
-    static constexpr int16_t kShelfGridY = 228;
+    static constexpr int16_t kShelfCardH = 206;
+    static constexpr int16_t kShelfCardGap = 18;
+    static constexpr int16_t kShelfGridY = 238;
     static constexpr int16_t kShelfBrowserEntryY = 158;
-    static constexpr int16_t kShelfBrowserEntryH = 52;
+    static constexpr int16_t kShelfBrowserEntryH = 64;
 
     // Reader home geometry must match VinkUiRenderer::renderReaderHome().
     static constexpr int16_t kReaderHomeTopY = 158;
-    static constexpr int16_t kReaderHomeTopH = 320;
+    static constexpr int16_t kReaderHomeTopH = 262;
     static constexpr int16_t kReaderHomeTopW = 180;
     static constexpr int16_t kReaderHomeRecentCardW = 140;
     static constexpr int16_t kReaderHomeRecentCardH = 204;

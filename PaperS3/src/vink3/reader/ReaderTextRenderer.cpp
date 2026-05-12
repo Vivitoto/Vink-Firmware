@@ -545,16 +545,17 @@ uint16_t ReaderTextRenderer::pixelColorForNibble(uint8_t nibble, uint16_t color)
     if (color == TFT_WHITE) return TFT_WHITE;
     if (color != TFT_BLACK) return color;
     if (!antiAliasEnabled()) return (nibble >= 8) ? TFT_BLACK : TFT_WHITE;
-    // Gamma-0.7 AA curve — same as CjkTextRenderer. Pushes edge nibbles
-    // deeper into visible gray so Bayer dithering can't scatter them.
-    static const uint8_t kRemap[16] __attribute__((aligned(1))) = {
-        0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15
+    // PaperS3's M5GFX EPD panel accepts grayscale and stores 4bpp/16-level ink.
+    // Keep true grayscale anti-aliasing for smooth text, but boost low coverage
+    // edges darker so the hardware waveform does not look like weak/faint ink.
+    static const uint8_t kInkBoost[16] __attribute__((aligned(1))) = {
+        0, 3, 5, 6, 7, 8, 9, 10, 10, 11, 12, 13, 13, 14, 15, 15
     };
     static const uint16_t k4BitToRgb565[16] __attribute__((aligned(2))) = {
         0xFFFF, 0xDEDB, 0xC618, 0xAD75, 0x9CD3, 0x8C51, 0x7BCF, 0x6B4D,
         0x5ACB, 0x4A69, 0x39E7, 0x3186, 0x2124, 0x10A2, 0x0841, 0x0000
     };
-    return k4BitToRgb565[kRemap[nibble & 0x0F]];
+    return k4BitToRgb565[kInkBoost[nibble & 0x0F]];
 }
 
 void ReaderTextRenderer::drawGlyph(uint32_t unicode, int16_t x, int16_t y, uint16_t color) {
@@ -569,7 +570,10 @@ void ReaderTextRenderer::drawGlyph(uint32_t unicode, int16_t x, int16_t y, uint1
         GrayGlyph glyph;
         if (findWenkai32Glyph(unicode, glyph)) {
             const int16_t drawX = x + glyph.bearingX;
-            const int16_t drawY = y;
+            // y is line-top; align every glyph on a shared baseline. Drawing all
+            // glyph bitmaps at y ignored bearingY, which made body text jump up
+            // and down and clipped low punctuation/Latin descenders.
+            const int16_t drawY = y + static_cast<int16_t>(fontSize()) - glyph.bearingY;
             const uint32_t rowBytes = (glyph.width + 1) / 2;
             for (uint8_t row = 0; row < glyph.height; row++) {
                 const int16_t py = drawY + row;
@@ -584,6 +588,19 @@ void ReaderTextRenderer::drawGlyph(uint32_t unicode, int16_t x, int16_t y, uint1
             }
             return;
         }
+        // Critical fallback: never let a missing body glyph silently disappear.
+        // v0.4.15 shipped with a sparse Wenkai font, so common CJK characters
+        // could advance layout without drawing any pixels, making pages look
+        // completely blank. v0.4.16 expands GB2312 coverage, but rare/out-of-set
+        // glyphs must still render a visible tofu box rather than invisible text.
+        if (unicode > 0x20 && unicode != 0x3000) {
+            const int16_t box = static_cast<int16_t>(fontSize()) - 8;
+            const int16_t bx = x + 4;
+            const int16_t by = y + 4;
+            canvas_->drawRect(bx, by, box, box, color == TFT_WHITE ? TFT_BLACK : color);
+            canvas_->drawLine(bx, by, bx + box - 1, by + box - 1, color == TFT_WHITE ? TFT_BLACK : color);
+        }
+        return;
     }
     // LovyanGFX fallback (16/20px SPIFFS GRAY fonts)
     if (!font_.isLoaded()) return;
@@ -593,7 +610,7 @@ void ReaderTextRenderer::drawGlyph(uint32_t unicode, int16_t x, int16_t y, uint1
         const uint8_t* bmp = font_.getCharBitmapGray(unicode, w, h, bx, by, adv);
         if (!bmp || w == 0 || h == 0) return;
         const int16_t drawX = x + bx;
-        const int16_t drawY = y;
+        const int16_t drawY = y + static_cast<int16_t>(fontSize()) - by;
         for (int row = 0; row < h; row++) {
             const int16_t py = drawY + row;
             if (py < 0 || py >= kPaperS3Height) continue;
