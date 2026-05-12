@@ -754,12 +754,43 @@ void VinkUiRenderer::renderUiListPage(SystemState active, const char* title, con
     }
 
     if (totalPages > 1) {
-        char footer[48];
-        snprintf(footer, sizeof(footer), "%u / %u", static_cast<unsigned>(page), static_cast<unsigned>(totalPages));
         if (readerList) {
-            g_cjkText.drawCentered(0, kPaperS3Height - 40, kPaperS3Width, 28, footer, kInkMid);
+            // TOC step-nav: mirror the font-size stepper style.
+            //   ◀◀  ◀  [page/max]  ▶  ▶▶
+            // Only the four arrow segments are buttons; the centre is plain text.
+            constexpr int16_t navY = 880;
+            constexpr int16_t navH = 48;
+            constexpr int16_t kSegW = 68;
+            constexpr int16_t kSegH = 48;
+            constexpr int16_t navX = kMarginX + (kContentW - kSegW * 5) / 2;
+
+            for (int si = 0; si < 5; ++si) {
+                const int16_t sx = navX + si * kSegW;
+                const bool isBtn = (si != 2);
+                bool grayed = false;
+                const char* lb = "";
+                switch (si) {
+                    case 0: lb = "\xe2\x97\x80\xe2\x97\x80"; grayed = page <= 5; break;   // ◀◀
+                    case 1: lb = "\xe2\x97\x80";          grayed = page <= 1; break;   // ◀
+                    case 2: break;                                                         // page
+                    case 3: lb = "\xe2\x96\xb6";          grayed = page >= totalPages; break; // ▶
+                    case 4: lb = "\xe2\x96\xb6\xe2\x96\xb6"; grayed = page + 5 > totalPages; break; // ▶▶
+                }
+                constexpr int16_t kInnerW = kSegW - 8;
+                if (isBtn) {
+                    canvas_->fillRect(sx, navY, kInnerW, navH, grayed ? kSurface : kSurfaceDeep);
+                    canvas_->drawRect(sx, navY, kInnerW, navH, grayed ? kInkLight : kInk);
+                    g_cjkText.drawCentered(sx, navY, kInnerW, navH, lb, grayed ? kInkLight : kInk);
+                } else {
+                    char footer[32];
+                    snprintf(footer, sizeof(footer), "%u/%u", static_cast<unsigned>(page), static_cast<unsigned>(totalPages));
+                    g_cjkText.drawCentered(sx, navY, kInnerW, navH, footer, kInk);
+                }
+            }
         } else {
-            g_cjkText.drawRight(kPaperS3Width - kMarginX, kPaperS3Height - 40, footer, kInkMid);
+            char footer[48];
+            snprintf(footer, sizeof(footer), "%u / %u", static_cast<unsigned>(page), static_cast<unsigned>(totalPages));
+            g_cjkText.drawCentered(0, kPaperS3Height - 40, kPaperS3Width, 28, footer, kInkMid);
         }
     }
 }
@@ -950,7 +981,7 @@ void VinkUiRenderer::renderReaderMenuOverlay(const char* bookTitle, const char* 
         rowTextY = g_cjkText.lineTopForBox(fry, kFullH);
         g_cjkText.drawText(kCol0 + 22, rowTextY, "字号", kInk);
         constexpr int16_t kSegW = 64;
-        constexpr int16_t kSegH = 44;
+        constexpr int16_t kSegH = 48;
         const int16_t segX = kCol0 + kFullW - 20 - 5 * kSegW;
         const int16_t segY = fry + (kFullH - kSegH) / 2;
         for (int si = 0; si < 5; ++si) {
@@ -1061,7 +1092,7 @@ void VinkUiRenderer::renderReaderSettings() {
             const bool atMax = curSz >= g_readerText.maxSdFontSize();
             g_cjkText.drawText(kLabelX, g_cjkText.lineTopForBox(ry, kRowH), "字号", kInk);
             constexpr int16_t kSegW = 60;
-            constexpr int16_t kSegH = 44;
+            constexpr int16_t kSegH = 48;
             const int16_t segX = kValX - 5 * kSegW;
             const int16_t segY = ry + (kRowH - kSegH) / 2;
             for (int si = 0; si < 5; ++si) {
@@ -1319,7 +1350,7 @@ UiAction VinkUiRenderer::hitTest(SystemState state, int16_t x, int16_t y) const 
     const bool tabsVisible = state == SystemState::Reader || state == SystemState::Home ||
                              state == SystemState::Library || state == SystemState::Transfer ||
                              state == SystemState::Settings || state == SystemState::Diagnostics ||
-                             state == SystemState::SystemLogs;
+                             state == SystemState::SystemLogs || state == SystemState::ShutdownConfirm;
     if (tabsVisible) {
         UiAction tab = hitTestTabs(x, y);
         if (tab != UiAction::None) return tab;
@@ -1364,7 +1395,7 @@ UiAction VinkUiRenderer::hitTest(SystemState state, int16_t x, int16_t y) const 
                     if (inRect(x, y, kMarginX + 22, ry, kContentW - 44, kRowH)) return UiAction::CycleReaderFontSource;
                     ry += kRowH;
                     constexpr int16_t kSegW = 60;
-                    constexpr int16_t kSegH = 44;
+                    constexpr int16_t kSegH = 48;
                     const int16_t segX = kMarginX + kContentW - 22 - 5 * kSegW;
                     const int16_t segY = ry + (kRowH - kSegH) / 2;
                     constexpr int16_t kW = 56;

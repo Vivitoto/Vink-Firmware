@@ -50,6 +50,9 @@ public:
     bool prevPage();
     bool nextTocPage();
     bool prevTocPage();
+    bool tocJumpForward(uint16_t pages);
+    bool tocJumpBack(uint16_t pages);
+    bool handleTocNavTap(int16_t x, int16_t y);
     bool handleTap(int16_t x, int16_t y);
     bool openTocEntry(int index);
     void saveCurrentProgress();
@@ -62,7 +65,15 @@ public:
 
 private:
     static constexpr int kMaxTocEntries = 2000;
-    static constexpr int kTocEntriesPerPage = 15;
+    static constexpr int kTocEntriesPerPage = 10;
+
+    // TOC step-nav: mirror the font-size stepper style. 5×64px segments,
+    // 44px tall, bottom-aligned 32px from screen edge.
+    static constexpr int16_t kTocNavY = 880;
+    static constexpr int16_t kTocNavH = 48;
+    static constexpr int16_t kTocSegW = 68;
+    static constexpr int16_t kTocNavTotalW = kTocSegW * 5;
+    static constexpr int16_t kTocNavX = 28 + (540 - 56 - kTocNavTotalW) / 2;
     static constexpr int kMaxBooks = 160;
     static constexpr int kBooksPerPage = 9;
     static constexpr int kMaxShelfBooks = 36;
@@ -79,8 +90,8 @@ private:
     static constexpr int16_t kListTouchW = kPaperS3Width - 56;
     static constexpr int16_t kListFirstRowY = 222;
     static constexpr int16_t kListRowH = 64;
-    static constexpr int16_t kTocFirstRowY = 196;
-    static constexpr int16_t kTocRowH = 48;
+    static constexpr int16_t kTocFirstRowY = 220;
+    static constexpr int16_t kTocRowH = 64;
     // Shelf grid geometry must match VinkUiRenderer drawBookCard() pixel-for-pixel.
     static constexpr int16_t kShelfCardW = 148;
     static constexpr int16_t kShelfCardH = 206;

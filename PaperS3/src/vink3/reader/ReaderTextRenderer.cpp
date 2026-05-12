@@ -145,10 +145,19 @@ void ReaderTextRenderer::applyLayoutPresetToSettings() {
 
 void ReaderTextRenderer::loadLocalSettings() {
     Preferences prefs;
-    if (!prefs.begin("vink-reader", true)) {
-        Serial.println("[vink3][reader] loadLocalSettings: NVS open failed");
-        g_systemLog.append("reader NVS open fail");
-        return;
+    // On some devices Preferences::begin(name, true) (read-only) can
+    // fail if the NVS namespace was never created, returning false even
+    // though the NVS subsystem is healthy. Fall back to read-write mode
+    // which creates the namespace on first access.
+    bool opened = prefs.begin("vink-reader", true);
+    if (!opened) {
+        opened = prefs.begin("vink-reader", false);
+        if (!opened) {
+            Serial.println("[vink3][reader] loadLocalSettings: NVS open failed (RO+RW)");
+            g_systemLog.append("reader NVS open fail");
+            return;
+        }
+        Serial.println("[vink3][reader] loadLocalSettings: opened in RW mode (fresh namespace)");
     }
     const uint8_t preset = prefs.getUChar("preset", layoutPreset_);
     const uint16_t formatting = prefs.getUShort("fmt1", settings_.formatting1);

@@ -1700,6 +1700,42 @@ bool ReaderBookService::prevTocPage() {
     return true;
 }
 
+bool ReaderBookService::tocJumpForward(uint16_t pages) {
+    if (!open_ || !showingToc_ || tocCount_ <= 0) return false;
+    const uint16_t totalPages = (tocCount_ + kTocEntriesPerPage - 1) / kTocEntriesPerPage;
+    uint16_t newPage = tocPage_ + pages;
+    if (newPage >= totalPages) newPage = totalPages - 1;
+    if (newPage == tocPage_) return false;
+    tocPage_ = newPage;
+    renderTocPage(tocPage_);
+    return true;
+}
+
+bool ReaderBookService::tocJumpBack(uint16_t pages) {
+    if (!open_ || !showingToc_ || tocCount_ <= 0) return false;
+    uint16_t newPage = (pages > tocPage_) ? 0 : tocPage_ - pages;
+    if (newPage == tocPage_) return false;
+    tocPage_ = newPage;
+    renderTocPage(tocPage_);
+    return true;
+}
+
+bool ReaderBookService::handleTocNavTap(int16_t x, int16_t y) {
+    if (!open_ || !showingToc_ || tocCount_ <= 0) return false;
+    if (y < kTocNavY || y >= kTocNavY + kTocNavH) return false;
+
+    const int16_t segX = kTocNavX;
+    auto inRect = [](int16_t tx, int16_t ty, int16_t rx, int16_t ry, int16_t rw, int16_t rh) {
+        return tx >= rx && tx < rx + rw && ty >= ry && ty < ry + rh;
+    };
+
+    if (inRect(x, y, segX,                         kTocNavY, kTocSegW, kTocNavH)) return tocJumpBack(5);
+    if (inRect(x, y, segX + kTocSegW,             kTocNavY, kTocSegW, kTocNavH)) return prevTocPage();
+    if (inRect(x, y, segX + kTocSegW * 3,         kTocNavY, kTocSegW, kTocNavH)) return nextTocPage();
+    if (inRect(x, y, segX + kTocSegW * 4,         kTocNavY, kTocSegW, kTocNavH)) return tocJumpForward(5);
+    return false;
+}
+
 bool ReaderBookService::handleTap(int16_t x, int16_t y) {
     lastRenderWasReadingPage_ = false;
     lastTapPageTurn_ = false;
@@ -1819,6 +1855,7 @@ bool ReaderBookService::handleTap(int16_t x, int16_t y) {
         return openReaderMenu();
     }
     if (tocCount_ <= 0) return false;
+    if (handleTocNavTap(x, y)) return true;
     if (x < kListTouchX || x >= kListTouchX + kListTouchW) return false;
     if (y < kTocFirstRowY || y >= kTocFirstRowY + kTocEntriesPerPage * kTocRowH) return false;
     int row = (y - kTocFirstRowY) / kTocRowH;

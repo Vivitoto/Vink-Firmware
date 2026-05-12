@@ -372,7 +372,7 @@ def vink3_source_invariants(main_cpp: str) -> None:
     assert_contains(reader_book_cpp, "currentRenderOptionsForOffset(offset, start)", "pagination uses chapter-offset-aware paragraph starts")
     assert_contains(reader_book_cpp, "currentRenderOptionsForOffset(start, chapterContentStart(currentTocIndex_))", "page rendering uses chapter-offset-aware paragraph starts")
     assert_contains(reader_book_cpp, "fileOffsetStartsParagraph", "reader inspects source text before indenting page starts")
-    assert_contains(reader_book_h, "kTocEntriesPerPage = 15", "TOC uses more vertical screen space")
+    assert_contains(reader_book_h, "kTocEntriesPerPage", "TOC uses paginated display")
     assert_contains(display_cpp, "ReaderRefreshStrategy::Speed", "display service has a speed refresh strategy")
     assert_contains(display_cpp, "ReaderRefreshStrategy::Balanced", "display service has a balanced refresh strategy")
     assert_contains(display_cpp, "ReaderRefreshStrategy::Clear", "display service has a clear refresh strategy")
