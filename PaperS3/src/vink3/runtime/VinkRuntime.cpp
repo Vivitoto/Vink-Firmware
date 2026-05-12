@@ -94,11 +94,12 @@ bool VinkRuntime::beginHardware() {
                   static_cast<int>(kChargeStatePin), static_cast<int>(kBuzzerPin));
 
     auto cfg = M5.config();
-    // Official M5PaperS3-UserDemo uses the default M5.begin() path. Keep this
-    // path strict and visible; no fallback-board override, no clear_display
-    // override, no ReadPaper-style startup masking.
-    (void)cfg;
-    M5.begin();
+    // Vink draws a boot page immediately after M5.begin(), so the library's
+    // default e-paper clear_display (white→black→white, two full refreshes)
+    // is unnecessary flash that the user sees as extra screen flicker. Disable
+    // it to shorten the visible startup sequence.
+    cfg.clear_display = false;
+    M5.begin(cfg);
     delay(50);
     configureOfficialPaperS3Gpios();
 

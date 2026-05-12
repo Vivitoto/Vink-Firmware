@@ -218,6 +218,7 @@ void StateMachine::handle(const Message& message) {
                 if (logAction == UiAction::ClearSystemLogs) {
                     g_systemLog.clear();
                     g_systemLog.append("system log cleared");
+                    g_uiRenderer.resetSystemLogPage();
                     state_ = SystemState::SystemLogs;
                     renderState(state_);
                 } else if (logAction == UiAction::BackToSettings || logAction == UiAction::TabSettings) {
@@ -273,6 +274,7 @@ void StateMachine::handle(const Message& message) {
 
                 case UiAction::OpenSystemLogs:
                     state_ = SystemState::SystemLogs;
+                    g_uiRenderer.resetSystemLogPage();
                     g_uiRenderer.renderSystemLogs();
                     g_displayService.enqueueFull(true, 100);
                     suppressAfterTransition();
@@ -281,6 +283,7 @@ void StateMachine::handle(const Message& message) {
                 case UiAction::ClearSystemLogs:
                     g_systemLog.clear();
                     g_systemLog.append("system log cleared");
+                    g_uiRenderer.resetSystemLogPage();
                     state_ = SystemState::SystemLogs;
                     g_uiRenderer.renderSystemLogs();
                     g_displayService.enqueueFull(false, 100);
@@ -568,6 +571,14 @@ void StateMachine::handle(const Message& message) {
             break;
 
         case MessageType::SwipeUp:
+            if (state_ == SystemState::SystemLogs) {
+                if (g_uiRenderer.scrollSystemLogs(+1)) {
+                    g_uiRenderer.renderSystemLogs();
+                    g_displayService.enqueueFull(false, 100);
+                }
+                suppressAfterTransition();
+                break;
+            }
             if (state_ == SystemState::Diagnostics) {
                 g_uiRenderer.renderDiagnostics(message, "swipe-up");
                 g_displayService.enqueueFull(false, 100);
@@ -581,6 +592,14 @@ void StateMachine::handle(const Message& message) {
             break;
 
         case MessageType::SwipeDown:
+            if (state_ == SystemState::SystemLogs) {
+                if (g_uiRenderer.scrollSystemLogs(-1)) {
+                    g_uiRenderer.renderSystemLogs();
+                    g_displayService.enqueueFull(false, 100);
+                }
+                suppressAfterTransition();
+                break;
+            }
             if (state_ == SystemState::Diagnostics) {
                 g_uiRenderer.renderDiagnostics(message, "swipe-down");
                 g_displayService.enqueueFull(false, 100);

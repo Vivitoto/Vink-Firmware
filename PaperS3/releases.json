@@ -5,6 +5,21 @@
   "description": "面向 M5Stack PaperS3 的 Vink 电子书阅读固件。",
   "releases": [
     {
+      "version": "v0.4.18",
+      "name": "Vink-PaperS3 v0.4.18",
+      "summary": "减少开机屏幕闪烁，增强系统日志：自动换行、上下滑分页。",
+      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.18",
+      "changelog": "## Vink-PaperS3 v0.4.18\n\n### 启动闪烁优化\n- 关闭 M5Unified 出厂默认的 `clear_display`（EPD 白→黑→白两次全屏物理刷新）。\n- Vink 启动时立即绘制 boot 页面覆盖屏幕，不再需要前置清屏预处理。\n- 冷启动用户可见的屏幕抖动从约 4 次减少到约 2 次，观感更干净。\n\n### 系统日志可读性\n- 系统日志长记录按屏幕宽度自动换行，不再被省略号截断。\n- 系统日志页支持上滑查看更早记录、下滑回到更新记录，并显示页码提示。\n- 清除日志或重新进入日志页时自动回到最新页。\n\n### 诊断目的\n- 先解决\"日志看不全\"问题，便于后续根据完整 reset/wake/prior 记录判断侧键问题。\n\n### 验证\n- 本地 smoke test 通过。\n- PlatformIO release build 通过。\n- full 16MB 固件包重新生成。\n",
+      "assets": {
+        "full": {
+          "name": "Vink-PaperS3-v0.4.18-full-16MB.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.18/Vink-PaperS3-v0.4.18-full-16MB.bin",
+          "size": 16777216,
+          "flashOffset": "0x0"
+        }
+      }
+    },
+    {
       "version": "v0.4.17",
       "name": "Vink-PaperS3 v0.4.17",
       "summary": "修复正文页隐形 Tab 命中和正文空白防线，去除多余装饰横线，并增强系统日志诊断。",

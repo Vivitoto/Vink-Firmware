@@ -75,6 +75,8 @@ public:
                                  bool pageTurnEffectOn);
     void renderDiagnostics(const Message& lastTouch, const char* eventName);
     void renderSystemLogs();
+    bool scrollSystemLogs(int8_t pages);
+    void resetSystemLogPage();
     void renderShutdownConfirm();
     void renderShutdown(const char* reason);
     void renderPowerOffReady();
@@ -97,6 +99,7 @@ private:
     M5Canvas* canvas_ = nullptr;
     bool showReaderSettings_ = false;
     bool lastReaderHomeHasBook_ = false;
+    uint8_t systemLogPage_ = 0;  // 0 = latest page; higher pages show older wrapped rows
 };
 
 extern VinkUiRenderer g_uiRenderer;

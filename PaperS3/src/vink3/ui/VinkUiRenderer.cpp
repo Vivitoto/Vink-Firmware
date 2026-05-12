@@ -126,6 +126,90 @@ void formatBatteryPercent(char* out, size_t outSize) {
     }
     snprintf(out, outSize, "%s--%%", isOfficialUsbConnected() ? "USB " : "");
 }
+
+constexpr uint8_t kSystemLogMaxWrappedRows = SystemLogService::kMaxLines * 4;
+constexpr int16_t kSystemLogPanelH = 370;
+constexpr int16_t kSystemLogLineH = 22;
+constexpr uint8_t kSystemLogVisibleRows = (kSystemLogPanelH - 30) / kSystemLogLineH;
+
+size_t utf8CharLen(const char* s, size_t pos, size_t len) {
+    if (!s || pos >= len) return 0;
+    const uint8_t c = static_cast<uint8_t>(s[pos]);
+    if ((c & 0x80) == 0) return 1;
+    if ((c & 0xE0) == 0xC0 && pos + 1 < len) return 2;
+    if ((c & 0xF0) == 0xE0 && pos + 2 < len) return 3;
+    if ((c & 0xF8) == 0xF0 && pos + 3 < len) return 4;
+    return 1;
+}
+
+uint8_t appendWrappedLogLine(const char* src,
+                             char rows[][SystemLogService::kLineSize],
+                             uint8_t rowCount,
+                             uint8_t maxRows,
+                             int16_t maxWidth) {
+    if (!src || !src[0] || rowCount >= maxRows) return rowCount;
+
+    char current[SystemLogService::kLineSize];
+    size_t currentLen = 0;
+    current[0] = '\0';
+    const size_t len = strlen(src);
+    size_t pos = 0;
+
+    auto emitCurrent = [&]() {
+        if (currentLen == 0 || rowCount >= maxRows) return;
+        current[currentLen] = '\0';
+        strlcpy(rows[rowCount++], current, SystemLogService::kLineSize);
+        currentLen = 0;
+        current[0] = '\0';
+    };
+
+    while (pos < len && rowCount < maxRows) {
+        const size_t n = utf8CharLen(src, pos, len);
+        if (n == 0) break;
+        char next[SystemLogService::kLineSize];
+        const size_t copyLen = min(n, sizeof(next) - 1);
+        memcpy(next, src + pos, copyLen);
+        next[copyLen] = '\0';
+
+        char candidate[SystemLogService::kLineSize];
+        strlcpy(candidate, current, sizeof(candidate));
+        strlcat(candidate, next, sizeof(candidate));
+
+        if (currentLen > 0 && g_cjkText.textWidthSmall(candidate) > maxWidth) {
+            emitCurrent();
+            // Continuation rows are indented slightly so wrapped records are
+            // visually grouped instead of looking like separate log entries.
+            strlcpy(current, "  ", sizeof(current));
+            currentLen = strlen(current);
+            if (g_cjkText.textWidthSmall(next) > maxWidth) {
+                strlcpy(current, next, sizeof(current));
+                currentLen = strlen(current);
+                emitCurrent();
+            } else {
+                strlcat(current, next, sizeof(current));
+                currentLen = strlen(current);
+            }
+        } else {
+            strlcpy(current, candidate, sizeof(current));
+            currentLen = strlen(current);
+            if (currentLen >= sizeof(current) - 5) emitCurrent();
+        }
+        pos += n;
+    }
+    emitCurrent();
+    return rowCount;
+}
+
+uint8_t buildWrappedSystemLogRows(char rows[][SystemLogService::kLineSize], uint8_t maxRows, int16_t maxWidth) {
+    uint8_t rowCount = 0;
+    const uint8_t count = g_systemLog.count();
+    for (uint8_t i = 0; i < count && rowCount < maxRows; ++i) {
+        char logLine[SystemLogService::kLineSize];
+        if (!g_systemLog.line(i, logLine, sizeof(logLine))) continue;
+        rowCount = appendWrappedLogLine(logLine, rows, rowCount, maxRows, maxWidth);
+    }
+    return rowCount;
+}
 } // namespace
 
 bool VinkUiRenderer::begin(M5Canvas* canvas) {
@@ -1130,32 +1214,56 @@ void VinkUiRenderer::renderSystemLogs() {
              static_cast<unsigned>(count), static_cast<unsigned>(SystemLogService::kMaxLines));
     g_cjkText.drawText(kMarginX + 14, y, line, kInkMid);
 
-    char summary[72];
-    snprintf(summary, sizeof(summary), "最近关键记录（重启/关机后保留）");
-    g_cjkText.drawText(kMarginX, infoY + infoH + 18, summary, kInkMid);
+    char wrapped[kSystemLogMaxWrappedRows][SystemLogService::kLineSize];
+    const uint8_t wrappedRows = buildWrappedSystemLogRows(wrapped, kSystemLogMaxWrappedRows, kContentW - 28);
+    const uint8_t pageCount = wrappedRows == 0 ? 1 : static_cast<uint8_t>((wrappedRows + kSystemLogVisibleRows - 1) / kSystemLogVisibleRows);
+    if (systemLogPage_ >= pageCount) systemLogPage_ = pageCount - 1;
+
+    char summary[96];
+    snprintf(summary, sizeof(summary), "最近关键记录  %u/%u  上滑更早 下滑更新",
+             static_cast<unsigned>(systemLogPage_ + 1), static_cast<unsigned>(pageCount));
+    g_cjkText.drawTextSmall(kMarginX, infoY + infoH + 20, summary, kInkMid);
 
     const int16_t panelY = infoY + infoH + 52;
-    const int16_t panelH = 430;
+    const int16_t panelH = kSystemLogPanelH;
     canvas_->fillRect(kMarginX, panelY, kContentW, panelH, kSurface);
     drawThickBorder(kMarginX, panelY, kContentW, panelH, kInk);
 
-    if (count == 0) {
-        g_cjkText.drawCentered(kMarginX, panelY + 160, kContentW, 42, "暂无日志", kInkMid);
+    if (wrappedRows == 0) {
+        g_cjkText.drawCentered(kMarginX, panelY + 136, kContentW, 42, "暂无日志", kInkMid);
     } else {
-        constexpr int16_t kLineH = 28;
-        const uint8_t maxVisible = min<uint8_t>(count, 14);
-        const uint8_t start = count > maxVisible ? count - maxVisible : 0;
-        for (uint8_t i = 0; i < maxVisible; ++i) {
-            char logLine[SystemLogService::kLineSize];
-            if (!g_systemLog.line(start + i, logLine, sizeof(logLine))) continue;
-            char fitted[96];
-            g_cjkText.fitTextToWidth(logLine, fitted, sizeof(fitted), kContentW - 28);
-            g_cjkText.drawText(kMarginX + 14, panelY + 14 + i * kLineH, fitted, kInk);
+        const int16_t latestStart = max<int16_t>(0, static_cast<int16_t>(wrappedRows) - static_cast<int16_t>(kSystemLogVisibleRows));
+        int16_t start = latestStart - static_cast<int16_t>(systemLogPage_) * static_cast<int16_t>(kSystemLogVisibleRows);
+        if (start < 0) start = 0;
+        const uint8_t rowsThisPage = min<uint8_t>(kSystemLogVisibleRows, wrappedRows - start);
+        for (uint8_t i = 0; i < rowsThisPage; ++i) {
+            g_cjkText.drawTextSmall(kMarginX + 14, panelY + 14 + i * kSystemLogLineH, wrapped[start + i], kInk);
         }
     }
 
     drawButton(64, 824, 180, 56, "清除日志", false);
     drawButton(296, 824, 180, 56, "返回设置", true);
+}
+
+bool VinkUiRenderer::scrollSystemLogs(int8_t pages) {
+    char wrapped[kSystemLogMaxWrappedRows][SystemLogService::kLineSize];
+    const uint8_t wrappedRows = buildWrappedSystemLogRows(wrapped, kSystemLogMaxWrappedRows, kContentW - 28);
+    const uint8_t pageCount = wrappedRows == 0 ? 1 : static_cast<uint8_t>((wrappedRows + kSystemLogVisibleRows - 1) / kSystemLogVisibleRows);
+    const uint8_t maxPage = pageCount > 0 ? pageCount - 1 : 0;
+    if (systemLogPage_ > maxPage) systemLogPage_ = maxPage;
+
+    const uint8_t old = systemLogPage_;
+    if (pages > 0) {
+        systemLogPage_ = min<uint8_t>(maxPage, systemLogPage_ + pages);
+    } else if (pages < 0) {
+        const uint8_t dec = static_cast<uint8_t>(-pages);
+        systemLogPage_ = dec > systemLogPage_ ? 0 : systemLogPage_ - dec;
+    }
+    return systemLogPage_ != old;
+}
+
+void VinkUiRenderer::resetSystemLogPage() {
+    systemLogPage_ = 0;
 }
 
 void VinkUiRenderer::renderShutdownConfirm() {
