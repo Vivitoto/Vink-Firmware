@@ -82,6 +82,7 @@ public:
     void renderPowerOffReady();
 
     UiAction hitTest(SystemState state, int16_t x, int16_t y) const;
+    UiAction hitTestTabs(int16_t x, int16_t y) const;
 
 private:
     void clear();
@@ -94,7 +95,6 @@ private:
     void drawSettingsRow(int16_t rowX, int16_t y, int16_t rowW, const char* label, const char* value);
     void drawMenuItem(int16_t x, int16_t y, int16_t w, int16_t h,
                       const char* label, bool isToggle, bool isOn, const char* altText);
-    UiAction hitTestTabs(int16_t x, int16_t y) const;
 
     M5Canvas* canvas_ = nullptr;
     bool showReaderSettings_ = false;

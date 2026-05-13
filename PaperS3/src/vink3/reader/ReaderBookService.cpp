@@ -1773,19 +1773,25 @@ bool ReaderBookService::handleTap(int16_t x, int16_t y) {
             renderReaderMenuPage();
             return true;
         }
-        // Font size stepper: y=kFY+kFH+10, segX=kCol0+kFW-20-320
+        // Font size stepper: match rendering (5×60px segments, 8px gap built-in via inner width)
         {
             const int16_t sY = kFY + kFH + 10;
-            const int16_t sX = kCol0 + kFW - 20 - 5 * 64;
+            const int16_t sX = kCol0 + kFW - 20 - 5 * 60;
             constexpr int16_t sH = 44;
+            constexpr int16_t sW = 60;
             const int16_t segY = sY + (kFH - sH) / 2;
             bool hit = false;
             const bool isSd = g_readerText.isSdFont();
-            if (isSd && inRect(x, y, sX,       segY, 60, sH)) { g_readerText.stepSdFontSize(-4); hit = true; }
-            else if (isSd && inRect(x, y, sX + 64,  segY, 60, sH)) { g_readerText.stepSdFontSize(-1); hit = true; }
-            else if (!isSd && inRect(x, y, sX + 128, segY, 60, sH)) { g_readerText.cycleReaderFontSize(); hit = true; }
-            else if (isSd && inRect(x, y, sX + 192, segY, 60, sH)) { g_readerText.stepSdFontSize(1); hit = true; }
-            else if (isSd && inRect(x, y, sX + 256, segY, 60, sH)) { g_readerText.stepSdFontSize(4); hit = true; }
+            auto inSeg = [&](int si) { return inRect(x, y, sX + si * sW, segY, sW, sH); };
+            if (isSd && inSeg(0))      { g_readerText.stepSdFontSize(-4); hit = true; }
+            else if (inSeg(0))          { hit = true; /* disabled */ }
+            else if (isSd && inSeg(1))  { g_readerText.stepSdFontSize(-1); hit = true; }
+            else if (inSeg(1))          { hit = true; /* disabled */ }
+            else if (!isSd && inSeg(2)) { g_readerText.cycleReaderFontSize(); hit = true; }
+            else if (isSd && inSeg(3))  { g_readerText.stepSdFontSize(1);  hit = true; }
+            else if (inSeg(3))          { hit = true; /* disabled */ }
+            else if (isSd && inSeg(4))  { g_readerText.stepSdFontSize(4);  hit = true; }
+            else if (inSeg(4))          { hit = true; /* disabled */ }
             if (hit) {
                 g_readerBook.invalidatePaginationForLayoutChange();
                 renderReaderMenuPage();

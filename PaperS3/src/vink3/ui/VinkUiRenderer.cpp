@@ -756,10 +756,10 @@ void VinkUiRenderer::renderUiListPage(SystemState active, const char* title, con
     if (totalPages > 1) {
         if (readerList) {
             // TOC step-nav: mirror the font-size stepper style.
-            //   ◀◀  ◀  [page/max]  ▶  ▶▶
+            //   <<  <  [page/max]  >  >>
             // Only the four arrow segments are buttons; the centre is plain text.
-            constexpr int16_t navY = 880;
-            constexpr int16_t navH = 48;
+            constexpr int16_t navY = 890;
+            constexpr int16_t navH = 38;
             constexpr int16_t kSegW = 68;
             constexpr int16_t kSegH = 48;
             constexpr int16_t navX = kMarginX + (kContentW - kSegW * 5) / 2;
@@ -770,11 +770,11 @@ void VinkUiRenderer::renderUiListPage(SystemState active, const char* title, con
                 bool grayed = false;
                 const char* lb = "";
                 switch (si) {
-                    case 0: lb = "\xe2\x97\x80\xe2\x97\x80"; grayed = page <= 5; break;   // ◀◀
-                    case 1: lb = "\xe2\x97\x80";          grayed = page <= 1; break;   // ◀
-                    case 2: break;                                                         // page
-                    case 3: lb = "\xe2\x96\xb6";          grayed = page >= totalPages; break; // ▶
-                    case 4: lb = "\xe2\x96\xb6\xe2\x96\xb6"; grayed = page + 5 > totalPages; break; // ▶▶
+                    case 0: lb = "<<"; grayed = page <= 5; break;
+                    case 1: lb = "<";  grayed = page <= 1; break;
+                    case 2: break;
+                    case 3: lb = ">";  grayed = page >= totalPages; break;
+                    case 4: lb = ">>"; grayed = page + 5 > totalPages; break;
                 }
                 constexpr int16_t kInnerW = kSegW - 8;
                 if (isBtn) {
@@ -784,13 +784,13 @@ void VinkUiRenderer::renderUiListPage(SystemState active, const char* title, con
                 } else {
                     char footer[32];
                     snprintf(footer, sizeof(footer), "%u/%u", static_cast<unsigned>(page), static_cast<unsigned>(totalPages));
-                    g_cjkText.drawCentered(sx, navY, kInnerW, navH, footer, kInk);
+                    g_cjkText.drawCentered(sx, navY, kInnerW, navH, footer, kInkMid);
                 }
             }
         } else {
             char footer[48];
             snprintf(footer, sizeof(footer), "%u / %u", static_cast<unsigned>(page), static_cast<unsigned>(totalPages));
-            g_cjkText.drawCentered(0, kPaperS3Height - 40, kPaperS3Width, 28, footer, kInkMid);
+            g_cjkText.drawCentered(0, 890, kPaperS3Width, 38, footer, kInkMid);
         }
     }
 }
@@ -990,8 +990,8 @@ void VinkUiRenderer::renderReaderMenuOverlay(const char* bookTitle, const char* 
             const bool grayed = (si <= 1) ? (atMin || !isSd) : (si >= 3) ? (atMax || !isSd) : false;
             const uint16_t fg = grayed ? kInkLight : kInk;
             const char* lb;
-            switch (si) { case 0: lb="◀◀"; break; case 1: lb="◀"; break;
-                          case 3: lb="▶"; break; case 4: lb="▶▶"; break;
+            switch (si) { case 0: lb="<<"; break; case 1: lb="<"; break;
+                          case 3: lb=">"; break; case 4: lb=">>"; break;
                           default: lb = isSd ? g_readerText.sdFontSizeLabel() : g_readerText.readerFontSizeLabel(); break; }
             if (isBtn) {
                 canvas_->fillRect(sx, segY, kSegW - 4, kSegH, grayed ? kSurface : kSurfaceDeep);
@@ -1101,8 +1101,8 @@ void VinkUiRenderer::renderReaderSettings() {
                 const bool grayed = (si <= 1) ? (atMin || !isSd) : (si >= 3) ? (atMax || !isSd) : false;
                 const uint16_t fg = grayed ? kInkLight : kInk;
                 const char* lb;
-                switch (si) { case 0: lb="◀◀"; break; case 1: lb="◀"; break;
-                              case 3: lb="▶"; break; case 4: lb="▶▶"; break;
+                switch (si) { case 0: lb="<<"; break; case 1: lb="<"; break;
+                              case 3: lb=">"; break; case 4: lb=">>"; break;
                               default: lb = isSd ? g_readerText.sdFontSizeLabel() : g_readerText.readerFontSizeLabel(); break; }
                 if (isBtn) {
                     canvas_->fillRect(sx, segY, kSegW - 4, kSegH, grayed ? kSurface : kSurfaceDeep);
@@ -1400,11 +1400,15 @@ UiAction VinkUiRenderer::hitTest(SystemState state, int16_t x, int16_t y) const 
                     const int16_t segY = ry + (kRowH - kSegH) / 2;
                     constexpr int16_t kW = 56;
                     const bool isSd = g_readerText.isSdFont();
-                    if (isSd && inRect(x, y, segX,                 segY, kW, kSegH)) return UiAction::DecreaseSdFontSizeBig;
-                    if (isSd && inRect(x, y, segX + kSegW,         segY, kW, kSegH)) return UiAction::DecreaseSdFontSize;
-                    if (!isSd && inRect(x, y, segX + 2 * kSegW,    segY, kW, kSegH)) return UiAction::CycleReaderFontSize;
-                    if (isSd && inRect(x, y, segX + 3 * kSegW,     segY, kW, kSegH)) return UiAction::IncreaseSdFontSize;
-                    if (isSd && inRect(x, y, segX + 4 * kSegW,     segY, kW, kSegH)) return UiAction::IncreaseSdFontSizeBig;
+                    const bool inStepperY = y >= segY && y < segY + kSegH;
+                    if (inStepperY && x >= segX && x < segX + 5 * kSegW) {
+                        if (isSd && inRect(x, y, segX,                 segY, kW, kSegH)) return UiAction::DecreaseSdFontSizeBig;
+                        if (isSd && inRect(x, y, segX + kSegW,         segY, kW, kSegH)) return UiAction::DecreaseSdFontSize;
+                        if (!isSd && inRect(x, y, segX + 2 * kSegW,    segY, kW, kSegH)) return UiAction::CycleReaderFontSize;
+                        if (isSd && inRect(x, y, segX + 3 * kSegW,     segY, kW, kSegH)) return UiAction::IncreaseSdFontSize;
+                        if (isSd && inRect(x, y, segX + 4 * kSegW,     segY, kW, kSegH)) return UiAction::IncreaseSdFontSizeBig;
+                        return UiAction::None; // tapped in stepper but button disabled — consume
+                    }
                     ry += kRowH;
                     if (inRect(x, y, kMarginX + 22, ry, kContentW - 44, kRowH)) return UiAction::CycleReaderPageMargin;
                     ry += kRowH;

@@ -67,10 +67,10 @@ private:
     static constexpr int kMaxTocEntries = 2000;
     static constexpr int kTocEntriesPerPage = 10;
 
-    // TOC step-nav: mirror the font-size stepper style. 5×64px segments,
-    // 44px tall, bottom-aligned 32px from screen edge.
-    static constexpr int16_t kTocNavY = 880;
-    static constexpr int16_t kTocNavH = 48;
+    // TOC step-nav: mirror the font-size stepper style. 5×68px segments,
+    // 38px tall, bottom-aligned 32px from screen edge.
+    static constexpr int16_t kTocNavY = 890;
+    static constexpr int16_t kTocNavH = 38;
     static constexpr int16_t kTocSegW = 68;
     static constexpr int16_t kTocNavTotalW = kTocSegW * 5;
     static constexpr int16_t kTocNavX = 28 + (540 - 56 - kTocNavTotalW) / 2;
@@ -90,8 +90,8 @@ private:
     static constexpr int16_t kListTouchW = kPaperS3Width - 56;
     static constexpr int16_t kListFirstRowY = 222;
     static constexpr int16_t kListRowH = 64;
-    static constexpr int16_t kTocFirstRowY = 220;
-    static constexpr int16_t kTocRowH = 64;
+    static constexpr int16_t kTocFirstRowY = 226;
+    static constexpr int16_t kTocRowH = 62;
     // Shelf grid geometry must match VinkUiRenderer drawBookCard() pixel-for-pixel.
     static constexpr int16_t kShelfCardW = 148;
     static constexpr int16_t kShelfCardH = 206;

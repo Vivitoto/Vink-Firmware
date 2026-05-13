@@ -215,7 +215,7 @@ def vink3_source_invariants(main_cpp: str) -> None:
     assert_contains(ui_cpp, "readOfficialBatteryVoltage", "system log page shows live power state")
     assert_contains(ui_cpp, "SD.cardType", "system log page shows live SD state")
     assert_contains(ui_cpp, "返回", "diagnostic page has a visible return button")
-    assert_contains(state_cpp, "diagAction == UiAction::TabSettings", "diagnostic page return button exits back to settings")
+    assert_contains(state_cpp, "diagAction >= UiAction::TabReader", "diagnostic page return button exits back to settings")
     assert_contains(ui_cpp, "renderShutdownConfirm", "settings power entry shows a shutdown confirmation page first")
     assert_contains(ui_cpp, "确认关机", "shutdown confirmation has an explicit confirm button")
     assert_contains(ui_cpp, "侧边键单击也会进入关机流程", "shutdown confirmation documents the side-key shutdown path")

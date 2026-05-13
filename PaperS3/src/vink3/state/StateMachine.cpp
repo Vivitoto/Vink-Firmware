@@ -203,9 +203,12 @@ void StateMachine::handle(const Message& message) {
         {
             if (state_ == SystemState::Diagnostics) {
                 const UiAction diagAction = g_uiRenderer.hitTest(state_, message.touch.x, message.touch.y);
-                if (diagAction == UiAction::TabSettings) {
-                    state_ = SystemState::Settings;
+                if (diagAction >= UiAction::TabReader && diagAction <= UiAction::TabSettings) {
+                    g_uiRenderer.hideReaderSettings();
+                    state_ = tabStateForAction(diagAction);
                     renderState(state_);
+                    g_displayService.enqueueFull(shouldQualityRefreshTabSwitch(), 100);
+                    suppressAfterTransition();
                 } else {
                     g_uiRenderer.renderDiagnostics(message, "tap");
                 }
@@ -215,7 +218,13 @@ void StateMachine::handle(const Message& message) {
             }
             if (state_ == SystemState::SystemLogs) {
                 const UiAction logAction = g_uiRenderer.hitTest(state_, message.touch.x, message.touch.y);
-                if (logAction == UiAction::ClearSystemLogs) {
+                if (logAction >= UiAction::TabReader && logAction <= UiAction::TabSettings) {
+                    g_uiRenderer.hideReaderSettings();
+                    state_ = tabStateForAction(logAction);
+                    renderState(state_);
+                    g_displayService.enqueueFull(shouldQualityRefreshTabSwitch(), 100);
+                    suppressAfterTransition();
+                } else if (logAction == UiAction::ClearSystemLogs) {
                     g_systemLog.clear();
                     g_systemLog.append("system log cleared");
                     g_uiRenderer.resetSystemLogPage();
@@ -498,7 +507,18 @@ void StateMachine::handle(const Message& message) {
                             }
                             g_displayService.enqueueFull(false, 100);
                         }
-                    } else if (state_ == SystemState::ReaderMenu && g_readerBook.handleTap(message.touch.x, message.touch.y)) {
+                    } else if (state_ == SystemState::ReaderMenu) {
+                        {
+                        // ReaderMenu covers body reading (no tabs) and TOC/book-entry
+                        // (tabs visible). Check tab hits first so visible tabs work.
+                        const UiAction tabAction = g_uiRenderer.hitTestTabs(message.touch.x, message.touch.y);
+                        if (tabAction != UiAction::None) {
+                            g_uiRenderer.hideReaderSettings();
+                            state_ = tabStateForAction(tabAction);
+                            renderState(state_);
+                            g_displayService.enqueueFull(shouldQualityRefreshTabSwitch(), 100);
+                            suppressAfterTransition();
+                        } else if (g_readerBook.handleTap(message.touch.x, message.touch.y)) {
                         if (g_readerBook.consumeLastTapBackHome()) {
                             state_ = SystemState::Reader;
                             renderState(state_);
@@ -511,6 +531,8 @@ void StateMachine::handle(const Message& message) {
                         } else {
                             g_readerBook.renderCurrent();
                             g_displayService.enqueueFull(false, 100);
+                        }
+                        }
                         }
                     } else if (state_ == SystemState::Library && g_readerBook.handleShelfTap(message.touch.x, message.touch.y)) {
                         if (g_readerBook.lastLibraryTapOpenedBook()) {

@@ -5,21 +5,6 @@
   "description": "面向 M5Stack PaperS3 的 Vink 电子书阅读固件。",
   "releases": [
     {
-      "version": "v0.4.20",
-      "name": "Vink-PaperS3 v0.4.20",
-      "summary": "TOC 步进导航、16px PROGMEM 小字体、NVS 持久化修复、启动屏闪优化、书卡进度。SHA256: 6e2af277...",
-      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.20",
-      "changelog": "## Vink-PaperS3 v0.4.20\n\n### 目录步进导航\n- 每页 10 章（原 15 章），行高 64px，间隔更大不易误触。\n- 底部字号步进器同款 ◀◀ ◀ [页/总] ▶ ▶▶ 按钮（段宽 68px，间隔 8px）。\n- ◀◀=后退5页，◀=后退1页，▶=前进1页，▶▶=前进5页。\n- 按钮位于 Y=880，离屏幕底边 32px。\n\n### 16px PROGMEM 小字体\n- 771 字形 96KB 编译进固件，pgm_read_byte 直读，不再依赖 SPIFFS。\n- 覆盖：ASCII 全、UI 标签、系统日志、进度文字、错误提示。\n\n### NVS 持久化修复\n- loadLocalSettings 增加 RO→RW 降级回退，修复 reader NVS open fail。\n\n### 标签页可点击一致性\n- 画了标签的页面（含关机确认）标签可点；没画标签的（正文/菜单）不可点。\n\n### 其他\n- 启动屏闪优化（clear_display=false）。\n- TOC 文字加深（0x2104）。\n- 书卡进度（第X章 · Y%）16px 小字体。\n- 字体设置步进器框高统一 48px。",
-      "assets": {
-        "full": {
-          "name": "Vink-PaperS3-v0.4.20-full-16MB.bin",
-          "url": "",
-          "size": 16777216,
-          "flashOffset": 0
-        }
-      }
-    },
-    {
       "version": "v0.4.19",
       "name": "Vink-PaperS3 v0.4.19",
       "summary": "16px PROGMEM 小字体（771字形），系统日志换行分页，启动屏闪优化，书卡进度显示，TOC 加深。",
@@ -89,6 +74,21 @@
         "full": {
           "name": "Vink-PaperS3-v0.4.15-full-16MB.bin",
           "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.15/Vink-PaperS3-v0.4.15-full-16MB.bin",
+          "size": 16777216,
+          "flashOffset": "0x0"
+        }
+      }
+    },
+    {
+      "version": "v0.4.14",
+      "name": "Vink-PaperS3 v0.4.14",
+      "summary": "UI全面重构：阅读TAB分块布局/书卡右边缘对齐/同步页按钮独立/全局文字居中/书架页码优化",
+      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.14",
+      "changelog": "**阅读TAB重做**\n- 右半区分块布局：最近阅读居中盒 / 《书名》不截断 / 进度36px盒（去掉外框）\n- 近期书卡140×204，gap自动填满右边缘，去卡内进度文字\n- kPadX缩小多放每行1-2字\n\n**书架**\n- 卡片gap14→20右边缘对齐512px\n- 空状态占位步长对齐\n- 页码单页也显示(1/1)，上移不挤卡片\n\n**同步页**\n- 按钮去外框→独立绘制，间距均匀化\n\n**书籍入口**\n- 去分页缓存展示项，按钮触摸对齐\n\n**TOC**\n- kTocFirstRowY176→196，去缩进，去行间分隔线\n\n**全局文字居中**\n- drawCard标题y+18→y+12\n- drawSettingsGroup标题与分隔线分离\n- 读者菜单目录/返回按钮drawText→drawCentered\n- 阅读设置递进修复\n\n**导航**\n- 书架↔浏览器三处lastLibraryTapOpenedBook_重置",
+      "assets": {
+        "full": {
+          "name": "Vink-PaperS3-v0.4.14-full-16MB.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.14/Vink-PaperS3-v0.4.14-full-16MB.bin",
           "size": 16777216,
           "flashOffset": "0x0"
         }
