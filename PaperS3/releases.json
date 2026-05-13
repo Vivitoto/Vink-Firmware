@@ -5,14 +5,14 @@
   "description": "面向 M5Stack PaperS3 的 Vink 电子书阅读固件。",
   "releases": [
     {
-      "version": "v0.4.21",
-      "name": "Vink-PaperS3 v0.4.21",
-      "summary": "侧键关机(诊断版·30s窗口)、TOC步进导航、Tab/穿透修复。SHA256: 39d28579...",
-      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.21",
-      "changelog": "## Vink-PaperS3 v0.4.21（诊断版·30s窗口）\n\n> SHA256: `39d285791d00be36434a7449581c94962c86f3c424735bc0bdc696f3be10283c`\n> 侧键检测：裸 `digitalRead(GPIO36)` + 双采样防抖 + 等待HIGH后arm + 前30s仅记日志不关机。\n\n### 侧键关机（诊断中）\n- 裸 `digitalRead(36)`，不调 `pinMode`，零寄存器写入。\n- 双采样防抖（5ms 间隔），等待 GPIO36 回 HIGH 后 arm（10s 超时兜底）。\n- **前 30 秒诊断窗口**：检测到 LOW 只记日志不触发关机，方便进系统日志页查看跳变记录。\n- 30 秒后恢复正常：HIGH→LOW 触发 PowerButton 关机。\n- 关键日志：`side-key GPIO36 armed HIGH` / `side-key LOW #1` / `side-key HIGH #1` / `side-key LOW #N -> shutdown`。\n\n### Tab 点击修复\n- ReaderMenu 态先检 Tab 再 handleTap；SystemLogs/Diagnostics 补全四 Tab。\n\n### 其他\n- 按钮穿透修复、目录步进导航、16px PROGMEM 小字体、NVS 持久化修复、书架页码对齐、启动屏闪优化。",
+      "version": "v0.4.22-local4",
+      "name": "Vink-PaperS3 v0.4.22-local4",
+      "summary": "PMIC 侧键事件诊断包：禁用 GPIO36 日志，仅记录 BtnPWR click/hold，不触发关机。SHA256: 14a51be2...",
+      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.22-local4",
+      "changelog": "## Vink-PaperS3 v0.4.22-local4（PMIC 侧键事件诊断）\n\n> SHA256: `14a51be2ac0e4b885a8dd4fe820736477a622f7985589a458c2038df5632eae4`\n\n### 结论\n- GPIO36 已确认在真机上持续假跳变，不再有诊断价值。\n- 本版不再轮询/记录 GPIO36，避免系统日志被 `side-key LOW/HIGH` 淹没。\n\n### 改动\n- 保留 AXP2101 PMIC / M5Unified `BtnPWR` 事件读取。\n- 记录 `M5.BtnPWR.wasClicked()`、`wasSingleClicked()`、`wasHold()` 对应日志。\n- 诊断包只写日志，不进入关机流程。\n\n### 测试目标\n- 开机后不应再出现 GPIO36 `side-key LOW/HIGH` 日志。\n- 单击侧键时，如果固件能收到 PMIC 事件，应出现 `BtnPWR PMIC click observed`，随后可能出现 `BtnPWR PMIC single-click decided`。\n- 长按侧键时，如果固件能收到 PMIC 事件，应出现 `BtnPWR PMIC hold observed`。\n- 如果侧键导致设备直接重启且没有这些日志，说明 PMIC/硬件在固件前消费了按键。",
       "assets": {
         "full": {
-          "name": "Vink-PaperS3-v0.4.21-full-16MB.bin",
+          "name": "Vink-PaperS3-v0.4.22-local4-full-16MB.bin",
           "url": "",
           "size": 16777216,
           "flashOffset": 0

@@ -49,14 +49,12 @@ bool InputService::begin(StateMachine* stateMachine) {
             return false;
         }
     }
-    // PaperS3's side key is primarily hardware-managed (single click powers on,
-    // double-click powers off, long press enters download mode). On real hardware
-    // the short press can be consumed by the PMIC/reset path before a release
-    // event is usable, so Vink triggers graceful shutdown on the press edge, not
-    // after release, matching the on-screen shutdown button as closely as possible.
+    // PaperS3's side key is handled by the AXP2101 PMIC, not by a stable GPIO.
+    // M5Unified exposes PMIC PKEY events as BtnPWR wasClicked()/wasHold(); do
+    // not use GPIO36 or isPressed() as the shutdown source.
     M5.BtnPWR.setDebounceThresh(0);
     M5.BtnPWR.setHoldThresh(0);
-    Serial.println("[vink3][input] service started; PaperS3 side power single-click detector enabled when exposed");
+    Serial.println("[vink3][input] service started; side power uses AXP2101 BtnPWR events; GPIO36 is ignored");
     return true;
 }
 
@@ -69,7 +67,6 @@ void InputService::taskLoop() {
         M5.update();
         const uint32_t now = millis();
         pollPowerButton(now);
-        pollSideKey(now);
         pollTouch();
         vTaskDelay(pdMS_TO_TICKS(kPollDelayMs));
     }
@@ -98,117 +95,47 @@ void InputService::updateTouchCoordMode(int, int) {
 void InputService::pollPowerButton(uint32_t now) {
     if (!stateMachine_) return;
 
-    const bool pressed = M5.BtnPWR.isPressed();
+    // local4 diagnostic mode: for AXP2101 PMIC-backed power keys, M5Unified
+    // reports events via wasClicked()/wasHold(). Only log these events here; do
+    // not shut down yet. This proves whether the running firmware can observe
+    // the side-key before we bind it to graceful shutdown.
+    const bool clicked = M5.BtnPWR.wasClicked();
+    const bool singleClicked = M5.BtnPWR.wasSingleClicked();
+    const bool held = M5.BtnPWR.wasHold();
     if (!powerArmed_) {
-        if (now > kPowerBootIgnoreMs && !pressed) {
+        if (now > kPowerBootIgnoreMs) {
             powerArmed_ = true;
             powerWasPressed_ = false;
             powerPressStartedMs_ = 0;
             lastPowerClickMs_ = 0;
-            Serial.println("[vink3][power] BtnPWR single-click detector armed");
+            Serial.println("[vink3][power] BtnPWR PMIC diagnostic armed; no shutdown action");
+            g_systemLog.append("BtnPWR PMIC diag armed");
         }
         return;
     }
 
-    if (pressed && !powerWasPressed_) {
-        powerWasPressed_ = true;
-        powerPressStartedMs_ = now;
-        powerArmed_ = false;
-        Message msg;
-        msg.type = MessageType::PowerButton;
-        msg.timestampMs = now;
-        stateMachine_->post(msg, 0);
-        Serial.println("[vink3][power] BtnPWR press edge -> graceful shutdown");
-        g_systemLog.append("BtnPWR press edge -> shutdown");
-        return;
+    if (clicked) {
+        Serial.println("[vink3][power] BtnPWR PMIC click observed (diagnostic only)");
+        g_systemLog.append("BtnPWR PMIC click observed");
     }
-
-    if (!pressed && powerWasPressed_) {
-        powerWasPressed_ = false;
-        powerPressStartedMs_ = 0;
+    if (singleClicked) {
+        Serial.println("[vink3][power] BtnPWR PMIC single-click decided (diagnostic only)");
+        g_systemLog.append("BtnPWR PMIC single-click decided");
+    }
+    if (held) {
+        Serial.println("[vink3][power] BtnPWR PMIC hold observed (diagnostic only)");
+        g_systemLog.append("BtnPWR PMIC hold observed");
     }
 }
 
 
-void InputService::pollSideKey(uint32_t now) {
-    if (!stateMachine_) return;
-
-    // Bare digitalRead — no pinMode, so the power latch circuit is undisturbed.
-    // GPIO36 in its reset-default state (input, floating) reads the side key
-    // directly.  Take two samples 5 ms apart and require both to agree so that
-    // floating-pin noise and power-on transients do not trigger a spurious
-    // shutdown during or right after boot.
-    const bool low1 = digitalRead(36) == LOW;
-    delayMicroseconds(5000);
-    const bool low2 = digitalRead(36) == LOW;
-    const bool low = low1 && low2;  // both must agree
-
-    if (!sideKeyArmed_) {
-        // Wait until the boot-ignore interval has passed AND the pin has been
-        // observed HIGH at least once.  On some PaperS3 units the power-latch
-        // circuit holds GPIO36 low for several seconds after power-on.
-        // If the pin never goes HIGH within 10 s we arm anyway (with a log
-        // warning) so the device does not stay permanently unarmed.
-        if (now > kPowerBootIgnoreMs) {
-            if (!low) {
-                // Pin is HIGH — arm now.
-                sideKeyArmed_ = true;
-                sideKeyWasLow_ = false;
-                sideKeyWaitLogged_ = false;
-                Serial.println("[vink3][power] side-key GPIO36 armed: HIGH");
-                g_systemLog.append("side-key GPIO36 armed HIGH");
-                return;
-            }
-            // Pin is still LOW — log once, then wait.
-            if (!sideKeyWaitLogged_) {
-                sideKeyWaitLogged_ = true;
-                sideKeyArmStartMs_ = now;
-                Serial.println("[vink3][power] side-key GPIO36 still LOW, waiting for HIGH (10s timeout)");
-                g_systemLog.append("side-key GPIO36 waiting HIGH");
-            }
-            // Fallback: arm after 10 s even if pin never went HIGH.
-            if (now - sideKeyArmStartMs_ > 10000) {
-                sideKeyArmed_ = true;
-                sideKeyWasLow_ = true;  // treat current LOW as the baseline
-                sideKeyWaitLogged_ = false;
-                Serial.println("[vink3][power] side-key GPIO36 armed (forced after 10s timeout)");
-                g_systemLog.append("side-key GPIO36 armed forced");
-            }
-        }
-        return;
-    }
-
-    if (low && !sideKeyWasLow_) {
-        sideKeyWasLow_ = true;
-        sideKeyTransitionCount_++;
-        Serial.printf("[vink3][power] side-key GPIO36 HIGH→LOW (#%d)\n", sideKeyTransitionCount_);
-        g_systemLog.appendf("side-key LOW #%d", sideKeyTransitionCount_);
-
-        // For the first 30 s after boot, only log — do not actually shut
-        // down.  This gives enough time to open the system-log page and
-        // inspect the GPIO36 transition trail.
-        if (now < 30000) {
-            Serial.println("[vink3][power] (ignored — within 30 s diagnostic window)");
-            g_systemLog.append("side-key LOW ignored (diag window)");
-            return;
-        }
-
-        sideKeyArmed_ = false;
-        Serial.printf("[vink3][power] side-key GPIO36 LOW -> graceful shutdown\n");
-        g_systemLog.appendf("side-key LOW #%d -> shutdown", sideKeyTransitionCount_);
-        Message msg;
-        msg.type = MessageType::PowerButton;
-        msg.timestampMs = now;
-        stateMachine_->post(msg, 0);
-        return;
-    }
-
-    if (!low && sideKeyWasLow_) {
-        sideKeyWasLow_ = false;
-        sideKeyTransitionCount_++;
-        Serial.printf("[vink3][power] side-key GPIO36 LOW→HIGH (#%d)\n", sideKeyTransitionCount_);
-        g_systemLog.appendf("side-key HIGH #%d", sideKeyTransitionCount_);
-    }
+void InputService::pollSideKey(uint32_t) {
+    // Intentionally unused. v0.4.21 field logs showed GPIO36 repeatedly pulsing
+    // LOW throughout the 30 s diagnostic window on real PaperS3 hardware. That
+    // makes GPIO36 unsafe as a software side-key shutdown source: any threshold
+    // can turn into a delayed false shutdown. Keep side-key handling on
+    // M5Unified's BtnPWR abstraction only, and keep the on-screen shutdown
+    // button as the reliable fallback.
 }
 
 void InputService::pollTouch() {
