@@ -299,6 +299,26 @@ void DisplayService::pushShutterAnimation(M5Canvas* canvas, DisplayEffect effect
     M5.Display.setRotation(savedRotation);
 }
 
+void DisplayService::pushSweepBandsEffect(M5Canvas* canvas, DisplayEffect effect, epd_mode_t mode) {
+    // EDCBook-style page turn: single DU (Direct Update) waveform push
+    // on the full screen. The DU waveform processes EPD scanlines
+    // sequentially in hardware, creating a natural vertical sweep.
+    // No software strip loop, no black flash — just the EPD's native
+    // scanline-progressive transition at ~150ms.
+    if (!canvas) return;
+
+    const uint8_t savedRotation = M5.Display.getRotation();
+    M5.Display.setRotation(0);
+    M5.Display.waitDisplay();
+    M5.Display.setColorDepth(kTextColorDepthHigh);
+    M5.Display.setEpdMode(epd_mode_t::epd_fast);
+
+    canvas->pushSprite(&M5.Display, 0, 0);
+    M5.Display.waitDisplay();
+
+    M5.Display.setRotation(savedRotation);
+}
+
 epd_mode_t DisplayService::chooseReaderRefreshMode(const DisplayRequest& request) {
     uint32_t fullEvery = 10;
     epd_mode_t normalMode = kNormalRefresh;
@@ -368,8 +388,8 @@ void DisplayService::push(const DisplayRequest& request, M5Canvas* canvasToPush)
             M5.Display.setEpdMode(readerMode);
             canvasToPush->pushSprite(&M5.Display, 0, 0);
             M5.Display.waitDisplay();
-        } else {
-            pushShutterAnimation(canvasToPush, request.effect, readerMode);
+        } else if (request.effect == DisplayEffect::VerticalShutter || request.effect == DisplayEffect::HorizontalShutter) {
+            pushSweepBandsEffect(canvasToPush, request.effect, readerMode);
         }
         pushCount_++;
         g_inDisplayPush = false;

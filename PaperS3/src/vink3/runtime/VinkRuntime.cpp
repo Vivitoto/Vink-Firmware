@@ -1,4 +1,5 @@
 #include "VinkRuntime.h"
+#include <Preferences.h>
 #include "../display/DisplayService.h"
 #include "../input/InputService.h"
 #include "../reader/ReaderBookService.h"
@@ -53,11 +54,22 @@ void applyOfficialPaperS3DisplaySetup() {
 void markPaperS3RuntimeRunning() {
     s_runtimeRunningMagic = kRuntimeRunningMagic;
     s_runtimeRunningMagicInv = ~kRuntimeRunningMagic;
+    // NVS fallback: survives PMS150G power cycle (ESP_RST_POWERON)
+    Preferences prefs;
+    prefs.begin("vink-boot", false);
+    prefs.putBool("running", true);
+    prefs.end();
+    Serial.println("[vink3][nvs] mark running=1");
 }
 
 void clearPaperS3RuntimeRunning() {
     s_runtimeRunningMagic = 0;
     s_runtimeRunningMagicInv = 0;
+    Preferences prefs;
+    prefs.begin("vink-boot", false);
+    prefs.putBool("running", false);
+    prefs.end();
+    Serial.println("[vink3][nvs] clear running=0");
 }
 
 bool wasPaperS3RuntimeRunningBeforeReset() {
@@ -68,11 +80,21 @@ bool wasPaperS3RuntimeRunningBeforeReset() {
 void markPaperS3SoftwareLocked() {
     s_softwareLockMagic = kSoftwareLockMagic;
     s_softwareLockMagicInv = ~kSoftwareLockMagic;
+    Preferences prefs;
+    prefs.begin("vink-boot", false);
+    prefs.putBool("locked", true);
+    prefs.end();
+    Serial.println("[vink3][nvs] mark locked=1");
 }
 
 void clearPaperS3SoftwareLocked() {
     s_softwareLockMagic = 0;
     s_softwareLockMagicInv = 0;
+    Preferences prefs;
+    prefs.begin("vink-boot", false);
+    prefs.putBool("locked", false);
+    prefs.end();
+    Serial.println("[vink3][nvs] clear locked=0");
 }
 
 bool wasPaperS3SoftwareLockedBeforeReset() {
@@ -96,6 +118,72 @@ bool consumePaperS3SideKeyUnlockRequested() {
 
 bool VinkRuntime::begin() {
     Serial.printf("[vink3][runtime] starting %s from ReadPaper V1.7.6 baseline\n", kVinkPaperS3FirmwareVersion);
+
+    // Check side-key event BEFORE hardware init so the EPD never powers on
+    // for a shutdown. If we detect a shutdown: do just the minimum to draw
+    // the power-off page, then cut power via GPIO44.
+    {
+        const int reason = esp_reset_reason();
+        Serial.printf("[vink3][chk] reset=%d rst_poweron=%d rst_ext=%d\n", reason, ESP_RST_POWERON, ESP_RST_EXT);
+        if (reason == ESP_RST_EXT || reason == ESP_RST_POWERON) {
+            bool wasRunning = false, wasLocked = false;
+            Preferences p;
+            bool nvsOk = p.begin("vink-boot", true);
+            if (nvsOk) {
+                wasRunning = p.getBool("running", false);
+                wasLocked = p.getBool("locked", false);
+                p.end();
+            }
+            Serial.printf("[vink3][chk] nvsOk=%d run=%d lock=%d\n", nvsOk, wasRunning, wasLocked);
+            if (wasRunning) {
+                // Consume flag immediately
+                { Preferences q; q.begin("vink-boot", false); q.putBool("running", false); q.end(); }
+
+                if (wasLocked) {
+                    // Unlock path: need full hardware for resume
+                    { Preferences q; q.begin("vink-boot", false); q.putBool("locked", false); q.end(); }
+                    clearPaperS3SoftwareLocked();
+                    markPaperS3SideKeyUnlockRequested();
+                    Serial.println("[vink3][power] side-key unlock pending, continuing boot");
+                    g_systemLog.append("side-key reset while locked -> unlock");
+                } else {
+                    // Shutdown path: minimal hardware, draw retained page, cut power
+                    Serial.println("[vink3][power] side-key shutdown pending, fast path");
+                    Serial.begin(115200);
+                    delay(100);
+                    auto cfg = M5.config();
+                    cfg.clear_display = false;
+                    M5.begin(cfg);
+                    delay(50);
+
+                    if (!canvas_.createSprite(kPaperS3Width, kPaperS3Height)) return false;
+                    g_uiRenderer.begin(&canvas_);
+                    g_displayService.begin(&canvas_);
+                    g_uiRenderer.renderPowerOffReady();
+                    g_displayService.enqueueFull(true, 100);
+                    g_displayService.waitIdle(8000);
+                    M5.Display.waitDisplay();
+                    delay(800);
+
+                    clearPaperS3RuntimeRunning();
+                    { Preferences r; r.begin("vink-boot", false); r.putBool("running", false); r.end(); }
+                    g_systemLog.append("side-key shutdown page drawn; GPIO44 pulse");
+                    Serial.println("[vink3][power] shutdown page drawn; pulsing GPIO44");
+                    Serial.flush();
+                    pulsePaperS3PowerOffPin();
+
+                    esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
+                    esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_OFF);
+                    esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_SLOW_MEM, ESP_PD_OPTION_OFF);
+                    esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_FAST_MEM, ESP_PD_OPTION_OFF);
+                    delay(100);
+                    esp_deep_sleep_start();
+                    for (;;) delay(1000);
+                }
+            }
+        }
+    }
+
     if (!beginHardware()) return false;
     if (!beginCanvas()) return false;
     if (handleSideKeyResetShutdown()) return false;
@@ -119,12 +207,6 @@ bool VinkRuntime::beginHardware() {
                   ESP.getPsramSize(), ESP.getFreePsram(), ESP.getFlashChipSize());
     g_systemLog.appendf("boot reset=%d wake=%d prior=%d", resetReason, wakeCause, priorRunning ? 1 : 0);
     g_systemLog.appendf("boot fw=%s heap=%u psram=%u", kVinkPaperS3FirmwareVersion, ESP.getFreeHeap(), ESP.getFreePsram());
-    Serial.printf("[vink3][boot] official PaperS3 profile: EPD %dx%d, GT911 SDA=%d SCL=%d INT=%d, SD CS=%d SCK=%d MOSI=%d MISO=%d, BAT_ADC=%d USB_DET=%d CHG=%d BUZZER=%d\n",
-                  kPaperS3PhysicalWidth, kPaperS3PhysicalHeight,
-                  static_cast<int>(kGt911SdaPin), static_cast<int>(kGt911SclPin), static_cast<int>(kGt911IntPin),
-                  kSdCsPin, kSdSckPin, kSdMosiPin, kSdMisoPin,
-                  static_cast<int>(kBatteryAdcPin), static_cast<int>(kUsbDetectPin),
-                  static_cast<int>(kChargeStatePin), static_cast<int>(kBuzzerPin));
 
     auto cfg = M5.config();
     // Vink draws a boot page immediately after M5.begin(), so the library's
@@ -139,9 +221,6 @@ bool VinkRuntime::beginHardware() {
     M5.Display.setEpdMode(kQualityRefresh);
     M5.Display.setColorDepth(kTextColorDepthHigh);
     applyOfficialPaperS3DisplaySetup();
-    Serial.printf("[vink3][display] official touch rotation=%u expected=%dx%d actual=%dx%d\n",
-                  gPaperS3ActiveDisplayRotation, kPaperS3Width, kPaperS3Height,
-                  M5.Display.width(), M5.Display.height());
 
     if (!SPIFFS.begin(false)) {
         Serial.println("[vink3][boot] SPIFFS mount failed; continuing without formatting");
@@ -177,23 +256,51 @@ bool VinkRuntime::beginServices() {
 }
 
 bool VinkRuntime::handleSideKeyResetShutdown() {
-    // On PaperS3 the side key is not exposed as a normal ESP32-S3 GPIO button
-    // in M5Unified. On real devices a running-device side-key click can instead
-    // reset the ESP32. EDCBook handles this by software state: if the device was
-    // fake-locked, the reset means "unlock/resume"; otherwise it emulates a
-    // side-key shutdown by drawing the retained power-off page and pulsing GPIO44.
-    if (esp_reset_reason() != ESP_RST_EXT || !wasPaperS3RuntimeRunningBeforeReset()) return false;
+    // PaperS3 side key goes through PMS150G power management, which causes
+    // ESP_RST_POWERON (not ESP_RST_EXT). RTC_NOINIT_ATTR is cleared by the
+    // power cycle, so runtime-running and software-lock state are stored in
+    // NVS (flash) to survive PMS150G power events.
+    const int reason = esp_reset_reason();
+    if (reason != ESP_RST_EXT && reason != ESP_RST_POWERON) return false;
 
-    if (wasPaperS3SoftwareLockedBeforeReset()) {
-        Serial.println("[vink3][power] external reset while software-locked -> side-key unlock/resume");
+    Serial.printf("[vink3][shutdown] reason=%d checking NVS\n", reason);
+    bool wasRunning = false;
+    bool wasLocked = false;
+    {
+        Preferences prefs;
+        if (prefs.begin("vink-boot", true)) {
+            wasRunning = prefs.getBool("running", false);
+            wasLocked = prefs.getBool("locked", false);
+            prefs.end();
+        }
+    }
+    Serial.printf("[vink3][shutdown] NVS run=%d lock=%d\n", wasRunning, wasLocked);
+    if (!wasRunning) return false;
+
+    // Consume the running flag — this boot is handling the side-key event.
+    {
+        Preferences prefs;
+        prefs.begin("vink-boot", false);
+        prefs.putBool("running", false);
+        prefs.end();
+    }
+
+    if (wasLocked) {
+        Serial.println("[vink3][power] power-on reset while software-locked -> side-key unlock/resume");
         g_systemLog.append("side-key reset while locked -> unlock");
-        clearPaperS3SoftwareLocked();
+        {
+            Preferences prefs;
+            prefs.begin("vink-boot", false);
+            prefs.putBool("locked", false);
+            prefs.end();
+        }
+        clearPaperS3SoftwareLocked();  // also clear RTC_NOINIT_ATTR if present
         markPaperS3SideKeyUnlockRequested();
         return false;
     }
 
-    Serial.println("[vink3][power] external reset after running session -> side-key shutdown path");
-    g_systemLog.append("side-key external reset -> shutdown");
+    Serial.println("[vink3][power] power-on reset after running session -> side-key shutdown path");
+    g_systemLog.append("side-key reset -> shutdown");
     if (!g_uiRenderer.begin(&canvas_)) return false;
     if (!g_displayService.begin(&canvas_)) return false;
     g_uiRenderer.renderPowerOffReady();

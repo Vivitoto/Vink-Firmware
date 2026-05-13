@@ -5,6 +5,21 @@
   "description": "面向 M5Stack PaperS3 的 Vink 电子书阅读固件。",
   "releases": [
     {
+      "version": "v0.4.27-local-skfix",
+      "name": "Vink-PaperS3 v0.4.27-local-skfix",
+      "summary": "侧键关机修复、TAB穿透修复、翻页丝滑单次DU。SHA256: 6f471b1b...",
+      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.27-local-skfix",
+      "changelog": "## Vink-PaperS3 v0.4.27-local-skfix\n\n> SHA256: `6f471b1bb06c07a155d0f7e53417793f74283354f419461fec6ee5fc5ba73f86`\n\n### TAB穿透修复\n- 正文阅读页和菜单覆盖层点击TAB区域不再跳页。\n\n### 翻页效果\n- 改为单次DU波形全屏更新，EPD硬件逐行扫动，丝滑无条带。\n\n### 诊断日志\n- 启动早期NVS状态日志，侧键路径全链路可追踪。",
+      "assets": {
+        "full": {
+          "name": "Vink-PaperS3-v0.4.27-local-skfix-full-16MB.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.27-local-skfix/Vink-PaperS3-v0.4.27-local-skfix-full-16MB.bin",
+          "size": 16777216,
+          "flashOffset": 0
+        }
+      }
+    },
+    {
       "version": "v0.4.26-local-vink",
       "name": "Vink-PaperS3 v0.4.26-local-vink",
       "summary": "系统设置开关、去ReadPaper品牌化、侧键锁屏、触摸修复。SHA256: c534e8c7...",
@@ -73,21 +88,6 @@
       "assets": {
         "full": {
           "name": "Vink-PaperS3-v0.4.22-local4-full-16MB.bin",
-          "url": "",
-          "size": 16777216,
-          "flashOffset": 0
-        }
-      }
-    },
-    {
-      "version": "v0.4.20",
-      "name": "Vink-PaperS3 v0.4.20",
-      "summary": "TOC 步进导航、16px PROGMEM 小字体、NVS 持久化修复、启动屏闪优化、书卡进度。SHA256: 6e2af277...",
-      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.20",
-      "changelog": "## Vink-PaperS3 v0.4.20\n\n### 目录步进导航\n- 每页 10 章（原 15 章），行高 64px，间隔更大不易误触。\n- 底部字号步进器同款 ◀◀ ◀ [页/总] ▶ ▶▶ 按钮（段宽 68px，间隔 8px）。\n- ◀◀=后退5页，◀=后退1页，▶=前进1页，▶▶=前进5页。\n- 按钮位于 Y=880，离屏幕底边 32px。\n\n### 16px PROGMEM 小字体\n- 771 字形 96KB 编译进固件，pgm_read_byte 直读，不再依赖 SPIFFS。\n- 覆盖：ASCII 全、UI 标签、系统日志、进度文字、错误提示。\n\n### NVS 持久化修复\n- loadLocalSettings 增加 RO→RW 降级回退，修复 reader NVS open fail。\n\n### 标签页可点击一致性\n- 画了标签的页面（含关机确认）标签可点；没画标签的（正文/菜单）不可点。\n\n### 其他\n- 启动屏闪优化（clear_display=false）。\n- TOC 文字加深（0x2104）。\n- 书卡进度（第X章 · Y%）16px 小字体。\n- 字体设置步进器框高统一 48px。",
-      "assets": {
-        "full": {
-          "name": "Vink-PaperS3-v0.4.20-full-16MB.bin",
           "url": "",
           "size": 16777216,
           "flashOffset": 0
