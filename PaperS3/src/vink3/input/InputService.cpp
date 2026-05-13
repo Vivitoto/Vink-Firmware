@@ -56,7 +56,14 @@ bool InputService::begin(StateMachine* stateMachine) {
     // after release, matching the on-screen shutdown button as closely as possible.
     M5.BtnPWR.setDebounceThresh(0);
     M5.BtnPWR.setHoldThresh(0);
-    Serial.println("[vink3][input] service started; PaperS3 side power single-click detector enabled when exposed");
+
+    // PaperS3's side key is connected to GPIO36. M5Unified's button layer
+    // does not configure it for this board (pmic_adc mode), so we read the
+    // pin directly. When the side key is pressed the power circuit may cut
+    // power after a short delay — we try to beat that window.
+    pinMode(36, INPUT_PULLUP);
+
+    Serial.println("[vink3][input] service started; side-key on GPIO36");
     return true;
 }
 
@@ -69,6 +76,7 @@ void InputService::taskLoop() {
         M5.update();
         const uint32_t now = millis();
         pollPowerButton(now);
+        pollSideKey(now);
         pollTouch();
         vTaskDelay(pdMS_TO_TICKS(kPollDelayMs));
     }
@@ -125,6 +133,39 @@ void InputService::pollPowerButton(uint32_t now) {
     if (!pressed && powerWasPressed_) {
         powerWasPressed_ = false;
         powerPressStartedMs_ = 0;
+    }
+}
+
+void InputService::pollSideKey(uint32_t now) {
+    if (!stateMachine_) return;
+
+    // GPIO36 reads LOW when the side key is pressed (INPUT_PULLUP).
+    const bool low = digitalRead(36) == LOW;
+
+    if (!sideKeyArmed_) {
+        if (now > kPowerBootIgnoreMs && !low) {
+            sideKeyArmed_ = true;
+            sideKeyWasLow_ = false;
+            Serial.println("[vink3][power] side-key GPIO36 detector armed");
+            g_systemLog.append("side-key GPIO36 armed");
+        }
+        return;
+    }
+
+    if (low && !sideKeyWasLow_) {
+        sideKeyWasLow_ = true;
+        sideKeyArmed_ = false;
+        Serial.println("[vink3][power] side-key GPIO36 LOW -> graceful shutdown");
+        g_systemLog.append("side-key GPIO36 -> shutdown");
+        Message msg;
+        msg.type = MessageType::PowerButton;
+        msg.timestampMs = now;
+        stateMachine_->post(msg, 0);
+        return;
+    }
+
+    if (!low && sideKeyWasLow_) {
+        sideKeyWasLow_ = false;
     }
 }
 
