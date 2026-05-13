@@ -10,6 +10,7 @@ enum class DisplayEffect : uint8_t {
     VerticalShutter = 1,
     HorizontalShutter = 2,
     Rect = 3,
+    SweepBands = 4,  // EDCBook-style vertical strip sweep with flash-before-reveal
 };
 
 enum class ReaderRefreshStrategy : uint8_t {
@@ -65,6 +66,7 @@ private:
     void loadLocalSettings();
     epd_mode_t chooseReaderRefreshMode(const DisplayRequest& request);
     void pushShutterAnimation(M5Canvas* canvas, DisplayEffect effect, epd_mode_t mode);
+    void pushSweepBandsEffect(M5Canvas* canvas, DisplayEffect effect, epd_mode_t mode);
 
     M5Canvas* canvas_ = nullptr;
     QueueHandle_t queue_ = nullptr;

@@ -254,6 +254,7 @@ void StateMachine::handle(const Message& message) {
             // the reset, resume the last reader page instead of treating the
             // reset as a shutdown request.
             if (consumePaperS3SideKeyUnlockRequested()) {
+                Serial.println("[vink3][boot] BootComplete: side-key unlock resume");
                 state_ = renderSideKeyUnlockResume() ? SystemState::ReaderMenu : SystemState::Reader;
                 g_displayService.enqueueFull(true, 100);
                 suppressAfterTransition(500);
@@ -617,9 +618,9 @@ void StateMachine::handle(const Message& message) {
                             g_displayService.enqueueFull(false, 100);
                         }
                     } else if (state_ == SystemState::ReaderMenu) {
-                        {
-                        // ReaderMenu covers body reading (no tabs) and TOC/book-entry
-                        // (tabs visible). Check tab hits first so visible tabs work.
+                        // Only TOC and book-entry pages draw visible tabs.
+                        // Reading body and menu overlay have no tabs.
+                        if (!g_readerBook.isReadingBody() && !g_readerBook.isShowingReaderMenu()) {
                         const UiAction tabAction = g_uiRenderer.hitTestTabs(message.touch.x, message.touch.y);
                         if (tabAction != UiAction::None) {
                             g_uiRenderer.hideReaderSettings();
@@ -627,7 +628,10 @@ void StateMachine::handle(const Message& message) {
                             renderState(state_);
                             g_displayService.enqueueFull(shouldQualityRefreshTabSwitch(), 100);
                             suppressAfterTransition();
-                        } else if (g_readerBook.handleTap(message.touch.x, message.touch.y)) {
+                            break;
+                        }
+                        }
+                        if (g_readerBook.handleTap(message.touch.x, message.touch.y)) {
                         if (g_readerBook.consumeLastTapBackHome()) {
                             state_ = SystemState::Reader;
                             renderState(state_);
@@ -640,7 +644,6 @@ void StateMachine::handle(const Message& message) {
                         } else {
                             g_readerBook.renderCurrent();
                             g_displayService.enqueueFull(false, 100);
-                        }
                         }
                         }
                     } else if (state_ == SystemState::Library && g_readerBook.handleShelfTap(message.touch.x, message.touch.y)) {
