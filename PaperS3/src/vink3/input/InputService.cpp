@@ -61,7 +61,7 @@ bool InputService::begin(StateMachine* stateMachine) {
     // does not configure it for this board (pmic_adc mode), so we read the
     // pin directly. When the side key is pressed the power circuit may cut
     // power after a short delay — we try to beat that window.
-    pinMode(36, INPUT_PULLUP);
+    pinMode(36, INPUT);  // no pullup/pulldown — let the power latch work normally
 
     Serial.println("[vink3][input] service started; side-key on GPIO36");
     return true;
@@ -139,13 +139,15 @@ void InputService::pollPowerButton(uint32_t now) {
 void InputService::pollSideKey(uint32_t now) {
     if (!stateMachine_) return;
 
-    // GPIO36 reads LOW when the side key is pressed (INPUT_PULLUP).
+    // GPIO36 reads LOW when the side key is pressed (connected to power latch).
+    // No pull-up: when floating it may read either way, so we arm after boot
+    // regardless and detect the HIGH→LOW transition on press.
     const bool low = digitalRead(36) == LOW;
 
     if (!sideKeyArmed_) {
-        if (now > kPowerBootIgnoreMs && !low) {
+        if (now > kPowerBootIgnoreMs) {
             sideKeyArmed_ = true;
-            sideKeyWasLow_ = false;
+            sideKeyWasLow_ = low;
             Serial.println("[vink3][power] side-key GPIO36 detector armed");
             g_systemLog.append("side-key GPIO36 armed");
         }
@@ -164,9 +166,7 @@ void InputService::pollSideKey(uint32_t now) {
         return;
     }
 
-    if (!low && sideKeyWasLow_) {
-        sideKeyWasLow_ = false;
-    }
+    sideKeyWasLow_ = low;
 }
 
 void InputService::pollTouch() {
