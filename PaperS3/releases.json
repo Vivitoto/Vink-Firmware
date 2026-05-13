@@ -7,9 +7,9 @@
     {
       "version": "v0.4.21",
       "name": "Vink-PaperS3 v0.4.21",
-      "summary": "侧键关机(等待HIGH后arm+10s超时)、TOC步进导航、Tab/穿透修复。SHA256: 46fdbbfb...",
+      "summary": "侧键关机(诊断版·30s窗口)、TOC步进导航、Tab/穿透修复。SHA256: 39d28579...",
       "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.21",
-      "changelog": "## Vink-PaperS3 v0.4.21（waitHigh·最终版）\n\n> SHA256: `46fdbbfba82ba6227a1db17ed43d432923393468752b52bd2e605e9023c97678`\n> 侧键检测：裸 `digitalRead(GPIO36)` + 双采样防抖 + 等待HIGH后arm（10s超时兜底）。\n\n### 侧键关机\n- 裸 `digitalRead(36)`，不调 `pinMode`，零寄存器写入。\n- 双采样防抖（5ms 间隔，两次一致才有效）。\n- 等待 GPIO36 回到 HIGH 后才 arm（最多等 10s，超时强制 arm）。\n- 系统日志查看状态：`armed HIGH`（正常）/ `armed forced`（超时强启）/ `waiting HIGH`（等待中）。\n\n### Tab 点击修复\n- ReaderMenu 态先检 Tab 再 handleTap；SystemLogs/Diagnostics 补全四 Tab。\n\n### 按钮穿透修复\n- 设置页/菜单步进器：禁用箭头消费事件不透传。\n\n### 目录步进导航\n- 10章/页，底部 << < [页/总] > >> 按钮，段宽 68px 间隔 8px。\n\n### 其他\n- 16px PROGMEM 小字体、NVS 持久化修复、书架页码对齐、启动屏闪优化。",
+      "changelog": "## Vink-PaperS3 v0.4.21（诊断版·30s窗口）\n\n> SHA256: `39d285791d00be36434a7449581c94962c86f3c424735bc0bdc696f3be10283c`\n> 侧键检测：裸 `digitalRead(GPIO36)` + 双采样防抖 + 等待HIGH后arm + 前30s仅记日志不关机。\n\n### 侧键关机（诊断中）\n- 裸 `digitalRead(36)`，不调 `pinMode`，零寄存器写入。\n- 双采样防抖（5ms 间隔），等待 GPIO36 回 HIGH 后 arm（10s 超时兜底）。\n- **前 30 秒诊断窗口**：检测到 LOW 只记日志不触发关机，方便进系统日志页查看跳变记录。\n- 30 秒后恢复正常：HIGH→LOW 触发 PowerButton 关机。\n- 关键日志：`side-key GPIO36 armed HIGH` / `side-key LOW #1` / `side-key HIGH #1` / `side-key LOW #N -> shutdown`。\n\n### Tab 点击修复\n- ReaderMenu 态先检 Tab 再 handleTap；SystemLogs/Diagnostics 补全四 Tab。\n\n### 其他\n- 按钮穿透修复、目录步进导航、16px PROGMEM 小字体、NVS 持久化修复、书架页码对齐、启动屏闪优化。",
       "assets": {
         "full": {
           "name": "Vink-PaperS3-v0.4.21-full-16MB.bin",

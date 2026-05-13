@@ -180,9 +180,22 @@ void InputService::pollSideKey(uint32_t now) {
 
     if (low && !sideKeyWasLow_) {
         sideKeyWasLow_ = true;
+        sideKeyTransitionCount_++;
+        Serial.printf("[vink3][power] side-key GPIO36 HIGH→LOW (#%d)\n", sideKeyTransitionCount_);
+        g_systemLog.appendf("side-key LOW #%d", sideKeyTransitionCount_);
+
+        // For the first 30 s after boot, only log — do not actually shut
+        // down.  This gives enough time to open the system-log page and
+        // inspect the GPIO36 transition trail.
+        if (now < 30000) {
+            Serial.println("[vink3][power] (ignored — within 30 s diagnostic window)");
+            g_systemLog.append("side-key LOW ignored (diag window)");
+            return;
+        }
+
         sideKeyArmed_ = false;
-        Serial.println("[vink3][power] side-key GPIO36 LOW -> graceful shutdown");
-        g_systemLog.append("side-key GPIO36 LOW -> shutdown");
+        Serial.printf("[vink3][power] side-key GPIO36 LOW -> graceful shutdown\n");
+        g_systemLog.appendf("side-key LOW #%d -> shutdown", sideKeyTransitionCount_);
         Message msg;
         msg.type = MessageType::PowerButton;
         msg.timestampMs = now;
@@ -192,8 +205,9 @@ void InputService::pollSideKey(uint32_t now) {
 
     if (!low && sideKeyWasLow_) {
         sideKeyWasLow_ = false;
-        Serial.println("[vink3][power] side-key GPIO36 released (HIGH)");
-        g_systemLog.append("side-key GPIO36 released");
+        sideKeyTransitionCount_++;
+        Serial.printf("[vink3][power] side-key GPIO36 LOW→HIGH (#%d)\n", sideKeyTransitionCount_);
+        g_systemLog.appendf("side-key HIGH #%d", sideKeyTransitionCount_);
     }
 }
 
