@@ -110,7 +110,7 @@ bool VinkRuntime::beginHardware() {
 
     Serial.begin(115200);
     delay(200);
-    Serial.printf("\n[Vink %s] ReadPaper baseline %s @ %s\n", kVinkPaperS3FirmwareVersion, kReadPaperUpstreamVersion, kReadPaperUpstreamCommit);
+    Serial.printf("\n[Vink %s]\n", kVinkPaperS3FirmwareVersion);
     const int resetReason = static_cast<int>(esp_reset_reason());
     const int wakeCause = static_cast<int>(esp_sleep_get_wakeup_cause());
     const bool priorRunning = wasPaperS3RuntimeRunningBeforeReset();

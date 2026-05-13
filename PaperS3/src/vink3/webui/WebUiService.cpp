@@ -2,7 +2,7 @@
 #include "../reader/ReaderBookService.h"
 #include "../reader/ReaderTextRenderer.h"
 #include "../display/DisplayService.h"
-#include "../ReadPaper176.h"
+#include "../VinkPaperS3.h"
 #include <SD.h>
 #include <SPIFFS.h>
 #include <Preferences.h>

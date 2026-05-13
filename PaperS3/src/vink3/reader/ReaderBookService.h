@@ -2,7 +2,7 @@
 #include <Arduino.h>
 #include <SD.h>
 #include "../../ChapterDetector.h"
-#include "../ReadPaper176.h"
+#include "../VinkPaperS3.h"
 #include "ReaderTextRenderer.h"
 
 namespace vink3 {

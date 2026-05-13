@@ -3,7 +3,7 @@
 #include "../display/DisplayService.h"
 #include "../ui/VinkUiRenderer.h"
 #include "../text/CjkTextRenderer.h"
-#include "../ReadPaper176.h"
+#include "../VinkPaperS3.h"
 #include "../../Config.h"
 #include "../../TextCodec.h"
 #include <SPI.h>

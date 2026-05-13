@@ -2,7 +2,7 @@
 #include "VinkUiFont24.h"
 #include "VinkUiFont16.h"
 #include "../../Config.h"
-#include "../ReadPaper176.h"
+#include "../VinkPaperS3.h"
 #include <pgmspace.h>
 #include <cstring>
 

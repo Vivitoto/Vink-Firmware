@@ -3,7 +3,7 @@
 #define STB_TRUETYPE_IMPLEMENTATION
 #include "../text/stb_truetype.h"
 
-#include "../ReadPaper176.h"
+#include "../VinkPaperS3.h"
 #include <SPI.h>
 #include <cstring>
 

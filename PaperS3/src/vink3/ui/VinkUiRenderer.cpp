@@ -1,5 +1,5 @@
 #include "VinkUiRenderer.h"
-#include "../ReadPaper176.h"
+#include "../VinkPaperS3.h"
 #include "../display/DisplayService.h"
 #include "../reader/ReaderTextRenderer.h"
 #include "../sync/WifiService.h"
@@ -1017,27 +1017,78 @@ void VinkUiRenderer::renderSettings() {
         renderReaderSettings();
         return;
     }
+    if (showSystemSettings_) {
+        renderSystemSettings();
+        return;
+    }
 
     // ── Main settings page ────────────────────────────────────────────
-    // "阅读设置" card → taps open sub-page
+    // "阅读设置" / "系统设置" cards → taps open sub-pages
     constexpr int16_t kMainCardY = kContentY;
     constexpr int16_t kMainCardH = kRowH;
     drawSurfacePanel(canvas_, kMarginX, kMainCardY, kContentW, kMainCardH);
     const int16_t mainTextY = g_cjkText.lineTopForBox(kMainCardY, kMainCardH);
     g_cjkText.drawText(kMarginX + 22, mainTextY, "阅读设置", kInk);
-    // Chevron >
     g_cjkText.drawRight(kMarginX + kContentW - 22, mainTextY, ">", kInkMid);
 
-    // System group: title + rows use the same table row height.
+    constexpr int16_t kSysCardY = kMainCardY + kMainCardH + kSettingsGap;
+    drawSurfacePanel(canvas_, kMarginX, kSysCardY, kContentW, kMainCardH);
+    const int16_t sysTextY = g_cjkText.lineTopForBox(kSysCardY, kMainCardH);
+    g_cjkText.drawText(kMarginX + 22, sysTextY, "系统设置", kInk);
+    g_cjkText.drawRight(kMarginX + kContentW - 22, sysTextY, ">", kInkMid);
+
+    // System group: below the two sub-page cards.
+    constexpr int16_t kSysGroupY = kSysCardY + kMainCardH + kSettingsGap;
     static const char* kSysLabels[] = {"电源", "系统日志", "关于"};
     char logValue[24];
     snprintf(logValue, sizeof(logValue), "%u 条", static_cast<unsigned>(g_systemLog.count()));
     const char* sysValues[] = {"点按关机", logValue, kVinkPaperS3FirmwareVersion};
-    drawSettingsGroup(kMarginX, kMainCardY + kMainCardH + kSettingsGap, "系统", kSysLabels, sysValues, 3);
+    drawSettingsGroup(kMarginX, kSysGroupY, "系统", kSysLabels, sysValues, 3);
 }
 
+void VinkUiRenderer::showSystemSettings()  { showSystemSettings_ = true; }
+void VinkUiRenderer::hideSystemSettings() { showSystemSettings_ = false; }
+
 void VinkUiRenderer::showReaderSettings()  { showReaderSettings_ = true; }
-void VinkUiRenderer::hideReaderSettings() { showReaderSettings_ = false; }
+void VinkUiRenderer::hideReaderSettings() { showReaderSettings_ = false; showSystemSettings_ = false; }
+
+void VinkUiRenderer::renderSystemSettings() {
+    // ── Back row ───────────────────────────────────────────────────────
+    constexpr int16_t kBackY = kContentY;
+    drawSurfacePanel(canvas_, kMarginX, kBackY, 120, kRowH);
+    g_cjkText.drawText(kMarginX + 12, g_cjkText.lineTopForBox(kBackY, kRowH), "< 返回", kInkMid);
+
+    const int16_t kCardX = kMarginX;
+    const int16_t kCardW = kContentW;
+    const int16_t kLabelX = kCardX + 22;
+    const int16_t kValX = kCardX + kCardW - 22;
+    const int16_t kDivX = kLabelX;
+    const int16_t kDivW = kCardW - 44;
+
+    auto cardDiv = [&](int16_t y) { canvas_->drawFastHLine(kDivX, y, kDivW, kInkLight); };
+    auto titleRow = [&](int16_t cardY, const char* title) {
+        g_cjkText.drawText(kLabelX, g_cjkText.lineTopForBox(cardY, kRowH), title, kInkMid);
+        cardDiv(cardY + kRowH);
+    };
+    auto cardRow = [&](int16_t ry, const char* l, const char* v) {
+        const int16_t textY = g_cjkText.lineTopForBox(ry, kRowH);
+        g_cjkText.drawText(kLabelX, textY, l, kInk);
+        char valueLine[96];
+        g_cjkText.fitTextToWidth(v ? v : "", valueLine, sizeof(valueLine), kCardW - 180);
+        g_cjkText.drawRight(kValX, textY, valueLine, kInkMid);
+    };
+
+    const int16_t gy = kBackY + kRowH + kSettingsGap;
+
+    // ══════ 系统：title + toggle rows ══════
+    {
+        const int16_t cardH = 2 * kRowH;
+        drawSurfacePanel(canvas_, kCardX, gy, kCardW, cardH);
+        titleRow(gy, "系统");
+        const int16_t ry = gy + kRowH;
+        cardRow(ry, "双击锁屏/解锁", g_readerText.doubleTapUnlockLabel());
+    }
+}
 
 void VinkUiRenderer::renderReaderSettings() {
     // ── Back row ───────────────────────────────────────────────────────
@@ -1465,10 +1516,19 @@ UiAction VinkUiRenderer::hitTest(SystemState state, int16_t x, int16_t y) const 
                 }
                 break;
             }
-            // Main page: "阅读设置" card + system group table
+            if (showSystemSettings_) {
+                if (inRect(x, y, kMarginX, kContentY, 120, kRowH)) return UiAction::BackToSettings;
+                const int16_t g0 = kContentY + kRowH + kSettingsGap;
+                const int16_t ry = g0 + kRowH;
+                if (inRect(x, y, kMarginX + 22, ry, kContentW - 44, kRowH)) return UiAction::ToggleDoubleTapUnlock;
+                break;
+            }
+            // Main page: "阅读设置" card + "系统设置" card + system group table
             if (inRect(x, y, kMarginX, kContentY, kContentW, kRowH)) return UiAction::OpenReaderSettings;
             {
-                const int16_t sysY = kContentY + kRowH + kSettingsGap;
+                constexpr int16_t kSysCardY = kContentY + kRowH + kSettingsGap;
+                if (inRect(x, y, kMarginX, kSysCardY, kContentW, kRowH)) return UiAction::OpenSystemSettings;
+                const int16_t sysY = kSysCardY + kRowH + kSettingsGap;
                 if (inRect(x, y, 56, sysY + kRowH,          424, kRowH)) return UiAction::RequestShutdown;
                 if (inRect(x, y, 56, sysY + 2 * kRowH,      424, kRowH)) return UiAction::OpenSystemLogs;
                 if (inRect(x, y, 56, sysY + 3 * kRowH,      424, kRowH)) return UiAction::OpenSettings;

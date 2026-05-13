@@ -5,14 +5,9 @@
 
 namespace vink3 {
 
-static constexpr const char* kVinkPaperS3FirmwareVersion = "v0.4.25-local-edclock";
+static constexpr const char* kVinkPaperS3FirmwareVersion = "v0.4.26-local-vink";
 
-// Upstream baseline used for the v0.3.0 rewrite.
-// Source: https://github.com/shinemoon/M5ReadPaper main @ e910d29 (data/version: V1.7.6)
-static constexpr const char* kReadPaperUpstreamRepo = "shinemoon/M5ReadPaper";
-static constexpr const char* kReadPaperUpstreamCommit = "e910d29";
-static constexpr const char* kReadPaperUpstreamVersion = "V1.7.6";
-
+// Vink-PaperS3 hardware profile and device configuration.
 // Official M5Stack PaperS3 hardware profile.
 // Source: http://docs.m5stack.com/zh_CN/core/PaperS3
 static constexpr int16_t kPaperS3Width = 540;   // official touch-example portrait width at rotation 0

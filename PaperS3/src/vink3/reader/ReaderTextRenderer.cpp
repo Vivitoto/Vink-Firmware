@@ -1,6 +1,6 @@
 #include "ReaderTextRenderer.h"
 #include "../../Config.h"
-#include "../ReadPaper176.h"
+#include "../VinkPaperS3.h"
 #include "../text/WenkaiFullFont.h"
 #include "../text/CjkTextRenderer.h"
 #include "../system/SystemLog.h"

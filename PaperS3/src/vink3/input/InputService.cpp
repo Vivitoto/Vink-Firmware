@@ -1,7 +1,7 @@
 #include "InputService.h"
 #include "../display/DisplayService.h"
 #include "../system/SystemLog.h"
-#include "../ReadPaper176.h"
+#include "../VinkPaperS3.h"
 
 namespace vink3 {
 

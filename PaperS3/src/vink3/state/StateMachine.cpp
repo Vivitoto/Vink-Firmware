@@ -7,7 +7,7 @@
 #include "../system/SystemLog.h"
 #include "../ui/VinkUiRenderer.h"
 #include "../input/InputService.h"
-#include "../ReadPaper176.h"
+#include "../VinkPaperS3.h"
 #include <esp_sleep.h>
 #include <driver/gpio.h>
 
@@ -548,6 +548,23 @@ void StateMachine::handle(const Message& message) {
 
                 case UiAction::BackToSettings:
                     g_uiRenderer.hideReaderSettings();
+                    g_uiRenderer.hideSystemSettings();
+                    state_ = SystemState::Settings;
+                    g_uiRenderer.renderSettings();
+                    g_displayService.enqueueFull(false, 100);
+                    suppressAfterTransition();
+                    break;
+
+                case UiAction::OpenSystemSettings:
+                    g_uiRenderer.showSystemSettings();
+                    state_ = SystemState::Settings;
+                    g_uiRenderer.renderSettings();
+                    g_displayService.enqueueFull(false, 100);
+                    suppressAfterTransition();
+                    break;
+
+                case UiAction::ToggleDoubleTapUnlock:
+                    g_readerText.toggleDoubleTapUnlock();
                     state_ = SystemState::Settings;
                     g_uiRenderer.renderSettings();
                     g_displayService.enqueueFull(false, 100);

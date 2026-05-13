@@ -1,5 +1,5 @@
 #include <Arduino.h>
-#include "vink3/ReadPaper176.h"
+#include "vink3/VinkPaperS3.h"
 #include "vink3/runtime/VinkRuntime.h"
 
 namespace {

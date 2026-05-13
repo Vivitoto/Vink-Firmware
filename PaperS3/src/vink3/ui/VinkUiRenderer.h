@@ -39,6 +39,8 @@ enum class UiAction : uint8_t {
     BackHome,
     OpenReaderSettings,
     BackToSettings,
+    OpenSystemSettings,
+    ToggleDoubleTapUnlock,
 };
 
 class VinkUiRenderer {
@@ -69,6 +71,10 @@ public:
     bool isShowingReaderSettings() const { return showReaderSettings_; }
     void showReaderSettings();
     void hideReaderSettings();
+    void renderSystemSettings();  // sub-page: system options
+    bool isShowingSystemSettings() const { return showSystemSettings_; }
+    void showSystemSettings();
+    void hideSystemSettings();
     void renderReaderMenuOverlay(const char* bookTitle, const char* chapterTitle,
                                  const char* refreshLabel, bool antiAliasOn,
                                  const char* layoutLabel, bool underlineOn,
@@ -99,6 +105,7 @@ private:
 
     M5Canvas* canvas_ = nullptr;
     bool showReaderSettings_ = false;
+    bool showSystemSettings_ = false;
     bool lastReaderHomeHasBook_ = false;
     uint8_t systemLogPage_ = 0;  // 0 = latest page; higher pages show older wrapped rows
 };
