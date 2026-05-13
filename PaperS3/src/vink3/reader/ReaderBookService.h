@@ -24,6 +24,7 @@ public:
     const char* title() const { return title_; }
     const char* path() const { return bookPath_; }
     bool isShowingToc() const { return showingToc_; }
+    bool isReadingBody() const { return open_ && !showingToc_ && !showingBookEntry_ && !showingReaderMenu_; }
 
     void renderReaderHome();
     void renderShelfGrid(uint16_t page = 0);

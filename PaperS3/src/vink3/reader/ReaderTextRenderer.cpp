@@ -253,6 +253,18 @@ void ReaderTextRenderer::setPageTurnEffect(bool enabled) {
     Serial.printf("[vink3][reader] Vink page-turn effect -> %s render_opt1=0x%04x\n", pageTurnEffectLabel(), settings_.renderOpt1);
 }
 
+void ReaderTextRenderer::toggleDoubleTapUnlock() {
+    if (settings_.schema == 0) applyLayoutPresetToSettings();
+    setDoubleTapUnlock(!doubleTapUnlockEnabled());
+}
+
+void ReaderTextRenderer::setDoubleTapUnlock(bool enabled) {
+    if (settings_.schema == 0) applyLayoutPresetToSettings();
+    ReaderSettings::setSlot(settings_.renderOpt1, 6, enabled ? 1 : 0);
+    saveLocalSettings();
+    Serial.printf("[vink3][reader] double-tap lock/unlock -> %s render_opt1=0x%04x\n", doubleTapUnlockLabel(), settings_.renderOpt1);
+}
+
 void ReaderTextRenderer::cyclePageMargin() {
     if (settings_.schema == 0) applyLayoutPresetToSettings();
     const uint8_t next = (max(settings_.topBottomLevel(), settings_.leftRightLevel()) + 1) & 0x03;

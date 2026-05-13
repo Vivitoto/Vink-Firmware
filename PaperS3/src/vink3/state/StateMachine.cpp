@@ -97,6 +97,62 @@ bool shouldQualityRefreshTabSwitch() {
     return false;
 }
 
+constexpr uint32_t kDoubleTapWindowMs = 650;
+constexpr int16_t kDoubleTapSlopPx = 54;
+TouchPoint s_lastSemanticTap{};
+uint32_t s_lastSemanticTapMs = 0;
+bool s_lastSemanticTapInLockZone = false;
+bool s_lastSemanticTapInUnlockZone = false;
+
+bool isReaderLockZone(const TouchPoint& p) {
+    // Same zone as the lock screen unlock zone, drawn at bottom-right.
+    // A single tap here falls through to page-turn, but a double-tap triggers lock.
+    return p.x >= 300 && p.y >= 700;
+}
+
+bool isLockScreenUnlockZone(const TouchPoint& p) {
+    // Bottom-right zone drawn by renderLockScreen().
+    return p.x >= 300 && p.y >= 700;
+}
+
+bool consumeDoubleTapInZone(const Message& message, bool zoneNow, bool& previousZone) {
+    const uint32_t dt = message.timestampMs - s_lastSemanticTapMs;
+    const int dx = abs(message.touch.x - s_lastSemanticTap.x);
+    const int dy = abs(message.touch.y - s_lastSemanticTap.y);
+    const bool matched = zoneNow && previousZone && dt <= kDoubleTapWindowMs &&
+                         max(dx, dy) <= kDoubleTapSlopPx;
+    s_lastSemanticTap = message.touch;
+    s_lastSemanticTapMs = message.timestampMs;
+    s_lastSemanticTapInLockZone = isReaderLockZone(message.touch);
+    s_lastSemanticTapInUnlockZone = isLockScreenUnlockZone(message.touch);
+    if (matched) {
+        previousZone = false;
+        s_lastSemanticTapMs = 0;
+    }
+    return matched;
+}
+
+void renderSoftwareLockScreen() {
+    g_readerBook.saveCurrentProgress();
+    markPaperS3SoftwareLocked();
+    g_uiRenderer.renderLockScreen(g_readerBook.isOpen() ? g_readerBook.title() : nullptr);
+    g_displayService.enqueueFull(true, 100);
+    g_systemLog.append("software lock entered");
+}
+
+bool renderSideKeyUnlockResume() {
+    clearPaperS3SoftwareLocked();
+    if (!g_readerBook.isOpen()) g_readerBook.openLastBook();
+    if (g_readerBook.isOpen()) {
+        g_readerBook.renderCurrent();
+        g_systemLog.append("software lock resumed reader");
+        return true;
+    }
+    g_readerBook.renderReaderHome();
+    g_systemLog.append("software lock resume: no last book");
+    return false;
+}
+
 void enqueueReaderAwareRefresh(DisplayEffect effect = DisplayEffect::HorizontalShutter) {
     if (g_readerBook.consumeReadingPageRendered()) {
         // Page-turn direction contract:
@@ -140,6 +196,9 @@ void renderState(SystemState state) {
             break;
         case SystemState::ShutdownConfirm:
             g_uiRenderer.renderShutdownConfirm();
+            break;
+        case SystemState::Locked:
+            g_uiRenderer.renderLockScreen(g_readerBook.isOpen() ? g_readerBook.title() : nullptr);
             break;
         default:
             g_uiRenderer.renderHome(state);
@@ -191,8 +250,15 @@ void StateMachine::handle(const Message& message) {
         case MessageType::BootComplete:
             // v0.3.7-rc: v0.3.6 confirmed the official portrait baseline,
             // Vink-owned canvas refresh, and raw touch path on real PaperS3.
-            // Start in the normal reader home again while keeping diagnostics
-            // available from Settings for future hardware checks.
+            // If the previous boot was a software lock and the side key caused
+            // the reset, resume the last reader page instead of treating the
+            // reset as a shutdown request.
+            if (consumePaperS3SideKeyUnlockRequested()) {
+                state_ = renderSideKeyUnlockResume() ? SystemState::ReaderMenu : SystemState::Reader;
+                g_displayService.enqueueFull(true, 100);
+                suppressAfterTransition(500);
+                break;
+            }
             state_ = SystemState::Reader;
             renderState(state_);
             g_displayService.enqueueFull(true, 100);
@@ -201,6 +267,32 @@ void StateMachine::handle(const Message& message) {
 
         case MessageType::Tap:
         {
+            if (state_ == SystemState::Locked) {
+                if (!g_readerText.doubleTapUnlockEnabled()) break;
+                const bool unlockZone = isLockScreenUnlockZone(message.touch);
+                if (consumeDoubleTapInZone(message, unlockZone, s_lastSemanticTapInUnlockZone)) {
+                    state_ = renderSideKeyUnlockResume() ? SystemState::ReaderMenu : SystemState::Reader;
+                    g_displayService.enqueueFull(true, 100);
+                    suppressAfterTransition(500);
+                }
+                break;
+            }
+
+            if (state_ == SystemState::ReaderMenu && g_readerBook.isReadingBody()) {
+                // Only consume taps in the lock zone when double-tap lock is on.
+                // When disabled (factory default), fall through to normal tap handling.
+                if (g_readerText.doubleTapUnlockEnabled()) {
+                    const bool lockZone = isReaderLockZone(message.touch);
+                    if (consumeDoubleTapInZone(message, lockZone, s_lastSemanticTapInLockZone)) {
+                        renderSoftwareLockScreen();
+                        state_ = SystemState::Locked;
+                        suppressAfterTransition(500);
+                        break;
+                    }
+                    if (lockZone) break; // first tap of the hidden lock gesture is consumed
+                }
+            }
+
             if (state_ == SystemState::Diagnostics) {
                 const UiAction diagAction = g_uiRenderer.hitTest(state_, message.touch.x, message.touch.y);
                 if (diagAction >= UiAction::TabReader && diagAction <= UiAction::TabSettings) {

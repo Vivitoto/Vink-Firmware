@@ -5,7 +5,7 @@
 
 namespace vink3 {
 
-static constexpr const char* kVinkPaperS3FirmwareVersion = "v0.4.24";
+static constexpr const char* kVinkPaperS3FirmwareVersion = "v0.4.25-local-edclock";
 
 // Upstream baseline used for the v0.3.0 rewrite.
 // Source: https://github.com/shinemoon/M5ReadPaper main @ e910d29 (data/version: V1.7.6)
@@ -65,6 +65,12 @@ static inline void pulsePaperS3PowerOffPin(uint32_t highMs = 350, uint32_t settl
 void markPaperS3RuntimeRunning();
 void clearPaperS3RuntimeRunning();
 bool wasPaperS3RuntimeRunningBeforeReset();
+void markPaperS3SoftwareLocked();
+void clearPaperS3SoftwareLocked();
+bool wasPaperS3SoftwareLockedBeforeReset();
+void markPaperS3SideKeyUnlockRequested();
+bool isPaperS3SideKeyUnlockRequested();
+bool consumePaperS3SideKeyUnlockRequested();
 
 static constexpr uint32_t kDisplayMiddleRefreshThreshold = 8;
 static constexpr uint32_t kDisplayQualityFastThreshold = 18;

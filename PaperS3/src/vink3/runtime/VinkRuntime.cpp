@@ -22,7 +22,11 @@ VinkRuntime g_runtime;
 namespace {
 RTC_NOINIT_ATTR uint32_t s_runtimeRunningMagic;
 RTC_NOINIT_ATTR uint32_t s_runtimeRunningMagicInv;
+RTC_NOINIT_ATTR uint32_t s_softwareLockMagic;
+RTC_NOINIT_ATTR uint32_t s_softwareLockMagicInv;
 static constexpr uint32_t kRuntimeRunningMagic = 0x56494E4Bu; // "VINK"
+static constexpr uint32_t kSoftwareLockMagic = 0x564C4F43u; // "VLOC"
+bool s_sideKeyUnlockRequested = false;
 
 void configureOfficialPaperS3Gpios() {
     pinMode(static_cast<int>(kUsbDetectPin), INPUT);
@@ -59,6 +63,35 @@ void clearPaperS3RuntimeRunning() {
 bool wasPaperS3RuntimeRunningBeforeReset() {
     return s_runtimeRunningMagic == kRuntimeRunningMagic &&
            s_runtimeRunningMagicInv == ~kRuntimeRunningMagic;
+}
+
+void markPaperS3SoftwareLocked() {
+    s_softwareLockMagic = kSoftwareLockMagic;
+    s_softwareLockMagicInv = ~kSoftwareLockMagic;
+}
+
+void clearPaperS3SoftwareLocked() {
+    s_softwareLockMagic = 0;
+    s_softwareLockMagicInv = 0;
+}
+
+bool wasPaperS3SoftwareLockedBeforeReset() {
+    return s_softwareLockMagic == kSoftwareLockMagic &&
+           s_softwareLockMagicInv == ~kSoftwareLockMagic;
+}
+
+void markPaperS3SideKeyUnlockRequested() {
+    s_sideKeyUnlockRequested = true;
+}
+
+bool isPaperS3SideKeyUnlockRequested() {
+    return s_sideKeyUnlockRequested;
+}
+
+bool consumePaperS3SideKeyUnlockRequested() {
+    const bool requested = s_sideKeyUnlockRequested;
+    s_sideKeyUnlockRequested = false;
+    return requested;
 }
 
 bool VinkRuntime::begin() {
@@ -146,10 +179,18 @@ bool VinkRuntime::beginServices() {
 bool VinkRuntime::handleSideKeyResetShutdown() {
     // On PaperS3 the side key is not exposed as a normal ESP32-S3 GPIO button
     // in M5Unified. On real devices a running-device side-key click can instead
-    // reset the ESP32. Treat that specific "external reset while Vink was already
-    // running" as a shutdown request: redraw the retained power-off page, pulse
-    // GPIO44, then fall back to deep sleep if the latch did not cut power.
+    // reset the ESP32. EDCBook handles this by software state: if the device was
+    // fake-locked, the reset means "unlock/resume"; otherwise it emulates a
+    // side-key shutdown by drawing the retained power-off page and pulsing GPIO44.
     if (esp_reset_reason() != ESP_RST_EXT || !wasPaperS3RuntimeRunningBeforeReset()) return false;
+
+    if (wasPaperS3SoftwareLockedBeforeReset()) {
+        Serial.println("[vink3][power] external reset while software-locked -> side-key unlock/resume");
+        g_systemLog.append("side-key reset while locked -> unlock");
+        clearPaperS3SoftwareLocked();
+        markPaperS3SideKeyUnlockRequested();
+        return false;
+    }
 
     Serial.println("[vink3][power] external reset after running session -> side-key shutdown path");
     g_systemLog.append("side-key external reset -> shutdown");
@@ -178,10 +219,18 @@ bool VinkRuntime::handleSideKeyResetShutdown() {
 }
 
 void VinkRuntime::drawBoot() {
-    g_uiRenderer.renderBoot();
-    g_displayService.enqueueFull(true, 100);
-    g_displayService.waitIdle(3000);
-    delay(600);
+    // Side-key reset while software-locked is an EDCBook-style resume path.
+    // Do not flash the normal boot page first; leave the retained lock/reader
+    // image on the EPD until BootComplete restores the reader page.
+    if (!isPaperS3SideKeyUnlockRequested()) {
+        g_uiRenderer.renderBoot();
+        g_displayService.enqueueFull(true, 100);
+        g_displayService.waitIdle(3000);
+        delay(600);
+    } else {
+        Serial.println("[vink3][boot] skipping boot page for side-key unlock resume");
+        g_systemLog.append("skip boot page: side-key unlock");
+    }
 
     Message bootDone;
     bootDone.type = MessageType::BootComplete;

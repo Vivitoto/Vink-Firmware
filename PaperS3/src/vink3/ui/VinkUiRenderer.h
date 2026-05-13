@@ -78,6 +78,7 @@ public:
     bool scrollSystemLogs(int8_t pages);
     void resetSystemLogPage();
     void renderShutdownConfirm();
+    void renderLockScreen(const char* bookTitle = nullptr);
     void renderShutdown(const char* reason);
     void renderPowerOffReady();
 

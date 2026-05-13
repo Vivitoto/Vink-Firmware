@@ -5,6 +5,21 @@
   "description": "面向 M5Stack PaperS3 的 Vink 电子书阅读固件。",
   "releases": [
     {
+      "version": "v0.4.25-local-edclock",
+      "name": "Vink-PaperS3 v0.4.25-local-edclock",
+      "summary": "侧键锁屏/解锁、触摸命中层级修复、NVS只读降级。SHA256: 9ca4768d988306080b550bedccca20478942981019977c5aa86a687354a1cb9e[:8]...",
+      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.25-local-edclock",
+      "changelog": "## Vink-PaperS3 v0.4.25-local-edclock\n\n> SHA256: `9ca4768d988306080b550bedccca20478942981019977c5aa86a687354a1cb9e`\n\n### 阅读菜单触摸命中修复\n- 菜单卡片内非控件区域消费点击并保持菜单打开，不再穿透回正文。\n- 菜单未遮盖的正文区域可点击关闭菜单并回到阅读。\n- \"字体\"只响应右侧可见字体名称区域（按文本宽度收窄）。\n- \"字号\"只响应可见步进箭头按钮。\n\n### NVS 配置读取修复\n- Preferences::begin RO 打开失败自动降级为 RW 模式。\n\n### 验证\n- 本地 smoke test 通过。\n- PlatformIO release build 通过。\n- full 16MB 固件包 16777216 bytes。",
+      "assets": {
+        "full": {
+          "name": "Vink-PaperS3-v0.4.25-local-edclock-full-16MB.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.25-local-edclock/Vink-PaperS3-v0.4.25-local-edclock-full-16MB.bin",
+          "size": 16777216,
+          "flashOffset": 0
+        }
+      }
+    },
+    {
       "version": "v0.4.24",
       "name": "Vink-PaperS3 v0.4.24",
       "summary": "修复阅读菜单触摸命中 + NVS 只读降级回退。SHA256: b6e39177...",
@@ -76,21 +91,6 @@
           "url": "",
           "size": 16777216,
           "flashOffset": 0
-        }
-      }
-    },
-    {
-      "version": "v0.4.18",
-      "name": "Vink-PaperS3 v0.4.18",
-      "summary": "启动屏闪优化、系统日志换行分页、书卡章节进度、排版NVS诊断日志。SHA256: fe33c96f...",
-      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.18",
-      "changelog": "## Vink-PaperS3 v0.4.18 (rev 7db5138)\n\n> 与旧版 v0.4.18 区分：新版 SHA256 `fe33c96f50e66aa314fddbaff36d19c235633263cc2e31fcaa2c4dd7564303d6`，开机后系统日志页有 \"reader load rend1=0xXXXX\" 行。\n\n### 启动闪烁优化\n- 关闭 M5Unified 默认 `clear_display`，冷启动屏幕抖动从约 4 次降到约 2 次。\n\n### 系统日志增强\n- 长记录按屏幕宽度自动换行，续行缩进，16px 小字体渲染。\n- 上滑查看更早记录、下滑回到更新记录，显示页码（如 1/2）。\n- 清除日志或重新进入日志页时自动回到最新页。\n\n### 阅读进度显示\n- 书架卡片和阅读 Tab 底部 3 个小书卡：书名下方 16px 小字显示 \"第X章 · Y%\"。\n- 阅读 Tab 顶部大书卡：只显示书名（右侧已有进度面板）。\n\n### 排版设置诊断\n- loadLocalSettings / saveLocalSettings 增加 NVS 日志，重启后在系统日志页可看到 \"reader load rend1=0xXXXX preset=X\"。\n- 便于排查设置重启后不持久化的问题。\n\n### 验证\n- 本地 smoke test 全绿。\n- PlatformIO release build 通过，Flash 78.3% RAM 15.2%。\n- full 16MB 固件包 16777216 bytes。",
-      "assets": {
-        "full": {
-          "name": "Vink-PaperS3-v0.4.18-full-16MB.bin",
-          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.18/Vink-PaperS3-v0.4.18-full-16MB.bin",
-          "size": 16777216,
-          "flashOffset": "0x0"
         }
       }
     }

@@ -1308,6 +1308,33 @@ void VinkUiRenderer::renderShutdownConfirm() {
     drawButton(296, 530, 180, 56, "确认关机", true);
 }
 
+void VinkUiRenderer::renderLockScreen(const char* bookTitle) {
+    if (!canvas_) return;
+    clear();
+    drawStatusBar("已锁屏");
+
+    canvas_->fillRect(44, 204, 452, 458, kSurface);
+    drawThickBorder(44, 204, 452, 458, kInk);
+    g_cjkText.drawCentered(64, 264, 412, 54, "Vink 已锁屏", kInk);
+
+    char titleLine[96];
+    if (bookTitle && bookTitle[0]) {
+        g_cjkText.fitTextToWidth(bookTitle, titleLine, sizeof(titleLine), 360);
+        g_cjkText.drawCentered(84, 352, 372, 34, titleLine, kInkMid);
+    } else {
+        g_cjkText.drawCentered(84, 352, 372, 34, "当前阅读进度已保存", kInkMid);
+    }
+
+    g_cjkText.drawCentered(76, 430, 388, 32, "双击右下角解锁", kInk);
+    g_cjkText.drawCentered(76, 480, 388, 32, "或单击侧边键重启后恢复", kInkMid);
+    g_cjkText.drawCentered(76, 530, 388, 32, "这不是完全断电，耗电会高于关机", kInkMid);
+
+    canvas_->drawRect(334, 742, 168, 138, kInk);
+    canvas_->drawRect(342, 750, 152, 122, kInkLight);
+    g_cjkText.drawCentered(342, 782, 152, 38, "解锁区", kInk);
+    g_cjkText.drawCentered(342, 826, 152, 28, "双击", kInkMid);
+}
+
 void VinkUiRenderer::renderShutdown(const char* reason) {
     if (!canvas_) return;
     clear();

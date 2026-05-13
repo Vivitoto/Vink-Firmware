@@ -55,6 +55,7 @@ struct ReaderSettings {
     bool notchLockEnabled() const { return getSlot(renderOpt1, 2) != 0; }
     bool pageTurnEffectEnabled() const { return getSlot(renderOpt1, 3) != 0; }
     bool textShadowEnabled() const { return getSlot(renderOpt1, 4) != 0; }
+    bool doubleTapUnlockEnabled() const { return getSlot(renderOpt1, 6) != 0; }
 
     uint8_t topBottomLevel() const { return getSlot(spacing, 0); }
     uint8_t leftRightLevel() const { return getSlot(spacing, 1); }
@@ -120,6 +121,10 @@ public:
     void setPageTurnEffect(bool enabled);
     bool pageTurnEffectEnabled() const { return settings_.pageTurnEffectEnabled(); }
     const char* pageTurnEffectLabel() const { return pageTurnEffectEnabled() ? "开启" : "关闭"; }
+    bool doubleTapUnlockEnabled() const { return settings_.doubleTapUnlockEnabled(); }
+    void setDoubleTapUnlock(bool enabled);
+    void toggleDoubleTapUnlock();
+    const char* doubleTapUnlockLabel() const { return doubleTapUnlockEnabled() ? "开启" : "关闭"; }
     void cyclePageMargin();
     void setPageMarginLevel(uint8_t level);
     uint8_t pageMarginLevel() const { return max(settings_.topBottomLevel(), settings_.leftRightLevel()); }
