@@ -69,6 +69,7 @@ void InputService::taskLoop() {
         M5.update();
         const uint32_t now = millis();
         pollPowerButton(now);
+        pollSideKey(now);
         pollTouch();
         vTaskDelay(pdMS_TO_TICKS(kPollDelayMs));
     }
@@ -125,6 +126,44 @@ void InputService::pollPowerButton(uint32_t now) {
     if (!pressed && powerWasPressed_) {
         powerWasPressed_ = false;
         powerPressStartedMs_ = 0;
+    }
+}
+
+
+void InputService::pollSideKey(uint32_t now) {
+    if (!stateMachine_) return;
+
+    // Bare digitalRead — no pinMode, so the power latch circuit is undisturbed.
+    // GPIO36 in its reset-default state (input, floating) should still reflect
+    // the side-key press even though the pin is shared with the power circuit.
+    const bool low = digitalRead(36) == LOW;
+
+    if (!sideKeyArmed_) {
+        if (now > kPowerBootIgnoreMs) {
+            sideKeyArmed_ = true;
+            sideKeyWasLow_ = low;
+            Serial.printf("[vink3][power] side-key GPIO36 armed: initial=%s\n", low ? "LOW" : "HIGH");
+            g_systemLog.appendf("side-key GPIO36 armed init=%s", low ? "LOW" : "HIGH");
+        }
+        return;
+    }
+
+    if (low && !sideKeyWasLow_) {
+        sideKeyWasLow_ = true;
+        sideKeyArmed_ = false;
+        Serial.println("[vink3][power] side-key GPIO36 LOW -> graceful shutdown");
+        g_systemLog.append("side-key GPIO36 LOW -> shutdown");
+        Message msg;
+        msg.type = MessageType::PowerButton;
+        msg.timestampMs = now;
+        stateMachine_->post(msg, 0);
+        return;
+    }
+
+    if (!low && sideKeyWasLow_) {
+        sideKeyWasLow_ = false;
+        Serial.println("[vink3][power] side-key GPIO36 released (HIGH)");
+        g_systemLog.append("side-key GPIO36 released");
     }
 }
 

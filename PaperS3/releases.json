@@ -7,9 +7,9 @@
     {
       "version": "v0.4.21",
       "name": "Vink-PaperS3 v0.4.21",
-      "summary": "最终版：TOC步进导航、Tab点击修复、按钮穿透修复、16px PROGMEM字体。SHA256: 329562e7...",
+      "summary": "最终版：侧键关机测试(bare digitalRead无pinMode)、TOC步进导航、Tab点击修复、按钮穿透修复。SHA256: 09fed39c...",
       "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.21",
-      "changelog": "## Vink-PaperS3 v0.4.21（最终版）\n\n> SHA256: `329562e7342da1aa2e2a2c6023705fdaa5fa4faacbd97dcb8d30427e98c67596`\n> 侧键 GPIO36 方案已撤回——PaperS3 硬件上该引脚连接电源锁存电路，任何 pinMode 均干扰开机/关机。\n\n### Tab 标签可点击性修复\n- 目录页/书籍详情页（ReaderMenu 态）：先检测 Tab 命中再处理页面触摸。\n- 系统日志页/诊断页：补全 Reader/Library/Transfer 三个 Tab 的点击处理。\n\n### 按钮穿透修复\n- 设置页字号步进器：内置字体时禁用箭头透传 None，不会穿透到其他行。\n- 呼出菜单步进器：禁用箭头消费事件不穿透到 closeMenu。\n\n### 目录步进导航\n- 每页 10 章，行高 62px，导航栏 Y=890 H=38。\n- 底部 << < [页/总] > >> 步进按钮，段宽 68px 间隔 8px。\n\n### 布局调整\n- 书架页码与 TOC 导航同一纵线（Y=890 H=38）。\n- 步进符号统一改为 << < > >>。\n- 字号步进器框高统一 48px。\n\n### 其他\n- 16px PROGMEM 小字体（771 字形 96KB）。\n- NVS 持久化修复（RO→RW 降级）。\n- 启动屏闪优化。",
+      "changelog": "## Vink-PaperS3 v0.4.21（最终版·bare read）\n\n> SHA256: `09fed39c00813835f04d17df00bcd49e843b25846399ee1cc6d4ac5203ff82fd`\n> 侧键检测：裸 `digitalRead(GPIO36)`，不调用 `pinMode`，零寄存器写入，不干扰电源电路。\n> 与旧版 v0.4.21 区分：看 SHA256 或系统日志 `side-key GPIO36 armed init=HIGH/LOW`。\n\n### 侧键关机测试（bare read 最终版）\n- `digitalRead(36)` 裸读，不调 `pinMode`，GPIO36 保持芯片复位默认态。\n- 系统日志：`side-key GPIO36 armed init=HIGH/LOW` 确认就绪。\n- 日志 `side-key GPIO36 LOW -> shutdown` 表示检测到按下并触发关机。\n\n### Tab 标签可点击性修复\n- 目录页/书籍详情页（ReaderMenu 态）：先检测 Tab 命中再处理页面触摸。\n- 系统日志页/诊断页：补全 Reader/Library/Transfer 三个 Tab 的点击处理。\n\n### 按钮穿透修复\n- 设置页字号步进器：内置字体时禁用箭头透传 None，不会穿透到其他行。\n- 呼出菜单步进器：禁用箭头消费事件不穿透到 closeMenu。\n\n### 目录步进导航\n- 每页 10 章，行高 62px，导航栏 Y=890 H=38，底部 << < [页/总] > >> 步进按钮。\n\n### 其他\n- 16px PROGMEM 小字体（771 字形 96KB）、NVS 持久化修复、书架页码对齐、启动屏闪优化。",
       "assets": {
         "full": {
           "name": "Vink-PaperS3-v0.4.21-full-16MB.bin",
