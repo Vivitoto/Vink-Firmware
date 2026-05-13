@@ -144,11 +144,36 @@ void InputService::pollSideKey(uint32_t now) {
     const bool low = low1 && low2;  // both must agree
 
     if (!sideKeyArmed_) {
+        // Wait until the boot-ignore interval has passed AND the pin has been
+        // observed HIGH at least once.  On some PaperS3 units the power-latch
+        // circuit holds GPIO36 low for several seconds after power-on.
+        // If the pin never goes HIGH within 10 s we arm anyway (with a log
+        // warning) so the device does not stay permanently unarmed.
         if (now > kPowerBootIgnoreMs) {
-            sideKeyArmed_ = true;
-            sideKeyWasLow_ = low;
-            Serial.printf("[vink3][power] side-key GPIO36 armed: initial=%s\n", low ? "LOW" : "HIGH");
-            g_systemLog.appendf("side-key GPIO36 armed init=%s", low ? "LOW" : "HIGH");
+            if (!low) {
+                // Pin is HIGH — arm now.
+                sideKeyArmed_ = true;
+                sideKeyWasLow_ = false;
+                sideKeyWaitLogged_ = false;
+                Serial.println("[vink3][power] side-key GPIO36 armed: HIGH");
+                g_systemLog.append("side-key GPIO36 armed HIGH");
+                return;
+            }
+            // Pin is still LOW — log once, then wait.
+            if (!sideKeyWaitLogged_) {
+                sideKeyWaitLogged_ = true;
+                sideKeyArmStartMs_ = now;
+                Serial.println("[vink3][power] side-key GPIO36 still LOW, waiting for HIGH (10s timeout)");
+                g_systemLog.append("side-key GPIO36 waiting HIGH");
+            }
+            // Fallback: arm after 10 s even if pin never went HIGH.
+            if (now - sideKeyArmStartMs_ > 10000) {
+                sideKeyArmed_ = true;
+                sideKeyWasLow_ = true;  // treat current LOW as the baseline
+                sideKeyWaitLogged_ = false;
+                Serial.println("[vink3][power] side-key GPIO36 armed (forced after 10s timeout)");
+                g_systemLog.append("side-key GPIO36 armed forced");
+            }
         }
         return;
     }

@@ -35,6 +35,8 @@ private:
     bool powerWasPressed_ = false;
     bool sideKeyArmed_ = false;
     bool sideKeyWasLow_ = false;
+    bool sideKeyWaitLogged_ = false;
+    uint32_t sideKeyArmStartMs_ = 0;
     uint32_t powerPressStartedMs_ = 0;
     uint32_t lastPowerClickMs_ = 0;
 };
