@@ -11,7 +11,7 @@ namespace {
 constexpr uint32_t kPollDelayMs = 10;
 constexpr uint32_t kDebounceMs = 35;
 constexpr uint32_t kMoveDiagnosticMs = 100;
-constexpr uint32_t kPowerBootIgnoreMs = 1200;
+constexpr uint32_t kPowerBootIgnoreMs = 3000;
 constexpr uint32_t kLongPressMs = 700;
 constexpr int16_t kTapSlopPx = 30;
 constexpr int16_t kLongPressMovePx = 34;
@@ -134,9 +134,14 @@ void InputService::pollSideKey(uint32_t now) {
     if (!stateMachine_) return;
 
     // Bare digitalRead — no pinMode, so the power latch circuit is undisturbed.
-    // GPIO36 in its reset-default state (input, floating) should still reflect
-    // the side-key press even though the pin is shared with the power circuit.
-    const bool low = digitalRead(36) == LOW;
+    // GPIO36 in its reset-default state (input, floating) reads the side key
+    // directly.  Take two samples 5 ms apart and require both to agree so that
+    // floating-pin noise and power-on transients do not trigger a spurious
+    // shutdown during or right after boot.
+    const bool low1 = digitalRead(36) == LOW;
+    delayMicroseconds(5000);
+    const bool low2 = digitalRead(36) == LOW;
+    const bool low = low1 && low2;  // both must agree
 
     if (!sideKeyArmed_) {
         if (now > kPowerBootIgnoreMs) {
