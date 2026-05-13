@@ -5,6 +5,21 @@
   "description": "面向 M5Stack PaperS3 的 Vink 电子书阅读固件。",
   "releases": [
     {
+      "version": "v0.4.23",
+      "name": "Vink-PaperS3 v0.4.23",
+      "summary": "修复阅读菜单触摸命中层级和字体/字号点击区域，避免菜单内点击穿透回正文。SHA256: 99fc9904...",
+      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.23",
+      "changelog": "## Vink-PaperS3 v0.4.23\n\n> SHA256: `99fc9904662f755f608523f06d848c347c1800333bf0c80a32b8ae1cf465c391`\n\n### 阅读触摸命中修复\n- 统一“可见即有效、不可见即无效”的顶部/菜单命中原则。\n- 正文阅读页没有可见 TAB 时，不响应隐藏 TAB 坐标。\n- 阅读菜单卡片内部的非控件区域会消费点击并保持菜单打开，不再穿透回正文。\n- 菜单未遮盖的正文区域仍可点击关闭菜单并回到正文阅读，已调整的配置继续生效。\n\n### 字体 / 字号点击区域\n- “字体”只响应右侧实际可见字体名称区域，按文本宽度动态收拢，兼容长短不同的字体名。\n- “字号”只响应右侧可见步进箭头按钮；点击“字号”文字或行背景不再关闭菜单/穿透。\n\n### 验证\n- 本地 smoke test 通过。\n- PlatformIO release build 通过。\n- full 16MB 固件包 16777216 bytes。",
+      "assets": {
+        "full": {
+          "name": "Vink-PaperS3-v0.4.23-full-16MB.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.23/Vink-PaperS3-v0.4.23-full-16MB.bin",
+          "size": 16777216,
+          "flashOffset": 0
+        }
+      }
+    },
+    {
       "version": "v0.4.22-local4",
       "name": "Vink-PaperS3 v0.4.22-local4",
       "summary": "PMIC 侧键事件诊断包：禁用 GPIO36 日志，仅记录 BtnPWR click/hold，不触发关机。SHA256: 14a51be2...",
@@ -74,21 +89,6 @@
         "full": {
           "name": "Vink-PaperS3-v0.4.17-full-16MB.bin",
           "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.17/Vink-PaperS3-v0.4.17-full-16MB.bin",
-          "size": 16777216,
-          "flashOffset": "0x0"
-        }
-      }
-    },
-    {
-      "version": "v0.4.16",
-      "name": "Vink-PaperS3 v0.4.16",
-      "summary": "修复 v0.4.15 正文空白根因：全量文楷覆盖+缺字占位，并统一 UI/阅读菜单/书架布局、TAB 低频清残影、60px native sweep 翻页",
-      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.16",
-      "changelog": "## Vink-PaperS3 v0.4.16\n\n### 正文阅读显示\n- 正文 32px 霞鹜文楷字库从稀疏 7195 字扩展到 11450 字，覆盖 GB2312 完整汉字、英文大小写、数字、中英文/全角标点和章节常用字。\n- 修复正文 glyph 未按 `bearingY` 对齐导致的字高低不齐、标点/英文 descender 显示异常。\n- 保留 PaperS3 16 灰阶抗锯齿，同时对浅灰边缘做墨色增强，减少“淡墨/断笔”观感，不退回纯黑白硬阈值。\n\n### UI 对齐与设置页排版\n- 统一框内文字的视觉居中算法：按钮、Tab、列表行、设置项、进度框等均基于 glyph 真实视觉边界居中。\n- 设置 TAB 改为单列等高表格体系：标准行高 64px，组标题/项目/返回行统一高度。\n- 设置页卡片内保留短淡横线分隔，卡片间距统一为半行高。\n\n### 书架与文件浏览器\n- 文件浏览器子目录顶部返回现在回到上级目录，只有在 `/books` 根目录才返回书架。\n- 文件浏览器行高从 52px 增大到 64px，每页 9 项，点击区域更大更准确。\n\n### 阅读首页\n- 阅读 TAB 顶部当前/最近书卡保持宽度不变，高度缩短到与下方小书卡接近的比例。\n- 继续保持最近阅读与进度框居中显示。\n\n### 电源键\n- 侧键关机检测改为按下瞬间触发 graceful shutdown，尽量抢在 PMIC/底层重启路径前处理。\n- 若真机仍表现为重启，则说明该短按路径在当前 PaperS3/M5Unified 组合下可能无法被固件可靠拦截，屏幕设置页关机仍是可靠路径。\n\n\n\n\n### 正文空白防线\n- 修复 v0.4.15 稀疏正文文楷字库导致高频汉字缺失后被静默跳过、正文看起来空白的问题；v0.4.16 正文字库覆盖常用 GB2312 字符。\n- 正文渲染新增缺字可见占位框：即使未来遇到罕见字/未覆盖字符，也不会再静默空白。\n- 本地 smoke test 增加正文 32px 文楷常用汉字覆盖检查，防止再次发布稀疏字库。\n\n### 阅读菜单\n- 呼出阅读菜单改为更宽松的 64px 单元格节奏，行间距放大，避免菜单项拥挤。\n- 阅读菜单底部按钮改为 `返回阅读`，点击后回到阅读 TAB 首页，而不是关闭菜单回到正文阅读页。\n\n### 书架 / 阅读首页细节补齐\n- 书架 TAB 的“浏览书籍文件”入口统一为 64px 标准单元格行高。\n- 文件浏览器顶部返回/路径行与列表行统一为 64px 触控节奏；书架 3×3 小书卡略微压缩高度，避免整体挤压。\n- 阅读 TAB 的“最近阅读”标签统一为 64px 单元格高度；阅读进度改为无框文字，并向信息区中线收拢，减少上下空旷。\n\n### EPD 刷新/残影优化\n- 顶部 TAB 页面切换默认使用 GL16/text 波形保证响应速度，每 8 次 TAB 切换做一次 quality 清残影，兼顾速度和效果。\n- 翻页效果开启时使用 60px 竖向条带 native sweep：每条刷新真实新页面内容，不画软件刷新条；下一页默认右→左，上一页左→右，并使用 `epd_text` / GL16 文本波形降低残影。\n\n### 验证\n- 本地 smoke test 通过。\n- PlatformIO release build 通过。\n- full 16MB 固件包重新生成。",
-      "assets": {
-        "full": {
-          "name": "Vink-PaperS3-v0.4.16-full-16MB.bin",
-          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.16/Vink-PaperS3-v0.4.16-full-16MB.bin",
           "size": 16777216,
           "flashOffset": "0x0"
         }

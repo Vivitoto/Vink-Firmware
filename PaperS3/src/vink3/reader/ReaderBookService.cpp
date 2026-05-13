@@ -1752,6 +1752,10 @@ bool ReaderBookService::handleTap(int16_t x, int16_t y) {
             return tx >= rx && tx < rx + rw && ty >= ry && ty < ry + rh;
         };
 
+        // Only the part of the underlying reading page that remains visibly
+        // uncovered is allowed to behave like the reading page/backdrop. Once a
+        // tap lands inside the drawn menu card, non-action chrome must consume
+        // the tap instead of "falling through" and closing the menu.
         if (x < kMCX || x >= kMCX + kMCW || y < kMCY || y >= kMCY + kMCH) return closeReaderMenu();
 
         // Grid: 3 rows of 64px cells, same vertical rhythm as Settings rows.
@@ -1763,37 +1767,47 @@ bool ReaderBookService::handleTap(int16_t x, int16_t y) {
         if (inRect(x, y, kCol0, kGY + 2 * (kIH + kGapY), kIW, kIH)) return togglePageTurnEffect();
         if (inRect(x, y, kCol1, kGY + 2 * (kIH + kGapY), kIW, kIH)) return cyclePageMargin();
 
-        // Font source (below grid)
+        // Font source (below grid). The active hit box follows the visible font
+        // name on the right, not the whole row, so tapping the "字体" label is
+        // inert and cannot punch through to the reading page.
         constexpr int16_t kFW = 460, kFH = 64;
         constexpr int16_t kFY = kGY + 3 * kIH + 2 * kGapY + 16;
-        if (inRect(x, y, kCol0, kFY, kFW, kFH)) {
-            g_readerText.cycleFontSource();
-            g_readerBook.invalidatePaginationForLayoutChange();
-            showingReaderMenu_ = true;
-            renderReaderMenuPage();
-            return true;
+        {
+            char fontSrcLine[96];
+            g_cjkText.fitTextToWidth(g_readerText.fontSourceLabel(), fontSrcLine, sizeof(fontSrcLine), kFW - 120);
+            const int16_t valueRight = kCol0 + kFW - 20;
+            const int16_t valueW = g_cjkText.textWidth(fontSrcLine);
+            const int16_t valueX = max<int16_t>(kCol0 + 120, valueRight - valueW - 18);
+            const int16_t valueWWithPad = valueRight - valueX + 18;
+            if (inRect(x, y, valueX, kFY, valueWWithPad, kFH)) {
+                g_readerText.cycleFontSource();
+                g_readerBook.invalidatePaginationForLayoutChange();
+                showingReaderMenu_ = true;
+                renderReaderMenuPage();
+                return true;
+            }
         }
-        // Font size stepper: match rendering (5×60px segments, 8px gap built-in via inner width)
+        // Font size stepper: only the visible arrow buttons are active. Row
+        // label/background taps are consumed below and keep the menu open.
         {
             const int16_t sY = kFY + kFH + 10;
-            const int16_t sX = kCol0 + kFW - 20 - 5 * 60;
-            constexpr int16_t sH = 44;
-            constexpr int16_t sW = 60;
+            const int16_t sX = kCol0 + kFW - 20 - 5 * 64;
+            constexpr int16_t sH = 48;
+            constexpr int16_t sW = 64;
             const int16_t segY = sY + (kFH - sH) / 2;
             bool hit = false;
             const bool isSd = g_readerText.isSdFont();
-            auto inSeg = [&](int si) { return inRect(x, y, sX + si * sW, segY, sW, sH); };
+            auto inSeg = [&](int si) { return inRect(x, y, sX + si * sW, segY, sW - 4, sH); };
             if (isSd && inSeg(0))      { g_readerText.stepSdFontSize(-4); hit = true; }
             else if (inSeg(0))          { hit = true; /* disabled */ }
             else if (isSd && inSeg(1))  { g_readerText.stepSdFontSize(-1); hit = true; }
             else if (inSeg(1))          { hit = true; /* disabled */ }
-            else if (!isSd && inSeg(2)) { g_readerText.cycleReaderFontSize(); hit = true; }
             else if (isSd && inSeg(3))  { g_readerText.stepSdFontSize(1);  hit = true; }
             else if (inSeg(3))          { hit = true; /* disabled */ }
             else if (isSd && inSeg(4))  { g_readerText.stepSdFontSize(4);  hit = true; }
             else if (inSeg(4))          { hit = true; /* disabled */ }
             if (hit) {
-                g_readerBook.invalidatePaginationForLayoutChange();
+                if (isSd) g_readerBook.invalidatePaginationForLayoutChange();
                 renderReaderMenuPage();
                 return true;
             }
@@ -1815,8 +1829,10 @@ bool ReaderBookService::handleTap(int16_t x, int16_t y) {
             lastTapBackHome_ = true;
             return true;
         }
-        // Tap inside card but outside items → close to body reading, like a modal backdrop.
-        return closeReaderMenu();
+        // Inside the visible menu card but outside concrete controls: consume the
+        // tap and keep the overlay. Only the uncovered body outside kMC* closes
+        // the menu and resumes reading.
+        return true;
     }
     if (showingBookEntry_) {
         if (x >= kEntryButtonX && x < kEntryButtonX + kEntryButtonW && y >= kEntryContinueY && y < kEntryContinueY + kEntryButtonH) return continueReading();

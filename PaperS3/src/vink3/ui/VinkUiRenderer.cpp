@@ -1390,9 +1390,20 @@ UiAction VinkUiRenderer::hitTest(SystemState state, int16_t x, int16_t y) const 
                 if (inRect(x, y, kMarginX, kContentY, 120, kRowH)) return UiAction::BackToSettings;
                 const int16_t g0 = kContentY + kRowH + kSettingsGap;
                 {
-                    // 排版 table: title + 字体 / 字号 / 页边距 / 行间距
+                    // 排版 table: title + 字体 / 字号 / 页边距 / 行间距.
+                    // Font source uses the visible value text as its hit target;
+                    // the row label/background are inert so hidden-wide rows do
+                    // not feel like touch-through controls.
                     int16_t ry = g0 + kRowH;
-                    if (inRect(x, y, kMarginX + 22, ry, kContentW - 44, kRowH)) return UiAction::CycleReaderFontSource;
+                    {
+                        char fontSrcLine[96];
+                        g_cjkText.fitTextToWidth(g_readerText.fontSourceLabel(), fontSrcLine, sizeof(fontSrcLine), kContentW - 180);
+                        const int16_t valueRight = kMarginX + kContentW - 22;
+                        const int16_t valueW = g_cjkText.textWidth(fontSrcLine);
+                        const int16_t valueX = max<int16_t>(kMarginX + 150, valueRight - valueW - 18);
+                        const int16_t valueWWithPad = valueRight - valueX + 18;
+                        if (inRect(x, y, valueX, ry, valueWWithPad, kRowH)) return UiAction::CycleReaderFontSource;
+                    }
                     ry += kRowH;
                     constexpr int16_t kSegW = 60;
                     constexpr int16_t kSegH = 48;
@@ -1404,7 +1415,6 @@ UiAction VinkUiRenderer::hitTest(SystemState state, int16_t x, int16_t y) const 
                     if (inStepperY && x >= segX && x < segX + 5 * kSegW) {
                         if (isSd && inRect(x, y, segX,                 segY, kW, kSegH)) return UiAction::DecreaseSdFontSizeBig;
                         if (isSd && inRect(x, y, segX + kSegW,         segY, kW, kSegH)) return UiAction::DecreaseSdFontSize;
-                        if (!isSd && inRect(x, y, segX + 2 * kSegW,    segY, kW, kSegH)) return UiAction::CycleReaderFontSize;
                         if (isSd && inRect(x, y, segX + 3 * kSegW,     segY, kW, kSegH)) return UiAction::IncreaseSdFontSize;
                         if (isSd && inRect(x, y, segX + 4 * kSegW,     segY, kW, kSegH)) return UiAction::IncreaseSdFontSizeBig;
                         return UiAction::None; // tapped in stepper but button disabled — consume
