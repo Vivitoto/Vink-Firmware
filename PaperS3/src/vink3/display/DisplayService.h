@@ -10,13 +10,13 @@ enum class DisplayEffect : uint8_t {
     VerticalShutter = 1,
     HorizontalShutter = 2,
     Rect = 3,
-    SweepBands = 4,  // EDCBook-style vertical strip sweep with flash-before-reveal
+    SweepBands = 4,  // EDCBook-style narrow vertical line sweep
 };
 
 enum class ReaderRefreshStrategy : uint8_t {
-    Speed = 0,
-    Balanced = 1,
-    Clear = 2,
+    Speed = 0,    // legacy value reused as full-clean frequency: low
+    Balanced = 1, // full-clean frequency: medium
+    Clear = 2,    // full-clean frequency: high
 };
 
 // ReadPaper 1.7.6 style display message: flags + effect + rectangle.
@@ -48,11 +48,8 @@ public:
     void forceNextReaderFullRefresh();
     void cycleReaderRefreshStrategy();
     void setReaderRefreshStrategy(ReaderRefreshStrategy strategy);
-    void setReaderRefreshIntervals(uint8_t middleEvery, uint8_t fullEvery);
     bool saveLocalSettings() const;
     ReaderRefreshStrategy readerRefreshStrategy() const { return readerRefreshStrategy_; }
-    uint8_t readerMiddleRefreshEvery() const { return readerMiddleRefreshEvery_; }
-    uint8_t readerFullRefreshEvery() const { return readerFullRefreshEvery_; }
     const char* readerRefreshStrategyLabel() const;
 
 private:
@@ -81,8 +78,6 @@ private:
     // interactive UI, with periodic quality refreshes to clean ghosting.
     bool fastRefresh_ = true;
     ReaderRefreshStrategy readerRefreshStrategy_ = ReaderRefreshStrategy::Balanced;
-    uint8_t readerMiddleRefreshEvery_ = 0;
-    uint8_t readerFullRefreshEvery_ = 0;
 };
 
 extern DisplayService g_displayService;

@@ -219,9 +219,7 @@ static const char kHtml[] PROGMEM = R"rawliteral(
     <div class="row"><label>排版模式</label><select id="layoutPreset"><option value="0">原始</option><option value="1">优化</option><option value="2">紧凑</option></select></div>
   </div>
   <div class="card"><h2>刷新策略</h2>
-    <div class="row"><label>翻页刷新模式</label><select id="refreshStrategy"><option value="0">高速</option><option value="1">标准</option><option value="2">清晰</option></select></div>
-    <div class="row"><label>中间清影页数</label><input type="number" id="readerMiddleRefreshEvery" min="0" max="60"><span>0=按模式自动</span></div>
-    <div class="row"><label>全屏清影页数</label><input type="number" id="readerFullRefreshEvery" min="0" max="60"><span>0=按模式自动</span></div>
+    <div class="row"><label>全刷频率</label><select id="refreshStrategy"><option value="0">低</option><option value="1">中</option><option value="2">高</option></select><span>低=20页，中=10页，高=5页</span></div>
   </div>
   <div class="card"><h2>显示效果</h2>
     <div class="row"><label>抗锯齿</label><input type="checkbox" id="antiAlias"></div>
@@ -251,8 +249,8 @@ async function mkdir(){let n=prompt('目录名');if(!n)return;let p=join(cur,n);
 async function del(p){if(!confirm('删除 '+p+' ?'))return;let r=await fetch('/api/files/'+enc(p),{method:'DELETE'});showMsg(r.ok?'已删除':'删除失败',r.ok);load()}
 async function ren(p){let n=prompt('新路径',p);if(!n||n===p)return;let r=await fetch('/api/files/rename?from='+encodeURIComponent(p)+'&to='+encodeURIComponent(n),{method:'POST'});showMsg(r.ok?'已重命名':'重命名失败',r.ok);load()}
 async function upload(base){let fs=$('files').files;if(!fs.length){showMsg('请选择文件',false);return}await fetch('/api/files?path='+encodeURIComponent(base),{method:'POST'});for(const f of fs){let dest=join(base,f.name);let r=await fetch('/api/files/'+enc(dest),{method:'PUT',body:f});if(!r.ok){showMsg('上传失败：'+f.name,false);return}}showMsg('上传完成');$('files').value='';go(base)}
-async function loadConfig(){let c=await (await fetch('/api/config')).json();['fontSize','lineSpacing','paragraphSpacing','indentFirstLine','marginLeft','marginRight','marginTop','marginBottom','layoutPreset','refreshStrategy','readerMiddleRefreshEvery','readerFullRefreshEvery','wifiSsid','autoSleepMinutes','lockScreenImagePath'].forEach(id=>{if($(id)&&c[id]!==undefined)$(id).value=c[id]});['justify','antiAlias','underline','pageTurnEffect','doubleTapUnlock','autoSleepEnabled','lockScreenEnabled','lockScreenWakeOnDoubleClick','simplifiedChinese'].forEach(id=>{if($(id)&&c[id]!==undefined)$(id).checked=!!c[id]});if($('wifiPassword'))$('wifiPassword').placeholder=c.wifiPasswordSet?'已保存，留空不修改':'留空不设置'}
-async function saveConfig(){let body=new URLSearchParams();['fontSize','lineSpacing','paragraphSpacing','indentFirstLine','marginLeft','marginRight','marginTop','marginBottom','layoutPreset','refreshStrategy','readerMiddleRefreshEvery','readerFullRefreshEvery','wifiSsid'].forEach(id=>body.set(id,$(id).value));if($('wifiPassword').value)body.set('wifiPassword',$('wifiPassword').value);['justify','antiAlias','underline','pageTurnEffect','doubleTapUnlock'].forEach(id=>body.set(id,$(id).checked?'1':'0'));let r=await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body});let j=await r.json();let m=$('cfgMsg');m.style.display='block';m.className='msg '+(j.saved?'ok':'err');m.textContent=j.saved?'已保存到本机配置':'保存失败';if(j.saved)loadConfig()}
+async function loadConfig(){let c=await (await fetch('/api/config')).json();['fontSize','lineSpacing','paragraphSpacing','indentFirstLine','marginLeft','marginRight','marginTop','marginBottom','layoutPreset','refreshStrategy','wifiSsid','autoSleepMinutes','lockScreenImagePath'].forEach(id=>{if($(id)&&c[id]!==undefined)$(id).value=c[id]});['justify','antiAlias','underline','pageTurnEffect','doubleTapUnlock','autoSleepEnabled','lockScreenEnabled','lockScreenWakeOnDoubleClick','simplifiedChinese'].forEach(id=>{if($(id)&&c[id]!==undefined)$(id).checked=!!c[id]});if($('wifiPassword'))$('wifiPassword').placeholder=c.wifiPasswordSet?'已保存，留空不修改':'留空不设置'}
+async function saveConfig(){let body=new URLSearchParams();['fontSize','lineSpacing','paragraphSpacing','indentFirstLine','marginLeft','marginRight','marginTop','marginBottom','layoutPreset','refreshStrategy','wifiSsid'].forEach(id=>body.set(id,$(id).value));if($('wifiPassword').value)body.set('wifiPassword',$('wifiPassword').value);['justify','antiAlias','underline','pageTurnEffect','doubleTapUnlock'].forEach(id=>body.set(id,$(id).checked?'1':'0'));let r=await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body});let j=await r.json();let m=$('cfgMsg');m.style.display='block';m.className='msg '+(j.saved?'ok':'err');m.textContent=j.saved?'已保存到本机配置':'保存失败';if(j.saved)loadConfig()}
 async function info(){let r=await fetch('/api/system/info');let i=await r.json();$('info').innerHTML='固件版本：'+esc(i.version)+'<br>访问地址：http://'+esc(i.ip)+'<br>可用内存：'+i.freeHeap+' B<br>PSRAM：'+i.freePsram+' B<br>Flash：'+i.flashSize+' B<br>SD：'+i.sdUsed+' / '+i.sdTotal+' B<br>运行时间：'+Math.floor(i.uptimeSeconds/60)+' 分钟'}
 load();info();
 </script></body></html>
@@ -455,8 +453,6 @@ String configJson() {
     body += "\"pageTurnEffect\":" + String(g_readerText.pageTurnEffectEnabled() ? "true" : "false") + ",";
     body += "\"doubleTapUnlock\":" + String(g_readerText.doubleTapUnlockEnabled() ? "true" : "false") + ",";
     body += "\"refreshStrategy\":" + String(static_cast<uint8_t>(g_displayService.readerRefreshStrategy())) + ",";
-    body += "\"readerMiddleRefreshEvery\":" + String(g_displayService.readerMiddleRefreshEvery()) + ",";
-    body += "\"readerFullRefreshEvery\":" + String(g_displayService.readerFullRefreshEvery()) + ",";
     body += "\"wifiSsid\":\"" + jsonEscape(localWifiSsid()) + "\",";
     body += "\"wifiPasswordSet\":" + String(localWifiPasswordSet() ? "true" : "false") + ",";
     body += "\"autoSleepEnabled\":false,\"autoSleepMinutes\":5,";
@@ -509,9 +505,6 @@ esp_err_t configPost(httpd_req_t* req) {
     g_readerText.setDoubleTapUnlock(formBool(body, "doubleTapUnlock", g_readerText.doubleTapUnlockEnabled()));
     const uint8_t refresh = formU8(body, "refreshStrategy", static_cast<uint8_t>(g_displayService.readerRefreshStrategy()), 0, 2);
     g_displayService.setReaderRefreshStrategy(static_cast<ReaderRefreshStrategy>(refresh));
-    g_displayService.setReaderRefreshIntervals(
-        formU8(body, "readerMiddleRefreshEvery", g_displayService.readerMiddleRefreshEvery(), 0, 60),
-        formU8(body, "readerFullRefreshEvery", g_displayService.readerFullRefreshEvery(), 0, 60));
     String ssid;
     if (formValue(body, "wifiSsid", ssid)) {
         String password;

@@ -972,7 +972,7 @@ void VinkUiRenderer::renderReaderMenuOverlay(const char* bookTitle, const char* 
     constexpr int16_t kGridY = kCardY + 104;
 
     drawMenuItem(kCol0, kGridY, kItemW, kItemH, "抗锯齿",   true,  antiAliasOn, nullptr);
-    drawMenuItem(kCol1, kGridY, kItemW, kItemH, "翻页刷新", false, false, refreshLabel);
+    drawMenuItem(kCol1, kGridY, kItemW, kItemH, "全刷频率", false, false, refreshLabel);
     drawMenuItem(kCol0, kGridY + kItemH + kItemGapY, kItemW, kItemH, "下划线",   true,  underlineOn, nullptr);
     drawMenuItem(kCol1, kGridY + kItemH + kItemGapY, kItemW, kItemH, "排版优化", false, false, layoutLabel);
     drawMenuItem(kCol0, kGridY + 2 * (kItemH + kItemGapY), kItemW, kItemH, "翻页动画", true,  pageTurnEffectOn, nullptr);
@@ -1203,7 +1203,7 @@ void VinkUiRenderer::renderReaderSettings() {
         ry += kRowH; cardDiv(ry);
         cardRow(ry, "抗锯齿", antiAliasVal);
         ry += kRowH; cardDiv(ry);
-        cardRow(ry, "刷新策略", refreshVal);
+        cardRow(ry, "全刷频率", refreshVal);
         ry += kRowH; cardDiv(ry);
         cardRow(ry, "翻页动画", pageTurnVal);
     }

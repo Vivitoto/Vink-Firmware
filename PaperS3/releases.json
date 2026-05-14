@@ -5,6 +5,22 @@
   "description": "面向 M5Stack PaperS3 的 Vink 电子书阅读固件。",
   "releases": [
     {
+      "version": "v0.4.30-rc",
+      "name": "Vink-PaperS3 v0.4.30-rc",
+      "date": "2026-05-14",
+      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.30-rc",
+      "changelog": "## Vink-PaperS3 v0.4.30-rc\n\n> SHA256: `4103e51fbc5e37688d50d16f1870bcbffbe5433a23f8b0840d74d465b1e64589`\n\n### 翻页动画与全刷频率解耦\n- 废弃不可用的高速 DU-like 翻页动画；翻页动画开关只控制是否启用动画，全刷频率单独设为低/中/高。\n- 翻页动画统一使用 text/GL16-like 清残影 waveform，保留条带内 eraser/target 清理，不再走高速模式。\n- 条带宽度从 72-90px 大块推进改为 32px 窄线推进，减少“黑板擦一块擦过去”的视觉块感，更接近 EDCBook 的线状波前。\n- 全刷频率固定为：低=20页，中=10页，高=5页；移除 WebUI 里难理解的“中间清影页数 / 全屏清影页数”。\n- 到达对应全刷频率时，本次翻页条带直接使用 quality waveform，不在动画结束后追加补闪。\n",
+      "assets": {
+        "full": {
+          "name": "Vink-PaperS3-v0.4.30-rc-linewave-decoupled-full-16MB.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.30-rc/Vink-PaperS3-v0.4.30-rc-linewave-decoupled-full-16MB.bin",
+          "size": 16777216,
+          "flashOffset": 0,
+          "sha256": "4103e51fbc5e37688d50d16f1870bcbffbe5433a23f8b0840d74d465b1e64589"
+        }
+      }
+    },
+    {
       "version": "v0.4.29",
       "name": "Vink-PaperS3 v0.4.29",
       "date": "2026-05-14",
@@ -74,21 +90,6 @@
         "full": {
           "name": "Vink-PaperS3-v0.4.27-local-skfix-full-16MB.bin",
           "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.27-local-skfix/Vink-PaperS3-v0.4.27-local-skfix-full-16MB.bin",
-          "size": 16777216,
-          "flashOffset": 0
-        }
-      }
-    },
-    {
-      "version": "v0.4.26-local-vink",
-      "name": "Vink-PaperS3 v0.4.26-local-vink",
-      "summary": "系统设置开关、去ReadPaper品牌化、侧键锁屏、触摸修复。SHA256: c534e8c7...",
-      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.26-local-vink",
-      "changelog": "## Vink-PaperS3 v0.4.26-local-vink\n\n> SHA256: `c534e8c70bfd69457b9b64ac1bba2808bdf650246571b096d0aea2b71de9c7ac`\n\n### 侧键软件锁屏\n- 双击右下角锁屏，侧键解锁恢复，不闪启动页。\n\n### 触摸命中修复\n- 菜单内不穿透，字体/字号命中区收窄。\n\n### NVS 配置读取修复\n- 只读打开失败自动降级读写模式。\n\n### 验证\n- 本地 smoke test 通过。\n- PlatformIO release build 通过。\n- full 16MB 固件包 16777216 bytes。",
-      "assets": {
-        "full": {
-          "name": "Vink-PaperS3-v0.4.26-local-vink-full-16MB.bin",
-          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.26-local-vink/Vink-PaperS3-v0.4.26-local-vink-full-16MB.bin",
           "size": 16777216,
           "flashOffset": 0
         }

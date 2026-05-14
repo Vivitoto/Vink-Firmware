@@ -196,8 +196,9 @@ void DisplayService::loadLocalSettings() {
     Preferences prefs;
     if (!prefs.begin("vink-display", true)) return;
     const uint8_t raw = prefs.getUChar("refresh", static_cast<uint8_t>(readerRefreshStrategy_));
-    readerMiddleRefreshEvery_ = prefs.getUChar("midEvery", readerMiddleRefreshEvery_);
-    readerFullRefreshEvery_ = prefs.getUChar("fullEvery", readerFullRefreshEvery_);
+    // Older RCs exposed numeric cleanup intervals. v0.4.30-rc removes them from
+    // UI/WebUI, so ignore stale NVS keys and derive frequency solely from the
+    // low/medium/high strategy.
     prefs.end();
     if (raw <= static_cast<uint8_t>(ReaderRefreshStrategy::Clear)) {
         readerRefreshStrategy_ = static_cast<ReaderRefreshStrategy>(raw);
@@ -208,8 +209,6 @@ bool DisplayService::saveLocalSettings() const {
     Preferences prefs;
     if (!prefs.begin("vink-display", false)) return false;
     prefs.putUChar("refresh", static_cast<uint8_t>(readerRefreshStrategy_));
-    prefs.putUChar("midEvery", readerMiddleRefreshEvery_);
-    prefs.putUChar("fullEvery", readerFullRefreshEvery_);
     prefs.end();
     return true;
 }
@@ -237,21 +236,13 @@ void DisplayService::setReaderRefreshStrategy(ReaderRefreshStrategy strategy) {
     Serial.printf("[vink3][display] reader refresh strategy -> %s\n", readerRefreshStrategyLabel());
 }
 
-void DisplayService::setReaderRefreshIntervals(uint8_t middleEvery, uint8_t fullEvery) {
-    readerMiddleRefreshEvery_ = middleEvery;
-    readerFullRefreshEvery_ = fullEvery;
-    resetReaderPageTurnCount();
-    saveLocalSettings();
-    Serial.printf("[vink3][display] reader refresh intervals -> middle=%u full=%u\n", readerMiddleRefreshEvery_, readerFullRefreshEvery_);
-}
-
 const char* DisplayService::readerRefreshStrategyLabel() const {
     switch (readerRefreshStrategy_) {
-        case ReaderRefreshStrategy::Speed: return "高速";
-        case ReaderRefreshStrategy::Balanced: return "标准";
-        case ReaderRefreshStrategy::Clear: return "清晰";
+        case ReaderRefreshStrategy::Speed: return "低";
+        case ReaderRefreshStrategy::Balanced: return "中";
+        case ReaderRefreshStrategy::Clear: return "高";
     }
-    return "标准";
+    return "中";
 }
 
 // Native IT8951 page-turn sweep. Keep this isolated in DisplayService so it
@@ -282,26 +273,23 @@ static int effectStepsForStrategy(ReaderRefreshStrategy s) {
     }
 }
 
-static uint16_t pageTurnScrollStripWidth(ReaderRefreshStrategy s) {
-    // Fewer/wider strips make the wavefront advance faster. Text/GL16-like
-    // waveform cleanup is now integrated into each strip, not appended after the
-    // animation, so use moderately wide strips to offset the cleaner waveform.
-    switch (s) {
-        case ReaderRefreshStrategy::Speed:  return 135; // 4 logical strips
-        case ReaderRefreshStrategy::Clear:  return 72;  // 8 logical strips
-        default:                            return 90;  // 6 logical strips
-    }
+static uint16_t pageTurnScrollStripWidth() {
+    // True EDCBook-like visual direction is a narrow moving front, not a broad
+    // blackboard-eraser block. 32px yields ~17 portrait strips on PaperS3: narrow
+    // enough to read as a line, while still materially faster than a 16px/24px
+    // debug sweep. Residue control comes from the text/quality waveform itself;
+    // the old high-speed DU-like mode is intentionally not used for animation.
+    return 32;
 }
 
-static epd_mode_t pageTurnScrollMode(ReaderRefreshStrategy s, epd_mode_t scheduledMode) {
+static epd_mode_t pageTurnScrollMode(epd_mode_t scheduledMode) {
     // Match epdiy's scroll idea: the strip itself should use the waveform that
     // clears residue. If the reader's page counter scheduled a quality/full clean,
     // make this page-turn scroll use that stronger waveform directly rather than
-    // appending a separate flash after the animation. Otherwise, Panel_EPD fast
-    // modes skip eraser; text mode schedules eraser/target inside each strip.
+    // appending a separate flash after the animation. Otherwise use text/GL16-like
+    // mode for every animated page turn; the old fastest DU mode is too ghosty.
     if (scheduledMode == kQualityRefresh) return kQualityRefresh;
-    if (scheduledMode == kNormalRefresh) return kNormalRefresh;
-    return s == ReaderRefreshStrategy::Speed ? kLowRefresh : kNormalRefresh;
+    return kNormalRefresh;
 }
 
 void DisplayService::pushShutterAnimation(M5Canvas* canvas, DisplayEffect effect, epd_mode_t mode) {
@@ -366,7 +354,7 @@ void DisplayService::M5DisplayStripSweep(M5Canvas* canvas, DisplayEffect effect,
     // pushSprite/setClipRect and into the waveform/scan-cycle layer.
     auto* panel = static_cast<lgfx::Panel_EPD*>(M5.Display.panel());
     if (!panel) return;
-    const epd_mode_t sweepMode = pageTurnScrollMode(readerRefreshStrategy_, mode);
+    const epd_mode_t sweepMode = pageTurnScrollMode(mode);
     M5.Display.setEpdMode(sweepMode);
 
     const bool savedAutoDisplay = M5.Display.getPanel()->getAutoDisplay();
@@ -375,31 +363,29 @@ void DisplayService::M5DisplayStripSweep(M5Canvas* canvas, DisplayEffect effect,
     M5.Display.setAutoDisplay(savedAutoDisplay);
 
     const bool rtl = (effect == DisplayEffect::VerticalShutter);
-    const uint16_t stripWidth = pageTurnScrollStripWidth(readerRefreshStrategy_);
+    const uint16_t stripWidth = pageTurnScrollStripWidth();
     panel->displayScroll(0, 0, kPaperS3Width, kPaperS3Height, stripWidth, rtl);
     M5.Display.waitDisplay();
 }
 
 epd_mode_t DisplayService::chooseReaderRefreshMode(const DisplayRequest& request) {
+    // ReaderRefreshStrategy is now the full-clean frequency setting, decoupled
+    // from page-turn animation speed. Animation always uses the clean line-sweep
+    // path; this only decides how often a stronger quality waveform is scheduled.
     uint32_t fullEvery = 10;
-    epd_mode_t normalMode = kNormalRefresh;
+    constexpr epd_mode_t normalMode = kNormalRefresh;
     switch (readerRefreshStrategy_) {
-        case ReaderRefreshStrategy::Speed:
-            fullEvery = 0;
-            normalMode = kLowRefresh;
-            break;
-        case ReaderRefreshStrategy::Clear:
+        case ReaderRefreshStrategy::Speed:    // 全刷频率：低
             fullEvery = 20;
-            normalMode = kNormalRefresh;
             break;
-        case ReaderRefreshStrategy::Balanced:
+        case ReaderRefreshStrategy::Clear:    // 全刷频率：高
+            fullEvery = 5;
+            break;
+        case ReaderRefreshStrategy::Balanced: // 全刷频率：中
         default:
-            fullEvery = 0;
-            normalMode = kNormalRefresh;
+            fullEvery = 10;
             break;
     }
-
-    if (readerFullRefreshEvery_ > 0) fullEvery = readerFullRefreshEvery_;
 
     const uint32_t nextTurn = readerPageTurnCount_ + 1;
     const bool useQualityMode = request.quality || (fullEvery > 0 && nextTurn >= fullEvery);
@@ -411,9 +397,6 @@ epd_mode_t DisplayService::chooseReaderRefreshMode(const DisplayRequest& request
 
     readerPageTurnCount_ = nextTurn;
     M5.Display.setColorDepth(kTextColorDepthHigh);
-    if (readerMiddleRefreshEvery_ > 0 && (nextTurn % readerMiddleRefreshEvery_) == 0) {
-        return kNormalRefresh;
-    }
     return normalMode;
 }
 
