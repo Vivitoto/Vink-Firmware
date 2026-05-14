@@ -665,11 +665,10 @@ bool ReaderBookService::loadProgress() {
     f.read(reinterpret_cast<uint8_t*>(&cachedFingerprint), sizeof(cachedFingerprint));
     f.read(reinterpret_cast<uint8_t*>(&chapter), sizeof(chapter));
     f.read(reinterpret_cast<uint8_t*>(&page), sizeof(page));
+    uint32_t resumeOffset = 0;
+    const bool hasResumeOffset = f.read(reinterpret_cast<uint8_t*>(&resumeOffset), sizeof(resumeOffset)) == sizeof(resumeOffset);
     f.close();
-    (void)page;
     if (magic != kProgressMagic || cachedSize != activeTextSize() || cachedFingerprint != activeTextFingerprint_ || chapter >= tocCount_) return false; // VPR3
-    // v0.4.5-on-0.4.2: restore at chapter level only. Building a whole chapter
-    // during open regressed large books; the visible page is measured lazily.
     currentTocIndex_ = chapter;
     currentPage_ = 0;
     pageCount_ = 0;
@@ -678,7 +677,20 @@ bool ReaderBookService::loadProgress() {
     pageWindowTruncated_ = true;
     hasProgress_ = true;
     showingToc_ = false;
-    Serial.printf("[vink3][book] progress loaded: chapter=%u (chapter-level restore)\n", chapter);
+    if (hasResumeOffset) {
+        const uint32_t chapterStart = chapterContentStart(chapter);
+        const uint32_t chapterEnd = chapterEndOffset(chapter);
+        if (resumeOffset >= chapterStart && resumeOffset < chapterEnd) {
+            pendingResumeOffset_ = resumeOffset;
+            hasPendingResumeOffset_ = true;
+        }
+    } else {
+        // Legacy progress only had a page index. Keep it as a best-effort
+        // fallback for old records, but v0.4.28 lock resume uses byte offset.
+        currentPage_ = page;
+    }
+    Serial.printf("[vink3][book] progress loaded: chapter=%u page=%u resumeOffset=%lu%s\n",
+                  chapter, page, static_cast<unsigned long>(resumeOffset), hasPendingResumeOffset_ ? "" : " (legacy)");
     return true;
 }
 
@@ -693,15 +705,22 @@ void ReaderBookService::saveProgress() {
     uint32_t fileSize = activeTextSize();
     uint64_t fingerprint = activeTextFingerprint_;
     uint16_t chapter = static_cast<uint16_t>(currentTocIndex_);
-    // Store chapter-level progress for streaming pagination. Old exact page
-    // numbers are intentionally not persisted because only the visible window is
-    // measured under the current layout.
-    uint16_t page = 0;
+    uint16_t page = static_cast<uint16_t>(max(0, currentPage_));
+    uint32_t resumeOffset = chapterContentStart(currentTocIndex_);
+    if (pageStarts_ && currentPage_ >= 0 && currentPage_ < pageCount_) {
+        resumeOffset = pageStarts_[currentPage_];
+    } else if (hasPendingResumeOffset_) {
+        resumeOffset = pendingResumeOffset_;
+    }
     f.write(reinterpret_cast<const uint8_t*>(&magic), sizeof(magic));
     f.write(reinterpret_cast<const uint8_t*>(&fileSize), sizeof(fileSize));
     f.write(reinterpret_cast<const uint8_t*>(&fingerprint), sizeof(fingerprint));
     f.write(reinterpret_cast<const uint8_t*>(&chapter), sizeof(chapter));
     f.write(reinterpret_cast<const uint8_t*>(&page), sizeof(page));
+    // VPR3-compatible extension: older builds ignore trailing bytes. v0.4.28
+    // uses this byte offset so side-key unlock after a reset can restore the
+    // same visible reading page that double-tap unlock already preserves in RAM.
+    f.write(reinterpret_cast<const uint8_t*>(&resumeOffset), sizeof(resumeOffset));
     f.close();
     saveLastBookPath();
 }
@@ -1522,15 +1541,16 @@ bool ReaderBookService::continueReading() {
     showingToc_ = false;
     if (hasProgress_ && currentTocIndex_ >= 0) {
         const int savedPage = currentPage_;
-        const uint32_t resumeOffset = hasPendingResumeOffset_ ? pendingResumeOffset_ : 0;
+        if (hasPendingResumeOffset_) {
+            const uint32_t resumeOffset = pendingResumeOffset_;
+            hasPendingResumeOffset_ = false;
+            if (buildPageWindowAtOffset(currentTocIndex_, resumeOffset)) {
+                return renderCurrentReadingPage();
+            }
+        }
         if (pageCount_ <= 0 && !buildChapterPages(currentTocIndex_)) return renderChapterPreview(currentTocIndex_);
         if (pageCount_ > 0) {
-            if (hasPendingResumeOffset_) {
-                currentPage_ = pageIndexForOffset(resumeOffset);
-                hasPendingResumeOffset_ = false;
-            } else {
-                currentPage_ = min(max(savedPage, 0), pageCount_ - 1);
-            }
+            currentPage_ = min(max(savedPage, 0), pageCount_ - 1);
             return renderCurrentReadingPage();
         }
     }
@@ -2010,19 +2030,25 @@ uint32_t ReaderBookService::chapterEndOffset(int index) {
 
 bool ReaderBookService::buildChapterPages(int index) {
     if (index < 0 || index >= tocCount_ || !activeTextPath_[0] || !pageStarts_) return false;
+    return buildPageWindowAtOffset(index, chapterContentStart(index));
+}
+
+bool ReaderBookService::buildPageWindowAtOffset(int index, uint32_t offset) {
+    if (index < 0 || index >= tocCount_ || !activeTextPath_[0] || !pageStarts_) return false;
     const uint32_t start = chapterContentStart(index);
     const uint32_t fullEnd = chapterEndOffset(index);
     if (fullEnd <= start) return false;
+    if (offset < start || offset >= fullEnd) offset = start;
 
     currentTocIndex_ = index;
     currentPage_ = 0;
     pageCount_ = 0;
-    pageWindowStart_ = start;
-    pageWindowEnd_ = start;
+    pageWindowStart_ = offset;
+    pageWindowEnd_ = offset;
     pageWindowTruncated_ = false;
-    pageStarts_[pageCount_++] = start;
+    pageStarts_[pageCount_++] = offset;
 
-    if (!measurePageEndOffset(start, fullEnd, pageWindowEnd_)) return false;
+    if (!measurePageEndOffset(offset, fullEnd, pageWindowEnd_)) return false;
     pageWindowTruncated_ = pageWindowEnd_ < fullEnd;
     Serial.printf("[vink3][book] streaming page ready: toc=%d window=%lu-%lu\n",
                   index, static_cast<unsigned long>(pageWindowStart_),

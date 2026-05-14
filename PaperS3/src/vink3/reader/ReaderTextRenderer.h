@@ -211,6 +211,8 @@ private:
     uint8_t fontSizeSetting_ = 24;
     uint8_t sdFontSize_ = 32;
     bool sdCardFontActive_ = false;
+    bool sdFontRequested_ = false;
+    char savedSdFontPath_[64] = {};
     TtfFont ttfFont_;
     char ttfFontPaths_[4][64] = {};
     int ttfFontCount_ = 0;
@@ -224,6 +226,7 @@ private:
     bool webJustify_ = false;
     void applyLayoutPresetToSettings();
     void loadLocalSettings();
+    bool restoreSavedSdFont();
 };
 
 extern ReaderTextRenderer g_readerText;

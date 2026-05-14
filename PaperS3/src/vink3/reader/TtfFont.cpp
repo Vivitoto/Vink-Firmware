@@ -54,6 +54,20 @@ bool TtfFont::loadFromSd(const char* path) {
     unload();
     if (!path || !path[0]) return false;
 
+    SPI.begin(kSdSckPin, kSdMisoPin, kSdMosiPin, kSdCsPin);
+    if (SD.cardType() == CARD_NONE) {
+        const uint32_t freqs[] = {kSdPrimaryFrequency, kSdFallbackFrequency1, kSdFallbackFrequency2};
+        bool ok = false;
+        for (uint32_t freq : freqs) {
+            if (SD.begin(kSdCsPin, SPI, freq)) { ok = true; break; }
+            delay(50);
+        }
+        if (!ok) {
+            Serial.printf("[vink3][ttf] SD init failed for: %s\n", path);
+            return false;
+        }
+    }
+
     File f = SD.open(path, FILE_READ);
     if (!f) {
         Serial.printf("[vink3][ttf] failed to open: %s\n", path);

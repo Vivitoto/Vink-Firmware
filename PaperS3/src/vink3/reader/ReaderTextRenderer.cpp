@@ -23,9 +23,13 @@ bool ReaderTextRenderer::begin(M5Canvas* canvas) {
     canvas_ = canvas;
     applyLayoutPresetToSettings();
     loadLocalSettings();
-    // A fresh device may not have the vink-reader NVS namespace yet. In that
-    // case loadLocalSettings() cannot apply a saved font, but boot must still
-    // continue and draw the first page instead of halting on a white screen.
+    // If the user selected an SD-card TTF, restore that exact font source before
+    // the first page render. This keeps side-key lock resume visually identical
+    // after the PMS150G reset path, as long as the SD card/font file is present.
+    if (sdFontRequested_) restoreSavedSdFont();
+    // A fresh device may not have the vink-reader NVS namespace yet, or the saved
+    // SD font may be unavailable. Boot must still continue and draw a readable
+    // page instead of halting on a white screen.
     if (!ready()) loadDefaultFont();
     return canvas_ && ready();
 }
@@ -168,6 +172,9 @@ void ReaderTextRenderer::loadLocalSettings() {
     sdFontSize_ = prefs.getUChar("sdsz", sdFontSize_);
     if (sdFontSize_ < 16) sdFontSize_ = 16;
     if (sdFontSize_ > 64) sdFontSize_ = 64;
+    sdFontRequested_ = prefs.getBool("sdfont", sdFontRequested_);
+    String sdPath = prefs.getString("sdpath", "");
+    strlcpy(savedSdFontPath_, sdPath.c_str(), sizeof(savedSdFontPath_));
     webLineSpacing_ = prefs.getUChar("line", webLineSpacing_);
     webParagraphSpacing_ = prefs.getUChar("para", webParagraphSpacing_);
     webIndentFirstLine_ = prefs.getUChar("indent", webIndentFirstLine_);
@@ -177,7 +184,7 @@ void ReaderTextRenderer::loadLocalSettings() {
     // v0.4.6 adds compact reader chrome; migrate old defaults in RAM only so
     // existing devices use the reclaimed text area without touching NVS at boot.
     if (webLineSpacing_ == 60) webLineSpacing_ = 50;
-    if (webParagraphSpacing_ == 50) webParagraphSpacing_ = 0;
+    if (webParagraphSpacing_ == 50) { webParagraphSpacing_ = 0; saveLocalSettings(); }
     if (webMarginTop_ == 78) webMarginTop_ = kReaderBodyTopMin;
     if (webMarginBottom_ == 34) webMarginBottom_ = 48;
     webJustify_ = prefs.getBool("justify", webJustify_);
@@ -207,6 +214,8 @@ bool ReaderTextRenderer::saveLocalSettings() const {
     prefs.putUShort("spacing", settings_.spacing);
     prefs.putUChar("font", fontSizeSetting_);
     prefs.putUChar("sdsz", sdFontSize_);
+    prefs.putBool("sdfont", sdFontRequested_ && savedSdFontPath_[0]);
+    prefs.putString("sdpath", savedSdFontPath_);
     prefs.putUChar("line", webLineSpacing_);
     prefs.putUChar("para", webParagraphSpacing_);
     prefs.putUChar("indent", webIndentFirstLine_);
@@ -216,6 +225,22 @@ bool ReaderTextRenderer::saveLocalSettings() const {
     prefs.putBool("justify", webJustify_);
     prefs.end();
     return true;
+}
+
+bool ReaderTextRenderer::restoreSavedSdFont() {
+    if (!savedSdFontPath_[0]) return false;
+    if (ttfFont_.loadFromSd(savedSdFontPath_)) {
+        ttfFont_.setSize(sdFontSize_);
+        sdCardFontActive_ = true;
+        sdFontRequested_ = true;
+        font_.unload();
+        wenkai32Ready_ = false;
+        Serial.printf("[vink3][reader] restored SD font: %s size=%u\n", savedSdFontPath_, sdFontSize_);
+        return true;
+    }
+    sdCardFontActive_ = false;
+    Serial.printf("[vink3][reader] saved SD font unavailable, fallback: %s\n", savedSdFontPath_);
+    return false;
 }
 
 void ReaderTextRenderer::toggleAntiAlias() {
@@ -443,14 +468,18 @@ ReaderRenderOptions ReaderTextRenderer::currentOptions() const {
         opt.firstLineIndentPx = 0;
         opt.letterGap = 0;
         opt.underlineOffset = 2;
+        opt.paragraphGap = 0;  // uniform line/paragraph spacing
+    } else if (layoutPreset_ == 1) {
+        // 优化：Vink formatting transforms on, uniform line/paragraph spacing.
+        opt.paragraphGap = 0;
     } else if (layoutPreset_ == 2) {
-        // 紧凑：visibly tighter safe text box and line spacing.
+        // 紧凑：tighter margins and line spacing than 优化.
         opt.marginLeft = max<int16_t>(12, opt.marginLeft - 8);
         opt.marginRight = max<int16_t>(12, opt.marginRight - 8);
         opt.marginTop = max<int16_t>(kReaderBodyTopMin, opt.marginTop - 6);
         opt.marginBottom = max<int16_t>(kReaderFooterReserve, opt.marginBottom - 6);
         opt.lineGap = max<int16_t>(2, opt.lineGap - 3);
-        opt.paragraphGap = max<int16_t>(0, opt.paragraphGap - 2);
+        opt.paragraphGap = 0;  // uniform line/paragraph spacing
     }
     return opt;
 }
@@ -1101,6 +1130,8 @@ void ReaderTextRenderer::cycleFontSource() {
         // Switch back to built-in
         ttfFont_.unload();
         sdCardFontActive_ = false;
+        sdFontRequested_ = false;
+        savedSdFontPath_[0] = '\0';
         applyReaderFontSize(fontSizeSetting_, false);
         Serial.println("[vink3][reader] font source -> 内置文楷");
         saveLocalSettings();
@@ -1121,6 +1152,8 @@ void ReaderTextRenderer::cycleFontSource() {
     if (ttfFont_.loadFromSd(ttfFontPaths_[ttfFontIndex_])) {
         ttfFont_.setSize(sdFontSize_);
         sdCardFontActive_ = true;
+        sdFontRequested_ = true;
+        strlcpy(savedSdFontPath_, ttfFontPaths_[ttfFontIndex_], sizeof(savedSdFontPath_));
         // Unload built-in fonts to free resources
         font_.unload();
         wenkai32Ready_ = false;

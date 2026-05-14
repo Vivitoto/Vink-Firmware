@@ -241,8 +241,12 @@ enum EpdDrawError epd_draw_base_scroll(
         render_context.lines_total = rounded_display_height();
         render_context.current_frame = 0;
         render_context.cycle_frames = frames;
-        epd_populate_line_mask(render_context.line_mask, drawn_columns,
-                              render_context.display_width / 4);
+
+        // Set line mask for only this strip's pixel columns
+        memset(render_context.line_mask, 0, render_context.display_width / 4);
+        for (int px = sx; px < sx + sw; px++)
+            render_context.line_mask[px / 4] |= (0x03 << ((px % 4) * 2));
+
         if (si == 0) epd_set_mode(1);
         lcd_do_update_frames(&render_context);
         if (render_context.error != EPD_DRAW_SUCCESS) { epd_set_mode(0); return render_context.error; }

@@ -26,6 +26,9 @@ public:
     bool isShowingToc() const { return showingToc_; }
     bool isShowingReaderMenu() const { return showingReaderMenu_; }
     bool isReadingBody() const { return open_ && !showingToc_ && !showingBookEntry_ && !showingReaderMenu_; }
+    // Used only when exiting the software lock screen. openLastBook() restores
+    // the book-entry page by default, but lock/unlock should return to the body.
+    void skipBookEntryAndResume() { showingBookEntry_ = false; showingReaderMenu_ = false; showingToc_ = false; continueReading(); }
 
     void renderReaderHome();
     void renderShelfGrid(uint16_t page = 0);
@@ -184,6 +187,7 @@ private:
     void resetPreheatCursor(int afterChapter);
     void maybePreheatNextChapter();
     bool buildChapterPages(int index);
+    bool buildPageWindowAtOffset(int index, uint32_t offset);
     bool buildPreviousChapterTailPages(int index);
     bool appendNextStreamingPage();
     bool renderCurrentReadingPage();

@@ -140,11 +140,15 @@ void renderSoftwareLockScreen() {
     g_systemLog.append("software lock entered");
 }
 
-bool renderSideKeyUnlockResume() {
+bool resumeFromLockScreen() {
+    // Shared lock-screen exit path. Double-tap unlock and side-key unlock must
+    // both return to the reading body that was visible before locking. Normal
+    // boot and unlocked side-key shutdown are handled elsewhere and must not be
+    // routed through this function.
     clearPaperS3SoftwareLocked();
     if (!g_readerBook.isOpen()) g_readerBook.openLastBook();
     if (g_readerBook.isOpen()) {
-        g_readerBook.renderCurrent();
+        g_readerBook.skipBookEntryAndResume();
         g_systemLog.append("software lock resumed reader");
         return true;
     }
@@ -163,6 +167,17 @@ void enqueueReaderAwareRefresh(DisplayEffect effect = DisplayEffect::HorizontalS
         enqueueReaderDisplay(true, effect);
     } else {
         g_displayService.enqueueFull(false, 100);
+    }
+}
+
+void enqueueLockResumeRefresh(bool resumedReader) {
+    if (resumedReader) {
+        // Avoid showing a boot-like full-screen flash when leaving the lock
+        // screen. The reader body has just been rendered into the canvas, so a
+        // strip refresh can replace the retained lock screen more gracefully.
+        enqueueReaderAwareRefresh(DisplayEffect::HorizontalShutter);
+    } else {
+        g_displayService.enqueueFull(true, 100);
     }
 }
 
@@ -255,8 +270,9 @@ void StateMachine::handle(const Message& message) {
             // reset as a shutdown request.
             if (consumePaperS3SideKeyUnlockRequested()) {
                 Serial.println("[vink3][boot] BootComplete: side-key unlock resume");
-                state_ = renderSideKeyUnlockResume() ? SystemState::ReaderMenu : SystemState::Reader;
-                g_displayService.enqueueFull(true, 100);
+                const bool resumedReader = resumeFromLockScreen();
+                state_ = resumedReader ? SystemState::ReaderMenu : SystemState::Reader;
+                enqueueLockResumeRefresh(resumedReader);
                 suppressAfterTransition(500);
                 break;
             }
@@ -272,8 +288,9 @@ void StateMachine::handle(const Message& message) {
                 if (!g_readerText.doubleTapUnlockEnabled()) break;
                 const bool unlockZone = isLockScreenUnlockZone(message.touch);
                 if (consumeDoubleTapInZone(message, unlockZone, s_lastSemanticTapInUnlockZone)) {
-                    state_ = renderSideKeyUnlockResume() ? SystemState::ReaderMenu : SystemState::Reader;
-                    g_displayService.enqueueFull(true, 100);
+                    const bool resumedReader = resumeFromLockScreen();
+                    state_ = resumedReader ? SystemState::ReaderMenu : SystemState::Reader;
+                    enqueueLockResumeRefresh(resumedReader);
                     suppressAfterTransition(500);
                 }
                 break;

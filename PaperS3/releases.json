@@ -5,6 +5,21 @@
   "description": "面向 M5Stack PaperS3 的 Vink 电子书阅读固件。",
   "releases": [
     {
+      "version": "v0.4.28",
+      "name": "Vink-PaperS3 v0.4.28",
+      "summary": "锁屏侧键精确恢复正文页/SD字体样式、解锁条带刷新、epdiy翻页修正、段间距归零。SHA256: 22aafa3f...",
+      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.28",
+      "changelog": "## Vink-PaperS3 v0.4.28\n\n> SHA256: `22aafa3fb6c3914603aea63421cc5e76ea9b00367a06f474f9ee0580c4f0e2ea`\n\n### 锁屏恢复\n- 双击屏幕解锁和锁屏后单击侧键解锁统一走 `resumeFromLockScreen()`。\n- 解锁后跳过书籍入口页，并通过保存的正文 byte offset 精确回到锁屏前正在阅读的页面。\n- 解锁刷新使用阅读页条带刷新，避免出现普通重启/开机页式的全屏刷屏。\n- SD 卡 TTF 字体源与字号会随阅读设置持久化，侧键解锁跨 reset 后会优先恢复同一个字体文件和字号；若 SD 卡或字体文件不可用，则回退内置文楷。\n- 不改变正常开机首页，也不改变未锁屏时单击侧键关机。\n\n### epdiy 翻页\n- 修正 scroll 条带刷新 mask，每个条带只刷新自己的列。\n- scroll 后保留 front/back framebuffer diff，让后续 quality cleanup 能清理残留。\n\n### 排版优化\n- 原始 / 优化 / 紧凑三档都显式 `paragraphGap = 0`，段间距不再额外大于行间距。\n- 老设备段间距默认值迁移后持久化保存。\n- 优化=开启缩进/空行压缩/动态行高/断行优化；紧凑=在优化基础上进一步收窄边距和行距。",
+      "assets": {
+        "full": {
+          "name": "Vink-PaperS3-v0.4.28-full-16MB.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.28/Vink-PaperS3-v0.4.28-full-16MB.bin",
+          "size": 16777216,
+          "flashOffset": 0
+        }
+      }
+    },
+    {
       "version": "v0.4.27-local-scroll",
       "name": "Vink-PaperS3 v0.4.27-local-scroll",
       "summary": "epdiy scroll翻页、段间距归零、侧键关机修复、TAB穿透修复。SHA256: 3f9a3df8...",
@@ -74,21 +89,6 @@
         "full": {
           "name": "Vink-PaperS3-v0.4.24-full-16MB.bin",
           "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.24/Vink-PaperS3-v0.4.24-full-16MB.bin",
-          "size": 16777216,
-          "flashOffset": 0
-        }
-      }
-    },
-    {
-      "version": "v0.4.23",
-      "name": "Vink-PaperS3 v0.4.23",
-      "summary": "修复阅读菜单触摸命中层级和字体/字号点击区域，避免菜单内点击穿透回正文。SHA256: 99fc9904...",
-      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.23",
-      "changelog": "## Vink-PaperS3 v0.4.23\n\n> SHA256: `99fc9904662f755f608523f06d848c347c1800333bf0c80a32b8ae1cf465c391`\n\n### 阅读触摸命中修复\n- 统一“可见即有效、不可见即无效”的顶部/菜单命中原则。\n- 正文阅读页没有可见 TAB 时，不响应隐藏 TAB 坐标。\n- 阅读菜单卡片内部的非控件区域会消费点击并保持菜单打开，不再穿透回正文。\n- 菜单未遮盖的正文区域仍可点击关闭菜单并回到正文阅读，已调整的配置继续生效。\n\n### 字体 / 字号点击区域\n- “字体”只响应右侧实际可见字体名称区域，按文本宽度动态收拢，兼容长短不同的字体名。\n- “字号”只响应右侧可见步进箭头按钮；点击“字号”文字或行背景不再关闭菜单/穿透。\n\n### 验证\n- 本地 smoke test 通过。\n- PlatformIO release build 通过。\n- full 16MB 固件包 16777216 bytes。",
-      "assets": {
-        "full": {
-          "name": "Vink-PaperS3-v0.4.23-full-16MB.bin",
-          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.23/Vink-PaperS3-v0.4.23-full-16MB.bin",
           "size": 16777216,
           "flashOffset": 0
         }
