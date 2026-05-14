@@ -7,9 +7,9 @@
     {
       "version": "v0.4.28-rc",
       "name": "Vink-PaperS3 v0.4.28-rc",
-      "summary": "RC：修复 v0.4.28 正文点击/锁屏解锁重启，加入 IMU 诊断，隐藏普通系统日志入口。SHA256: cf4dd9c3...",
+      "summary": "RC：修复正文点击/锁屏解锁重启，设置页新增诊断入口与 IMU 诊断。SHA256: 485bbff6...",
       "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.28-rc",
-      "changelog": "## Vink-PaperS3 v0.4.28-rc\n\n> SHA256: `cf4dd9c3cc40e76ec44a7a33f78607f1cfde138e30586d116711c65221e0ee77`\n\n### 致命重启修复\n- 修复 v0.4.28 中正文阅读页点击后可能重启的问题。\n- 修复开启锁屏后双击锁屏区域解锁可能重启的问题。\n- 原因是 raw epdiy framebuffer sweep 对屏幕方向/尺寸做了不安全假设，可能越界写入；RC 中加入 framebuffer/canvas 维度守卫，不安全时自动回退到 M5GFX clipped strip sweep。\n\n### 诊断增强\n- 诊断页新增 IMU 区块，显示 IMU 类型、姿态判断、加速度和陀螺仪数据，用于后续自动旋转功能前确认 BMI270 轴向。\n\n### UI 精简\n- 普通设置页隐藏“系统日志”入口，底层日志能力保留用于应急诊断。\n",
+      "changelog": "## Vink-PaperS3 v0.4.28-rc\n\n> SHA256: `485bbff64a0f2cccf417c1ca5bc55ca4cb8c3baa94c449a5916b34e63784b1c5`\n\n### 致命重启修复\n- 修复 v0.4.28 中正文阅读页点击后可能重启的问题。\n- 修复开启锁屏后双击锁屏区域解锁可能重启的问题。\n- 原因是 raw epdiy framebuffer sweep 对屏幕方向/尺寸做了不安全假设，可能越界写入；RC 中加入 framebuffer/canvas 维度守卫，不安全时自动回退到 M5GFX clipped strip sweep。\n\n### 诊断增强\n- 设置页新增“诊断”菜单入口，可直接打开触摸 / IMU 诊断页。\n- 诊断页新增 IMU 区块，显示 IMU 类型、姿态判断、加速度和陀螺仪数据，用于后续自动旋转功能前确认 BMI270 轴向。\n\n### UI 精简\n- 普通设置页隐藏“系统日志”入口，底层日志能力保留用于应急诊断。\n",
       "assets": {
         "full": {
           "name": "Vink-PaperS3-v0.4.28-rc-full-16MB.bin",

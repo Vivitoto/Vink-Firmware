@@ -1065,9 +1065,9 @@ void VinkUiRenderer::renderSettings() {
     // service available internally for crash diagnostics, but hide the manual log
     // page from the normal settings UI to reduce clutter in this RC.
     constexpr int16_t kSysGroupY = kSysCardY + kMainCardH + kSettingsGap;
-    static const char* kSysLabels[] = {"电源", "关于"};
-    const char* sysValues[] = {"点按关机", kVinkPaperS3FirmwareVersion};
-    drawSettingsGroup(kMarginX, kSysGroupY, "系统", kSysLabels, sysValues, 2);
+    static const char* kSysLabels[] = {"电源", "诊断", "关于"};
+    const char* sysValues[] = {"点按关机", "触摸 / IMU", kVinkPaperS3FirmwareVersion};
+    drawSettingsGroup(kMarginX, kSysGroupY, "系统", kSysLabels, sysValues, 3);
 }
 
 void VinkUiRenderer::showSystemSettings()  { showSystemSettings_ = true; }
@@ -1573,7 +1573,8 @@ UiAction VinkUiRenderer::hitTest(SystemState state, int16_t x, int16_t y) const 
                 if (inRect(x, y, kMarginX, kSysCardY, kContentW, kRowH)) return UiAction::OpenSystemSettings;
                 const int16_t sysY = kSysCardY + kRowH + kSettingsGap;
                 if (inRect(x, y, 56, sysY + kRowH,          424, kRowH)) return UiAction::RequestShutdown;
-                if (inRect(x, y, 56, sysY + 2 * kRowH,      424, kRowH)) return UiAction::OpenSettings;
+                if (inRect(x, y, 56, sysY + 2 * kRowH,      424, kRowH)) return UiAction::OpenDiagnostics;
+                if (inRect(x, y, 56, sysY + 3 * kRowH,      424, kRowH)) return UiAction::OpenSettings;
             }
             break;
         case SystemState::ShutdownConfirm:

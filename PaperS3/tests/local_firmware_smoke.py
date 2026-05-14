@@ -206,6 +206,8 @@ def vink3_source_invariants(main_cpp: str) -> None:
     assert_contains(legado_cpp, "LegadoService", "v0.3 Legado integration is isolated as a service")
     assert_contains(ui_cpp, "CjkTextRenderer", "v0.3 UI routes text through CJK renderer")
     assert_contains(ui_cpp, "renderDiagnostics", "official PaperS3 touch/display diagnostic page exists")
+    assert_contains(ui_cpp, "\"诊断\", \"关于\"", "settings page exposes a visible diagnostics menu entry")
+    assert_contains(ui_cpp, "return UiAction::OpenDiagnostics", "settings diagnostics menu routes to the diagnostic page")
     assert_contains(ui_cpp, "orientationFromAccel", "diagnostic page classifies BMI270 IMU orientation")
     assert_contains(ui_cpp, "M5.Imu.getImuData", "diagnostic page can show live IMU acceleration/gyro data")
     assert_contains(ui_cpp, "renderSystemLogs", "internal persistent system log page still exists for emergency diagnostics")
