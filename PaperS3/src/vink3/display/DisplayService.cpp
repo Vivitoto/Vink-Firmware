@@ -335,18 +335,31 @@ bool DisplayService::epdiyScrollSweep(M5Canvas* canvas, EpdiyHighlevelState* hl,
     uint8_t* ff = hl->front_fb;
     uint8_t* bb = hl->back_fb;
     uint8_t* cb = (uint8_t*)canvas->getBuffer();
-    if (!ff || !cb) return false;
+    if (!ff || !bb || !cb) return false;
     int cw = canvas->width();
     int ch = canvas->height();
     int fbw = epd_width();
     int fbh = epd_height();
+
+    // The raw epdiy framebuffer coordinate system is board/rotation dependent.
+    // The direct fb copy below is only safe when the physical fb is the transpose
+    // of Vink's portrait canvas. On PaperS3 builds where epd_width/height already
+    // report 540x960, the previous formula made px negative for cy>=540 and the
+    // first page-turn/lock-resume refresh could panic/reset the device. Fall back
+    // to the M5GFX clipped sweep unless the dimensions prove this path is safe.
+    if (fbw != ch || fbh != cw || cw <= 0 || ch <= 0 || fbw <= 0 || fbh <= 0) {
+        Serial.printf("[vink3][display] skip raw epdiy sweep: canvas=%dx%d fb=%dx%d\n", cw, ch, fbw, fbh);
+        return false;
+    }
+
     int fbr = fbw / 2;
     int cr = cw / 2;
 
     // Save old front_fb to back_fb for differential update
     memcpy(bb, ff, fbr * fbh);
 
-    // Copy canvas (portrait) to front_fb (physical, rotation 3: swap + x-flip)
+    // Copy canvas (portrait) to front_fb (physical, rotation 3: swap + x-flip).
+    // Dimension guard above guarantees px/py/off stay inside the fb buffers.
     for (int cy = 0; cy < ch; cy++) {
         int px = fbw - 1 - cy;
         for (int cx = 0; cx < cw; cx++) {

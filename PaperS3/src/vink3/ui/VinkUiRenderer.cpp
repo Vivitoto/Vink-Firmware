@@ -7,6 +7,7 @@
 #include "../text/CjkTextRenderer.h"
 
 #include <cstring>
+#include <cmath>
 #include <SD.h>
 #include <esp_sleep.h>
 #include <esp_system.h>
@@ -92,6 +93,29 @@ bool isOfficialUsbConnected() {
 bool isOfficialChargeStateActive() {
     // Factory firmware names GPIO4 PIN_CHG_STATE: 0 charging, 1 full/not charging.
     return digitalRead(static_cast<int>(kChargeStatePin)) == LOW;
+}
+
+const char* imuTypeLabel(m5::imu_t type) {
+    switch (type) {
+        case m5::imu_bmi270: return "BMI270";
+        case m5::imu_mpu6886: return "MPU6886";
+        case m5::imu_mpu6050: return "MPU6050";
+        case m5::imu_mpu9250: return "MPU9250";
+        case m5::imu_sh200q: return "SH200Q";
+        case m5::imu_unknown: return "UNKNOWN";
+        case m5::imu_none:
+        default: return "NONE";
+    }
+}
+
+const char* orientationFromAccel(float ax, float ay, float az) {
+    const float absX = fabsf(ax);
+    const float absY = fabsf(ay);
+    const float absZ = fabsf(az);
+    if (absX < 0.35f && absY < 0.35f && absZ < 0.35f) return "UNKNOWN";
+    if (absZ > absX * 1.4f && absZ > absY * 1.4f) return az > 0 ? "FACE-UP" : "FACE-DOWN";
+    if (absX >= absY) return ax > 0 ? "LANDSCAPE X+" : "LANDSCAPE X-";
+    return ay > 0 ? "PORTRAIT Y+" : "PORTRAIT Y-";
 }
 
 const char* touchCoordModeLabel() {
@@ -1037,13 +1061,13 @@ void VinkUiRenderer::renderSettings() {
     g_cjkText.drawText(kMarginX + 22, sysTextY, "系统设置", kInk);
     g_cjkText.drawRight(kMarginX + kContentW - 22, sysTextY, ">", kInkMid);
 
-    // System group: below the two sub-page cards.
+    // System group: below the two sub-page cards. Keep the persistent system-log
+    // service available internally for crash diagnostics, but hide the manual log
+    // page from the normal settings UI to reduce clutter in this RC.
     constexpr int16_t kSysGroupY = kSysCardY + kMainCardH + kSettingsGap;
-    static const char* kSysLabels[] = {"电源", "系统日志", "关于"};
-    char logValue[24];
-    snprintf(logValue, sizeof(logValue), "%u 条", static_cast<unsigned>(g_systemLog.count()));
-    const char* sysValues[] = {"点按关机", logValue, kVinkPaperS3FirmwareVersion};
-    drawSettingsGroup(kMarginX, kSysGroupY, "系统", kSysLabels, sysValues, 3);
+    static const char* kSysLabels[] = {"电源", "关于"};
+    const char* sysValues[] = {"点按关机", kVinkPaperS3FirmwareVersion};
+    drawSettingsGroup(kMarginX, kSysGroupY, "系统", kSysLabels, sysValues, 2);
 }
 
 void VinkUiRenderer::showSystemSettings()  { showSystemSettings_ = true; }
@@ -1225,27 +1249,46 @@ void VinkUiRenderer::renderDiagnostics(const Message& lastTouch, const char* eve
     canvas_->drawString(line, 48, 468);
     canvas_->drawString("Touch: dot should match your finger", 48, 496);
 
-    const int16_t gx = 54;
-    const int16_t gy = 580;
-    const int16_t gw = 432;
-    const int16_t gh = 300;
-    canvas_->drawRect(24, 548, 492, 372, TFT_BLACK);
+    canvas_->drawRect(24, 536, 492, 132, TFT_BLACK);
     canvas_->setTextSize(2);
-    canvas_->drawString("3x3 HIT GRID", 54, 566);
-    canvas_->drawRect(gx, gy + 36, gw, gh, TFT_BLACK);
-    canvas_->drawFastVLine(gx + gw / 3, gy + 36, gh, TFT_BLACK);
-    canvas_->drawFastVLine(gx + gw * 2 / 3, gy + 36, gh, TFT_BLACK);
-    canvas_->drawFastHLine(gx, gy + 36 + gh / 3, gw, TFT_BLACK);
-    canvas_->drawFastHLine(gx, gy + 36 + gh * 2 / 3, gw, TFT_BLACK);
+    canvas_->drawString("IMU", 48, 554);
     canvas_->setTextSize(1);
-    canvas_->drawString("TOP", gx + gw / 2 - 12, gy + 48);
-    canvas_->drawString("LEFT", gx + 12, gy + 36 + gh / 2);
-    canvas_->drawString("RIGHT", gx + gw - 52, gy + 36 + gh / 2);
-    canvas_->drawString("BOTTOM", gx + gw / 2 - 22, gy + 36 + gh - 20);
+    if (M5.Imu.isEnabled()) {
+        M5.Imu.update();
+        const auto& imu = M5.Imu.getImuData();
+        snprintf(line, sizeof(line), "type:%s  orient:%s", imuTypeLabel(M5.Imu.getType()), orientationFromAccel(imu.accel.x, imu.accel.y, imu.accel.z));
+        canvas_->drawString(line, 48, 592);
+        snprintf(line, sizeof(line), "A x:%+.2f y:%+.2f z:%+.2f", imu.accel.x, imu.accel.y, imu.accel.z);
+        canvas_->drawString(line, 48, 620);
+        snprintf(line, sizeof(line), "G x:%+.1f y:%+.1f z:%+.1f", imu.gyro.x, imu.gyro.y, imu.gyro.z);
+        canvas_->drawString(line, 48, 648);
+    } else {
+        snprintf(line, sizeof(line), "type:%s  IMU disabled/unavailable", imuTypeLabel(M5.Imu.getType()));
+        canvas_->drawString(line, 48, 604);
+        canvas_->drawString("PaperS3 docs list BMI270 @0x68", 48, 632);
+    }
+
+    const int16_t gx = 54;
+    const int16_t gy = 724;
+    const int16_t gw = 432;
+    const int16_t gh = 160;
+    canvas_->drawRect(24, 692, 492, 228, TFT_BLACK);
+    canvas_->setTextSize(2);
+    canvas_->drawString("3x3 HIT GRID", 54, 706);
+    canvas_->drawRect(gx, gy + 28, gw, gh, TFT_BLACK);
+    canvas_->drawFastVLine(gx + gw / 3, gy + 28, gh, TFT_BLACK);
+    canvas_->drawFastVLine(gx + gw * 2 / 3, gy + 28, gh, TFT_BLACK);
+    canvas_->drawFastHLine(gx, gy + 28 + gh / 3, gw, TFT_BLACK);
+    canvas_->drawFastHLine(gx, gy + 28 + gh * 2 / 3, gw, TFT_BLACK);
+    canvas_->setTextSize(1);
+    canvas_->drawString("TOP", gx + gw / 2 - 12, gy + 38);
+    canvas_->drawString("LEFT", gx + 12, gy + 28 + gh / 2);
+    canvas_->drawString("RIGHT", gx + gw - 52, gy + 28 + gh / 2);
+    canvas_->drawString("BOTTOM", gx + gw / 2 - 22, gy + 28 + gh - 20);
 
     if (lastTouch.timestampMs != 0) {
         const int16_t px = gx + (static_cast<int32_t>(lastTouch.touch.x) * gw) / kPaperS3Width;
-        const int16_t py = gy + 36 + (static_cast<int32_t>(lastTouch.touch.y) * gh) / kPaperS3Height;
+        const int16_t py = gy + 28 + (static_cast<int32_t>(lastTouch.touch.y) * gh) / kPaperS3Height;
         canvas_->fillCircle(px, py, 10, TFT_BLACK);
         canvas_->drawCircle(px, py, 20, TFT_BLACK);
     }
@@ -1530,8 +1573,7 @@ UiAction VinkUiRenderer::hitTest(SystemState state, int16_t x, int16_t y) const 
                 if (inRect(x, y, kMarginX, kSysCardY, kContentW, kRowH)) return UiAction::OpenSystemSettings;
                 const int16_t sysY = kSysCardY + kRowH + kSettingsGap;
                 if (inRect(x, y, 56, sysY + kRowH,          424, kRowH)) return UiAction::RequestShutdown;
-                if (inRect(x, y, 56, sysY + 2 * kRowH,      424, kRowH)) return UiAction::OpenSystemLogs;
-                if (inRect(x, y, 56, sysY + 3 * kRowH,      424, kRowH)) return UiAction::OpenSettings;
+                if (inRect(x, y, 56, sysY + 2 * kRowH,      424, kRowH)) return UiAction::OpenSettings;
             }
             break;
         case SystemState::ShutdownConfirm:

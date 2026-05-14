@@ -5,6 +5,21 @@
   "description": "面向 M5Stack PaperS3 的 Vink 电子书阅读固件。",
   "releases": [
     {
+      "version": "v0.4.28-rc",
+      "name": "Vink-PaperS3 v0.4.28-rc",
+      "summary": "RC：修复 v0.4.28 正文点击/锁屏解锁重启，加入 IMU 诊断，隐藏普通系统日志入口。SHA256: cf4dd9c3...",
+      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.28-rc",
+      "changelog": "## Vink-PaperS3 v0.4.28-rc\n\n> SHA256: `cf4dd9c3cc40e76ec44a7a33f78607f1cfde138e30586d116711c65221e0ee77`\n\n### 致命重启修复\n- 修复 v0.4.28 中正文阅读页点击后可能重启的问题。\n- 修复开启锁屏后双击锁屏区域解锁可能重启的问题。\n- 原因是 raw epdiy framebuffer sweep 对屏幕方向/尺寸做了不安全假设，可能越界写入；RC 中加入 framebuffer/canvas 维度守卫，不安全时自动回退到 M5GFX clipped strip sweep。\n\n### 诊断增强\n- 诊断页新增 IMU 区块，显示 IMU 类型、姿态判断、加速度和陀螺仪数据，用于后续自动旋转功能前确认 BMI270 轴向。\n\n### UI 精简\n- 普通设置页隐藏“系统日志”入口，底层日志能力保留用于应急诊断。\n",
+      "assets": {
+        "full": {
+          "name": "Vink-PaperS3-v0.4.28-rc-full-16MB.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.28-rc/Vink-PaperS3-v0.4.28-rc-full-16MB.bin",
+          "size": 16777216,
+          "flashOffset": 0
+        }
+      }
+    },
+    {
       "version": "v0.4.28",
       "name": "Vink-PaperS3 v0.4.28",
       "summary": "锁屏侧键精确恢复正文页/SD字体样式、解锁条带刷新、epdiy翻页修正、段间距归零。SHA256: 22aafa3f...",
@@ -74,21 +89,6 @@
         "full": {
           "name": "Vink-PaperS3-v0.4.25-local-edclock-full-16MB.bin",
           "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.25-local-edclock/Vink-PaperS3-v0.4.25-local-edclock-full-16MB.bin",
-          "size": 16777216,
-          "flashOffset": 0
-        }
-      }
-    },
-    {
-      "version": "v0.4.24",
-      "name": "Vink-PaperS3 v0.4.24",
-      "summary": "修复阅读菜单触摸命中 + NVS 只读降级回退。SHA256: b6e39177...",
-      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.24",
-      "changelog": "## Vink-PaperS3 v0.4.24\n\n> SHA256: `b6e391776fcb8ae88dfb78c459c87cd4f8f50f88270facd559fcd40d79c17f41`\n\n### 字体 / 字号点击区域\n- \"字体\"只响应右侧实际可见字体名称区域，按文本宽度动态收拢，兼容长短不同的字体名。\n- \"字号\"只响应右侧可见步进箭头按钮；点击\"字号\"文字或行背景不再关闭菜单/穿透。\n\n### NVS 配置读取修复\n- loadLocalSettings: NVS 只读打开失败时自动降级为读写模式，避免新设备/空命名空间导致 reader 配置读取失败。\n- 此前 `Preferences::begin(\"vink-reader\", true)` 在从未创建过命名空间的设备上返回 false 后直接退出，导致所有读者设置读取跳过。\n\n### 验证\n- 本地 smoke test 通过。\n- PlatformIO release build 通过。\n- full 16MB 固件包 16777216 bytes。",
-      "assets": {
-        "full": {
-          "name": "Vink-PaperS3-v0.4.24-full-16MB.bin",
-          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.24/Vink-PaperS3-v0.4.24-full-16MB.bin",
           "size": 16777216,
           "flashOffset": 0
         }
