@@ -5,6 +5,21 @@
   "description": "面向 M5Stack PaperS3 的 Vink 电子书阅读固件。",
   "releases": [
     {
+      "version": "v0.4.29",
+      "name": "Vink-PaperS3 v0.4.29",
+      "date": "2026-05-14",
+      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.29",
+      "changelog": "## Vink-PaperS3 v0.4.29\n\n> SHA256: `342f682eec62b559f3a596e03ed2f1c640ea53270b83037da665e6e07d6d7ff7`\n\n### 翻页动画残影优化\n- 新版本发布，不覆盖 v0.4.28-rc；资产文件名独立为 `Vink-PaperS3-v0.4.29-edcscroll-interval-clean-full-16MB.bin`。\n- 保留 EDCBook 风格的驱动层条带翻页动画，但把“中间清影页数 / 全屏清影页数”的计数调度接入动画路径本身。\n- 到达全屏清影页数时，本次翻页条带直接使用 `kQualityRefresh` waveform；到达中间清影页数时，本次翻页条带使用 `kNormalRefresh`/text waveform。\n- 不再采用“翻页动画结束后追加一轮 GL16”的方案，避免翻完后额外闪一下。\n- 高速模式仍优先速度；标准/清晰模式继续把 eraser/target 清残影流程并入每个 scroll strip。\n",
+      "assets": {
+        "full": {
+          "name": "Vink-PaperS3-v0.4.29-edcscroll-interval-clean-full-16MB.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.29/Vink-PaperS3-v0.4.29-edcscroll-interval-clean-full-16MB.bin",
+          "size": 16777216,
+          "flashOffset": 0
+        }
+      }
+    },
+    {
       "version": "v0.4.28-rc",
       "name": "Vink-PaperS3 v0.4.28-rc",
       "summary": "RC：Panel_EPD 底层复刻 EDCBook 式滚动条带调度，锁屏解锁直接整页刷新。SHA256: 8796bf4f...",
@@ -74,21 +89,6 @@
         "full": {
           "name": "Vink-PaperS3-v0.4.26-local-vink-full-16MB.bin",
           "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.26-local-vink/Vink-PaperS3-v0.4.26-local-vink-full-16MB.bin",
-          "size": 16777216,
-          "flashOffset": 0
-        }
-      }
-    },
-    {
-      "version": "v0.4.25-local-edclock",
-      "name": "Vink-PaperS3 v0.4.25-local-edclock",
-      "summary": "侧键锁屏/解锁、触摸命中层级修复、NVS只读降级。SHA256: 9ca4768d988306080b550bedccca20478942981019977c5aa86a687354a1cb9e[:8]...",
-      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.25-local-edclock",
-      "changelog": "## Vink-PaperS3 v0.4.25-local-edclock\n\n> SHA256: `9ca4768d988306080b550bedccca20478942981019977c5aa86a687354a1cb9e`\n\n### 阅读菜单触摸命中修复\n- 菜单卡片内非控件区域消费点击并保持菜单打开，不再穿透回正文。\n- 菜单未遮盖的正文区域可点击关闭菜单并回到阅读。\n- \"字体\"只响应右侧可见字体名称区域（按文本宽度收窄）。\n- \"字号\"只响应可见步进箭头按钮。\n\n### NVS 配置读取修复\n- Preferences::begin RO 打开失败自动降级为 RW 模式。\n\n### 验证\n- 本地 smoke test 通过。\n- PlatformIO release build 通过。\n- full 16MB 固件包 16777216 bytes。",
-      "assets": {
-        "full": {
-          "name": "Vink-PaperS3-v0.4.25-local-edclock-full-16MB.bin",
-          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.25-local-edclock/Vink-PaperS3-v0.4.25-local-edclock-full-16MB.bin",
           "size": 16777216,
           "flashOffset": 0
         }

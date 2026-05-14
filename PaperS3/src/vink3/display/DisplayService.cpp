@@ -282,6 +282,28 @@ static int effectStepsForStrategy(ReaderRefreshStrategy s) {
     }
 }
 
+static uint16_t pageTurnScrollStripWidth(ReaderRefreshStrategy s) {
+    // Fewer/wider strips make the wavefront advance faster. Text/GL16-like
+    // waveform cleanup is now integrated into each strip, not appended after the
+    // animation, so use moderately wide strips to offset the cleaner waveform.
+    switch (s) {
+        case ReaderRefreshStrategy::Speed:  return 135; // 4 logical strips
+        case ReaderRefreshStrategy::Clear:  return 72;  // 8 logical strips
+        default:                            return 90;  // 6 logical strips
+    }
+}
+
+static epd_mode_t pageTurnScrollMode(ReaderRefreshStrategy s, epd_mode_t scheduledMode) {
+    // Match epdiy's scroll idea: the strip itself should use the waveform that
+    // clears residue. If the reader's page counter scheduled a quality/full clean,
+    // make this page-turn scroll use that stronger waveform directly rather than
+    // appending a separate flash after the animation. Otherwise, Panel_EPD fast
+    // modes skip eraser; text mode schedules eraser/target inside each strip.
+    if (scheduledMode == kQualityRefresh) return kQualityRefresh;
+    if (scheduledMode == kNormalRefresh) return kNormalRefresh;
+    return s == ReaderRefreshStrategy::Speed ? kLowRefresh : kNormalRefresh;
+}
+
 void DisplayService::pushShutterAnimation(M5Canvas* canvas, DisplayEffect effect, epd_mode_t mode) {
     if (!canvas) return;
 
@@ -344,9 +366,7 @@ void DisplayService::M5DisplayStripSweep(M5Canvas* canvas, DisplayEffect effect,
     // pushSprite/setClipRect and into the waveform/scan-cycle layer.
     auto* panel = static_cast<lgfx::Panel_EPD*>(M5.Display.panel());
     if (!panel) return;
-    const epd_mode_t sweepMode = (mode == kQualityRefresh || mode == kNormalRefresh)
-        ? kLowRefresh
-        : mode;
+    const epd_mode_t sweepMode = pageTurnScrollMode(readerRefreshStrategy_, mode);
     M5.Display.setEpdMode(sweepMode);
 
     const bool savedAutoDisplay = M5.Display.getPanel()->getAutoDisplay();
@@ -355,7 +375,7 @@ void DisplayService::M5DisplayStripSweep(M5Canvas* canvas, DisplayEffect effect,
     M5.Display.setAutoDisplay(savedAutoDisplay);
 
     const bool rtl = (effect == DisplayEffect::VerticalShutter);
-    const uint16_t stripWidth = static_cast<uint16_t>(max(24, min(96, kPaperS3Width / effectStepsForStrategy(readerRefreshStrategy_) * 2)));
+    const uint16_t stripWidth = pageTurnScrollStripWidth(readerRefreshStrategy_);
     panel->displayScroll(0, 0, kPaperS3Width, kPaperS3Height, stripWidth, rtl);
     M5.Display.waitDisplay();
 }
