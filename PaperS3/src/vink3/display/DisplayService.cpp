@@ -1,6 +1,3 @@
-#include <epdiy.h>
-#include <epd_highlevel.h>
-#include <lgfx/v1/panel/Panel_EPDiy.hpp>
 #include "DisplayService.h"
 #include <algorithm>
 #include <cstring>
@@ -325,93 +322,37 @@ void DisplayService::pushShutterAnimation(M5Canvas* canvas, DisplayEffect effect
 
 void DisplayService::pushSweepBandsEffect(M5Canvas* canvas, DisplayEffect effect, epd_mode_t mode) {
     if (!canvas) return;
-    auto* p = static_cast<lgfx::Panel_EPDiy*>(M5.Display.panel());
-    auto* hl = p ? p->config_detail().epd_hl : nullptr;
-    if (hl && epdiyScrollSweep(canvas, hl, effect)) return;
-    M5DisplayStripSweep(canvas, effect);
+    // PaperS3 in the current M5Unified/M5GFX stack uses lgfx::Panel_EPD, not
+    // lgfx::Panel_EPDiy. Do not reinterpret the active panel as Panel_EPDiy or
+    // read a fake epd_hl pointer; that violates the driver contract and can reset
+    // the device as soon as page-turn animation runs. Use the official Panel_EPD
+    // path: draw the rendered next-page snapshot into the M5GFX framebuffer, then
+    // request real EPD waveform updates for vertical strips.
+    M5DisplayStripSweep(canvas, effect, mode);
 }
 
-bool DisplayService::epdiyScrollSweep(M5Canvas* canvas, EpdiyHighlevelState* hl, DisplayEffect effect) {
-    uint8_t* ff = hl->front_fb;
-    uint8_t* bb = hl->back_fb;
-    uint8_t* cb = (uint8_t*)canvas->getBuffer();
-    if (!ff || !bb || !cb) return false;
-    int cw = canvas->width();
-    int ch = canvas->height();
-    int fbw = epd_width();
-    int fbh = epd_height();
-
-    // The raw epdiy framebuffer coordinate system is board/rotation dependent.
-    // The direct fb copy below is only safe when the physical fb is the transpose
-    // of Vink's portrait canvas. On PaperS3 builds where epd_width/height already
-    // report 540x960, the previous formula made px negative for cy>=540 and the
-    // first page-turn/lock-resume refresh could panic/reset the device. Fall back
-    // to the M5GFX clipped sweep unless the dimensions prove this path is safe.
-    if (fbw != ch || fbh != cw || cw <= 0 || ch <= 0 || fbw <= 0 || fbh <= 0) {
-        Serial.printf("[vink3][display] skip raw epdiy sweep: canvas=%dx%d fb=%dx%d\n", cw, ch, fbw, fbh);
-        return false;
-    }
-
-    int fbr = fbw / 2;
-    int cr = cw / 2;
-
-    // Save old front_fb to back_fb for differential update
-    memcpy(bb, ff, fbr * fbh);
-
-    // Copy canvas (portrait) to front_fb (physical, rotation 3: swap + x-flip).
-    // Dimension guard above guarantees px/py/off stay inside the fb buffers.
-    for (int cy = 0; cy < ch; cy++) {
-        int px = fbw - 1 - cy;
-        for (int cx = 0; cx < cw; cx++) {
-            int py = cx;
-            uint8_t pix = cb[cy * cr + cx / 2];
-            pix = (cx & 1) ? (pix & 0x0F) : (pix >> 4);
-            int off = py * fbr + px / 2;
-            if (px & 1)
-                ff[off] = (ff[off] & 0xF0) | (pix & 0x0F);
-            else
-                ff[off] = (ff[off] & 0x0F) | (pix << 4);
-        }
-    }
-
-    int offsets[25];
-    int ns = buildScrollOffsets(offsets, fbw, effectStepsForStrategy(readerRefreshStrategy_));
-    bool rtl = (effect == DisplayEffect::VerticalShutter);
-    EpdRect full = {0, 0, (int)fbw, (int)fbh};
-
-    M5.Display.waitDisplay();
-    epd_hl_update_area_ex(hl, EpdDrawMode::MODE_DU, epd_ambient_temperature(),
-                          full, offsets, ns, rtl ? 1 : 0);
-    M5.Display.waitDisplay();
-
-    M5.Display.setColorDepth(kTextColorDepthHigh);
-    M5.Display.setEpdMode(epd_mode_t::epd_quality);
-    canvas->pushSprite(&M5.Display, 0, 0);
-    M5.Display.waitDisplay();
-    return true;
-}
-
-void DisplayService::M5DisplayStripSweep(M5Canvas* canvas, DisplayEffect effect) {
+void DisplayService::M5DisplayStripSweep(M5Canvas* canvas, DisplayEffect effect, epd_mode_t mode) {
+    if (!canvas) return;
     M5.Display.waitDisplay();
     M5.Display.setColorDepth(kTextColorDepthHigh);
-    M5.Display.setEpdMode(epd_mode_t::epd_fastest);
+    M5.Display.setEpdMode(mode);
 
-    int w = kPaperS3Width;
-    int h = kPaperS3Height;
     int offsets[25];
-    int ns = buildScrollOffsets(offsets, w, effectStepsForStrategy(readerRefreshStrategy_));
-    bool rtl = (effect == DisplayEffect::VerticalShutter);
+    const int stripCount = buildScrollOffsets(offsets, kPaperS3Width, effectStepsForStrategy(readerRefreshStrategy_));
+    const bool rtl = (effect == DisplayEffect::VerticalShutter);
 
-    for (int si = 0; si < ns; si++) {
-        int idx = rtl ? (ns - 1 - si) : si;
-        M5.Display.setClipRect(offsets[idx], 0, offsets[idx + 1] - offsets[idx], h);
+    for (int si = 0; si < stripCount; ++si) {
+        const int idx = rtl ? (stripCount - 1 - si) : si;
+        const int16_t x = static_cast<int16_t>(offsets[idx]);
+        const int16_t w = static_cast<int16_t>(offsets[idx + 1] - offsets[idx]);
+        if (w <= 0) continue;
+        M5.Display.setClipRect(x, 0, w, kPaperS3Height);
         canvas->pushSprite(&M5.Display, 0, 0);
         M5.Display.waitDisplay();
+        delay(1);
     }
 
     M5.Display.clearClipRect();
-    M5.Display.setEpdMode(epd_mode_t::epd_quality);
-    canvas->pushSprite(&M5.Display, 0, 0);
     M5.Display.waitDisplay();
 }
 
