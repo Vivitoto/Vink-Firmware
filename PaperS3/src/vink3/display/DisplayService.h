@@ -1,6 +1,7 @@
 #pragma once
 #include <Arduino.h>
 #include <M5Unified.h>
+#include <epdiy.h>
 #include "../VinkPaperS3.h"
 
 namespace vink3 {
@@ -67,6 +68,8 @@ private:
     epd_mode_t chooseReaderRefreshMode(const DisplayRequest& request);
     void pushShutterAnimation(M5Canvas* canvas, DisplayEffect effect, epd_mode_t mode);
     void pushSweepBandsEffect(M5Canvas* canvas, DisplayEffect effect, epd_mode_t mode);
+    bool epdiyScrollSweep(M5Canvas* canvas, EpdiyHighlevelState* hl, DisplayEffect effect);
+    void M5DisplayStripSweep(M5Canvas* canvas, DisplayEffect effect);
 
     M5Canvas* canvas_ = nullptr;
     QueueHandle_t queue_ = nullptr;

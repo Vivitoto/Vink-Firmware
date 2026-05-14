@@ -177,6 +177,7 @@ void ReaderTextRenderer::loadLocalSettings() {
     // v0.4.6 adds compact reader chrome; migrate old defaults in RAM only so
     // existing devices use the reclaimed text area without touching NVS at boot.
     if (webLineSpacing_ == 60) webLineSpacing_ = 50;
+    if (webParagraphSpacing_ == 50) webParagraphSpacing_ = 0;
     if (webMarginTop_ == 78) webMarginTop_ = kReaderBodyTopMin;
     if (webMarginBottom_ == 34) webMarginBottom_ = 48;
     webJustify_ = prefs.getBool("justify", webJustify_);

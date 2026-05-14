@@ -1,3 +1,6 @@
+#include <epdiy.h>
+#include <epd_highlevel.h>
+#include <lgfx/v1/panel/Panel_EPDiy.hpp>
 #include "DisplayService.h"
 #include <algorithm>
 #include <cstring>
@@ -260,6 +263,27 @@ const char* DisplayService::readerRefreshStrategyLabel() const {
 // asks the EPD controller to refresh that region with a cleaner text waveform.
 // The visual direction is centralized here so it can be flipped after real-device
 // validation without changing tap/swipe handlers.
+
+// EDCBook formula: n = clamp(effectSteps/2, 1, 24), 16px-aligned strips
+static inline int clampInt(int v, int lo, int hi) { return v < lo ? lo : v > hi ? hi : v; }
+static int buildScrollOffsets(int* off, int w, int eSteps) {
+    int n = clampInt(eSteps / 2, 1, 24);
+    int step = (w + n * 16 - 1) / (n * 16) * 16;
+    int an = (w + step - 1) / step;
+    if (an < 1) an = 1;
+    step = (w + an - 1) / an;
+    for (int i = 0; i < an; i++) off[i] = i * step;
+    off[an] = w;
+    return an;
+}
+static int effectStepsForStrategy(ReaderRefreshStrategy s) {
+    switch (s) {
+        case ReaderRefreshStrategy::Speed:  return 12;
+        case ReaderRefreshStrategy::Clear:  return 48;
+        default:                            return 24;
+    }
+}
+
 void DisplayService::pushShutterAnimation(M5Canvas* canvas, DisplayEffect effect, epd_mode_t mode) {
     if (!canvas) return;
 
@@ -300,23 +324,82 @@ void DisplayService::pushShutterAnimation(M5Canvas* canvas, DisplayEffect effect
 }
 
 void DisplayService::pushSweepBandsEffect(M5Canvas* canvas, DisplayEffect effect, epd_mode_t mode) {
-    // EDCBook-style page turn: single DU (Direct Update) waveform push
-    // on the full screen. The DU waveform processes EPD scanlines
-    // sequentially in hardware, creating a natural vertical sweep.
-    // No software strip loop, no black flash — just the EPD's native
-    // scanline-progressive transition at ~150ms.
     if (!canvas) return;
+    auto* p = static_cast<lgfx::Panel_EPDiy*>(M5.Display.panel());
+    auto* hl = p ? p->config_detail().epd_hl : nullptr;
+    if (hl && epdiyScrollSweep(canvas, hl, effect)) return;
+    M5DisplayStripSweep(canvas, effect);
+}
 
-    const uint8_t savedRotation = M5.Display.getRotation();
-    M5.Display.setRotation(0);
+bool DisplayService::epdiyScrollSweep(M5Canvas* canvas, EpdiyHighlevelState* hl, DisplayEffect effect) {
+    uint8_t* ff = hl->front_fb;
+    uint8_t* bb = hl->back_fb;
+    uint8_t* cb = (uint8_t*)canvas->getBuffer();
+    if (!ff || !cb) return false;
+    int cw = canvas->width();
+    int ch = canvas->height();
+    int fbw = epd_width();
+    int fbh = epd_height();
+    int fbr = fbw / 2;
+    int cr = cw / 2;
+
+    // Save old front_fb to back_fb for differential update
+    memcpy(bb, ff, fbr * fbh);
+
+    // Copy canvas (portrait) to front_fb (physical, rotation 3: swap + x-flip)
+    for (int cy = 0; cy < ch; cy++) {
+        int px = fbw - 1 - cy;
+        for (int cx = 0; cx < cw; cx++) {
+            int py = cx;
+            uint8_t pix = cb[cy * cr + cx / 2];
+            pix = (cx & 1) ? (pix & 0x0F) : (pix >> 4);
+            int off = py * fbr + px / 2;
+            if (px & 1)
+                ff[off] = (ff[off] & 0xF0) | (pix & 0x0F);
+            else
+                ff[off] = (ff[off] & 0x0F) | (pix << 4);
+        }
+    }
+
+    int offsets[25];
+    int ns = buildScrollOffsets(offsets, fbw, effectStepsForStrategy(readerRefreshStrategy_));
+    bool rtl = (effect == DisplayEffect::VerticalShutter);
+    EpdRect full = {0, 0, (int)fbw, (int)fbh};
+
     M5.Display.waitDisplay();
-    M5.Display.setColorDepth(kTextColorDepthHigh);
-    M5.Display.setEpdMode(epd_mode_t::epd_fast);
+    epd_hl_update_area_ex(hl, EpdDrawMode::MODE_DU, epd_ambient_temperature(),
+                          full, offsets, ns, rtl ? 1 : 0);
+    M5.Display.waitDisplay();
 
+    M5.Display.setColorDepth(kTextColorDepthHigh);
+    M5.Display.setEpdMode(epd_mode_t::epd_quality);
     canvas->pushSprite(&M5.Display, 0, 0);
     M5.Display.waitDisplay();
+    return true;
+}
 
-    M5.Display.setRotation(savedRotation);
+void DisplayService::M5DisplayStripSweep(M5Canvas* canvas, DisplayEffect effect) {
+    M5.Display.waitDisplay();
+    M5.Display.setColorDepth(kTextColorDepthHigh);
+    M5.Display.setEpdMode(epd_mode_t::epd_fastest);
+
+    int w = kPaperS3Width;
+    int h = kPaperS3Height;
+    int offsets[25];
+    int ns = buildScrollOffsets(offsets, w, effectStepsForStrategy(readerRefreshStrategy_));
+    bool rtl = (effect == DisplayEffect::VerticalShutter);
+
+    for (int si = 0; si < ns; si++) {
+        int idx = rtl ? (ns - 1 - si) : si;
+        M5.Display.setClipRect(offsets[idx], 0, offsets[idx + 1] - offsets[idx], h);
+        canvas->pushSprite(&M5.Display, 0, 0);
+        M5.Display.waitDisplay();
+    }
+
+    M5.Display.clearClipRect();
+    M5.Display.setEpdMode(epd_mode_t::epd_quality);
+    canvas->pushSprite(&M5.Display, 0, 0);
+    M5.Display.waitDisplay();
 }
 
 epd_mode_t DisplayService::chooseReaderRefreshMode(const DisplayRequest& request) {
