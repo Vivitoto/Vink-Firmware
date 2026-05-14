@@ -172,10 +172,12 @@ void enqueueReaderAwareRefresh(DisplayEffect effect = DisplayEffect::HorizontalS
 
 void enqueueLockResumeRefresh(bool resumedReader) {
     if (resumedReader) {
-        // Avoid showing a boot-like full-screen flash when leaving the lock
-        // screen. The reader body has just been rendered into the canvas, so a
-        // strip refresh can replace the retained lock screen more gracefully.
-        enqueueReaderAwareRefresh(DisplayEffect::HorizontalShutter);
+        // Lock-screen exit is a state restore, not a page turn. Even when the
+        // reader body has just been rendered, consume the reader-page marker so
+        // the page-turn animation path remains reserved for explicit next/prev
+        // page actions only.
+        (void)g_readerBook.consumeReadingPageRendered();
+        g_displayService.enqueueFull(false, 100);
     } else {
         g_displayService.enqueueFull(true, 100);
     }

@@ -1,0 +1,368 @@
+--- .pio/libdeps/m5papers3/M5GFX/src/lgfx/v1/platforms/esp32/Panel_EPD.hpp
++++ .pio/libdeps/m5papers3/M5GFX/src/lgfx/v1/platforms/esp32/Panel_EPD.hpp
+@@ -74,6 +74,8 @@
+     void setPowerSave(bool flg) override;
+ 
+     void display(uint_fast16_t x, uint_fast16_t y, uint_fast16_t w, uint_fast16_t h) override;
++    void displayScroll(uint_fast16_t x, uint_fast16_t y, uint_fast16_t w, uint_fast16_t h,
++                       uint_fast16_t strip_width, bool reverse);
+ 
+     void writeFillRectPreclipped(uint_fast16_t x, uint_fast16_t y, uint_fast16_t w, uint_fast16_t h, uint32_t rawcolor) override;
+     void writeImage(uint_fast16_t x, uint_fast16_t y, uint_fast16_t w, uint_fast16_t h, pixelcopy_t* param, bool use_dma) override;
+@@ -102,8 +104,13 @@
+       uint16_t w;
+       uint16_t h;
+       epd_mode_t mode;
++      bool scroll = false;
++      bool scroll_reverse = false;
++      uint16_t scroll_strip_width = 0;
+       bool constexpr operator==(const update_data_t& other) const {
+-        return x == other.x && y == other.y && w == other.w && h == other.h && mode == other.mode;
++        return x == other.x && y == other.y && w == other.w && h == other.h && mode == other.mode
++            && scroll == other.scroll && scroll_reverse == other.scroll_reverse
++            && scroll_strip_width == other.scroll_strip_width;
+       }
+       bool constexpr operator!=(const update_data_t& other) const {
+         return !(*this == other);
+--- .pio/libdeps/m5papers3/M5GFX/src/lgfx/v1/platforms/esp32/Panel_EPD.cpp
++++ .pio/libdeps/m5papers3/M5GFX/src/lgfx/v1/platforms/esp32/Panel_EPD.cpp
+@@ -588,6 +588,36 @@
+     }
+   }
+ 
++  void Panel_EPD::displayScroll(uint_fast16_t x, uint_fast16_t y, uint_fast16_t w, uint_fast16_t h,
++                                uint_fast16_t strip_width, bool reverse)
++  {
++    if (w == 0 || h == 0) { return; }
++
++    update_data_t upd;
++    // Keep these coordinates in logical display space. task_update converts each
++    // strip with _rotate_pos() before touching the physical Panel_EPD buffers.
++    upd.x = x;
++    upd.y = y;
++    upd.w = w;
++    upd.h = h;
++    upd.mode = _epd_mode;
++    upd.scroll = true;
++    upd.scroll_reverse = reverse;
++    upd.scroll_strip_width = std::max<uint16_t>(4, strip_width & ~1u);
++
++    _display_busy = true;
++    cacheWriteBack(_buf, (_cfg.panel_width * _cfg.panel_height) >> 1);
++    vTaskDelay(1);
++    bool res = xQueueSend(_update_queue_handle, &upd, 128 / portTICK_PERIOD_MS) == pdTRUE;
++    if (res)
++    {
++      _range_mod.top    = INT16_MAX;
++      _range_mod.left   = INT16_MAX;
++      _range_mod.right  = 0;
++      _range_mod.bottom = 0;
++    }
++  }
++
+ #if defined( __XTENSA__ )
+   __attribute__((noinline,noclone,optimize("-O3,-fomit-frame-pointer")))
+   static bool blit_dmabuf(uint32_t* dst, uint16_t* src, const uint8_t* lut, size_t len)
+@@ -899,165 +929,163 @@
+ 
+     auto bus = me->getBusEPD();
+ 
+-    bool remain = false;
+-
+-    for (;;) {
+-      me->_display_busy = remain;
+-      TickType_t wait_tick = remain ? 0 : portMAX_DELAY;
+-      if (xQueueReceive(me->_update_queue_handle, &new_data, wait_tick)) {
+-        me->_display_busy = true;
+-        uint32_t usec = lgfx::micros();
+-        for (;;) {
+-// printf("\n new_data: x:%d y:%d w:%d h:%d \n", new_data.x, new_data.y, new_data.w, new_data.h);
+-          bool flg_fast = ( new_data.mode == epd_mode_t::epd_fastest)
+-                       || ( new_data.mode == epd_mode_t::epd_fast   );
+-
+-          size_t panel_idx = ((new_data.x + new_data.y * panel_w) >> 1);
+-          size_t memory_idx = ((new_data.x + new_data.y * memory_w) >> 1);
+-          auto src = &me->_buf[panel_idx];
+-          auto dst = &me->_step_framebuf[memory_idx*2];
+-          size_t h = new_data.h;
+-          uint_fast16_t lut_offset = me->_lut_offset_table[new_data.mode] << 8;
+-
+-          if (flg_fast) { lut_offset += 0x8000; }
+-
+-          do {
+-            size_t w = new_data.w >> 1;
+-            auto s = src;
+-            auto d = dst;
+-            src += panel_w >> 1;
+-            dst += (memory_w >> 1) * 2;
+-            if (flg_fast) {
+-              for (int i = 0; i < w; i += 2) {
+-                uint_fast16_t s0 = s[0];
+-                uint_fast16_t d1 = d[1];
+-                uint_fast16_t s1 = s[1];
+-                uint_fast16_t d3 = d[3];
+-                s0 += lut_offset;
+-                s1 += lut_offset;
+-                // 既にリクエスト済みの内容と相違がある場合のみ更新
+-                if (d1 != s0) {
+-                  // 高速描画の場合は消去処理は行わず直接更新指示する。
+-                  d[1] = s0;
+-                  d[0] = s0 - 0x8000;
+-                }
+-                if (d3 != s1) {
+-                  d[3] = s1;
+-                  d[2] = s1 - 0x8000;
+-                }
+-                s += 2;
+-                d += 4;
+-              }
+-            } else
+-            if (new_data.mode == epd_mode_t::epd_text) {
+-              uint_fast16_t white = lut_offset | 0x00FF;
+-              for (int i = 0; i < w; i += 2) {
+-                uint_fast16_t s0 = s[0];
+-                uint_fast16_t s1 = s[1];
+-                uint_fast16_t d1 = d[1];
+-                uint_fast16_t d3 = d[3];
+-                s0 += lut_offset;
+-                s1 += lut_offset;
+-                d1 &= 0x7FFF;
+-                d3 &= 0x7FFF;
+-
+-                // 白以外またはリクエスト済みの内容と相違がある場合に更新
+-                if (white != d1 || d1 != s0) {
+-                  uint_fast16_t d0 = d[0];
+-                  d[1] = s0;
+-                  // 消去処理を挟んで更新指示する。(元の値の下位8bitのみを使用するとlut_eraser扱いになる)
+-                  // 既に消去処理動作中の場合は変更しない
+-                  if (d0 >= (lut_eraser_step << 8)) {
+-                    d[0] = (uint8_t)d0;
+-                  }
+-                }
+-
+-                // 白以外またはリクエスト済みの内容と相違がある場合に更新
+-                if (white != d3 || d3 != s1) {
+-                  uint_fast16_t d2 = d[2];
+-                  d[3] = s1;
+-                  if (d2 >= (lut_eraser_step << 8)) {
+-                    // 消去処理を挟んで更新指示する。(元の値の下位8bitのみを使用するとlut_eraser扱いになる)
+-                    d[2] = (uint8_t)d2;
+-                  }
+-                }
+-                s += 2;
+-                d += 4;
+-              }
+-            } else {
+-              for (int i = 0; i < w; i += 2) {
+-                uint_fast16_t s0 = s[0];
+-                uint_fast16_t s1 = s[1];
+-                uint_fast16_t d1 = d[1];
+-                uint_fast16_t d3 = d[3];
+-                s0 += lut_offset;
+-                s1 += lut_offset;
+-
+-                // 既にリクエスト済みの内容と相違がある場合のみ更新
+-                if (d1 != s0) {
+-                  uint_fast16_t d0 = d[0];
+-                  d[1] = s0;
+-                  // 消去処理を挟んで更新指示する。(元の値の下位8bitのみを使用するとlut_eraser扱いになる)
+-                  // 既に消去処理動作中の場合は変更しない
+-                  if (d0 >= (lut_eraser_step << 8)) {
+-                    d[0] = (uint8_t)d0;
+-                  }
+-                }
+-
+-                // 既にリクエスト済みの内容と相違がある場合のみ更新
+-                if (d3 != s1) {
+-                  uint_fast16_t d2 = d[2];
+-                  d[3] = s1;
+-                  if (d2 >= (lut_eraser_step << 8)) {
+-                    // 消去処理を挟んで更新指示する。(元の値の下位8bitのみを使用するとlut_eraser扱いになる)
+-                    d[2] = (uint8_t)d2;
+-                  }
+-                }
+-                s += 2;
+-                d += 4;
+-              }
++    auto prepare_update = [&](const update_data_t& upd) {
++      if (upd.w == 0 || upd.h == 0) { return; }
++      bool flg_fast = ( upd.mode == epd_mode_t::epd_fastest)
++                   || ( upd.mode == epd_mode_t::epd_fast   );
++
++      size_t panel_idx = ((upd.x + upd.y * panel_w) >> 1);
++      size_t memory_idx = ((upd.x + upd.y * memory_w) >> 1);
++      auto src = &me->_buf[panel_idx];
++      auto dst = &me->_step_framebuf[memory_idx*2];
++      size_t h = upd.h;
++      uint_fast16_t lut_offset = me->_lut_offset_table[upd.mode] << 8;
++
++      if (flg_fast) { lut_offset += 0x8000; }
++
++      do {
++        size_t w = upd.w >> 1;
++        auto s = src;
++        auto d = dst;
++        src += panel_w >> 1;
++        dst += (memory_w >> 1) * 2;
++        if (flg_fast) {
++          for (int i = 0; i < w; i += 2) {
++            uint_fast16_t s0 = s[0];
++            uint_fast16_t d1 = d[1];
++            uint_fast16_t s1 = s[1];
++            uint_fast16_t d3 = d[3];
++            s0 += lut_offset;
++            s1 += lut_offset;
++            if (d1 != s0) { d[1] = s0; d[0] = s0 - 0x8000; }
++            if (d3 != s1) { d[3] = s1; d[2] = s1 - 0x8000; }
++            s += 2;
++            d += 4;
++          }
++        } else
++        if (upd.mode == epd_mode_t::epd_text) {
++          uint_fast16_t white = lut_offset | 0x00FF;
++          for (int i = 0; i < w; i += 2) {
++            uint_fast16_t s0 = s[0];
++            uint_fast16_t s1 = s[1];
++            uint_fast16_t d1 = d[1];
++            uint_fast16_t d3 = d[3];
++            s0 += lut_offset;
++            s1 += lut_offset;
++            d1 &= 0x7FFF;
++            d3 &= 0x7FFF;
++            if (white != d1 || d1 != s0) {
++              uint_fast16_t d0 = d[0];
++              d[1] = s0;
++              if (d0 >= (lut_eraser_step << 8)) { d[0] = (uint8_t)d0; }
+             }
+-          } while (--h);
+-
+-          if (lgfx::micros() - usec >= 2048) {
+-            break;
++            if (white != d3 || d3 != s1) {
++              uint_fast16_t d2 = d[2];
++              d[3] = s1;
++              if (d2 >= (lut_eraser_step << 8)) { d[2] = (uint8_t)d2; }
++            }
++            s += 2;
++            d += 4;
+           }
+-
+-          const update_data_t prev_data = new_data;
+-          bool result;
+-          while (true == (result = xQueueReceive(me->_update_queue_handle, &new_data, 0))) {
+-            if (prev_data != new_data) { break; }
++        } else {
++          for (int i = 0; i < w; i += 2) {
++            uint_fast16_t s0 = s[0];
++            uint_fast16_t s1 = s[1];
++            uint_fast16_t d1 = d[1];
++            uint_fast16_t d3 = d[3];
++            s0 += lut_offset;
++            s1 += lut_offset;
++            if (d1 != s0) {
++              uint_fast16_t d0 = d[0];
++              d[1] = s0;
++              if (d0 >= (lut_eraser_step << 8)) { d[0] = (uint8_t)d0; }
++            }
++            if (d3 != s1) {
++              uint_fast16_t d2 = d[2];
++              d[3] = s1;
++              if (d2 >= (lut_eraser_step << 8)) { d[2] = (uint8_t)d2; }
++            }
++            s += 2;
++            d += 4;
+           }
+-          if (result == false) { break; }
+         }
+-      }
++      } while (--h);
++    };
+ 
++    auto run_cycle = [&]() -> bool {
+       bus->powerControl(true);
+-
+       int w = (memory_w + 15) >> 4;
+-      remain = false;
++      bool cycle_remain = false;
+       for (uint_fast16_t y = 0; y < mh; y++) {
+         auto dma_buf = (uint32_t*)(me->_dma_bufs[y & 1]);
+         if (blit_dmabuf(dma_buf, &me->_step_framebuf[(y * memory_w >> 1) * 2], me->_lut_2pixel, w)) {
+-          remain = true;
++          cycle_remain = true;
+         }
+         for (int m = 0; m < magni_h; ++m) {
+-          if (y == 0 && m == 0) {
+-            bus->beginTransaction();
+-          } else {
+-            bus->scanlineDone();
+-          }
++          if (y == 0 && m == 0) { bus->beginTransaction(); }
++          else { bus->scanlineDone(); }
+           bus->writeScanLine((const uint8_t*)dma_buf, write_len);
+         }
+       }
+-
+       vTaskDelay(1);
+       bus->scanlineDone();
+       bus->endTransaction();
++      if (cycle_remain == false) { bus->powerControl(false); }
++      return cycle_remain;
++    };
+ 
+-      if (remain == false) {
+-        bus->powerControl(false);
++    bool remain = false;
++
++    for (;;) {
++      me->_display_busy = remain;
++      TickType_t wait_tick = remain ? 0 : portMAX_DELAY;
++      if (xQueueReceive(me->_update_queue_handle, &new_data, wait_tick)) {
++        me->_display_busy = true;
++        if (new_data.scroll && new_data.scroll_strip_width > 0) {
++          const uint16_t x0 = new_data.x;
++          const uint16_t x1 = new_data.x + new_data.w;
++          const uint16_t strip_w = std::max<uint16_t>(4, new_data.scroll_strip_width & ~1u);
++          const uint16_t strip_count = (new_data.w + strip_w - 1) / strip_w;
++          for (uint16_t si = 0; si < strip_count; ++si) {
++            const uint16_t idx = new_data.scroll_reverse ? (strip_count - 1 - si) : si;
++            const uint16_t sx = x0 + idx * strip_w;
++            const uint16_t ex = std::min<uint16_t>(x1, sx + strip_w);
++            if (ex <= sx) { continue; }
++
++            uint_fast16_t xs = sx;
++            uint_fast16_t ys = new_data.y;
++            uint_fast16_t xe = ex - 1;
++            uint_fast16_t ye = new_data.y + new_data.h - 1;
++            me->_rotate_pos(xs, ys, xe, ye);
++
++            update_data_t strip = new_data;
++            strip.scroll = false;
++            strip.x = (xs + me->_cfg.offset_x) & ~1u;
++            strip.w = ((xe + me->_cfg.offset_x) & ~1u) - strip.x + 2;
++            strip.y = ys + me->_cfg.offset_y;
++            strip.h = ye - ys + 1;
++            prepare_update(strip);
++            remain = run_cycle();
++          }
++          while (remain) { remain = run_cycle(); }
++          continue;
++        }
++
++        uint32_t usec = lgfx::micros();
++        for (;;) {
++          prepare_update(new_data);
++          if (lgfx::micros() - usec >= 2048) { break; }
++
++          const update_data_t prev_data = new_data;
++          bool result;
++          while (true == (result = xQueueReceive(me->_update_queue_handle, &new_data, 0))) {
++            if (prev_data != new_data) { break; }
++          }
++          if (result == false) { break; }
++        }
+       }
++
++      remain = run_cycle();
+     }
+   }
+ 

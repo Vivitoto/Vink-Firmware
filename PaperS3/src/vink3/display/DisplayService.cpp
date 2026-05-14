@@ -1,4 +1,5 @@
 #include "DisplayService.h"
+#include <lgfx/v1/platforms/esp32/Panel_EPD.hpp>
 #include <algorithm>
 #include <cstring>
 #include <Preferences.h>
@@ -335,24 +336,27 @@ void DisplayService::M5DisplayStripSweep(M5Canvas* canvas, DisplayEffect effect,
     if (!canvas) return;
     M5.Display.waitDisplay();
     M5.Display.setColorDepth(kTextColorDepthHigh);
-    M5.Display.setEpdMode(mode);
 
-    int offsets[25];
-    const int stripCount = buildScrollOffsets(offsets, kPaperS3Width, effectStepsForStrategy(readerRefreshStrategy_));
+    // EDCBook-style migration for PaperS3's actual Panel_EPD driver. First copy
+    // the fully-rendered next page into Panel_EPD's framebuffer without starting
+    // a display transfer, then ask the patched driver to reveal logical portrait
+    // strips from inside its EPD worker. This moves the strip scheduler below
+    // pushSprite/setClipRect and into the waveform/scan-cycle layer.
+    auto* panel = static_cast<lgfx::Panel_EPD*>(M5.Display.panel());
+    if (!panel) return;
+    const epd_mode_t sweepMode = (mode == kQualityRefresh || mode == kNormalRefresh)
+        ? kLowRefresh
+        : mode;
+    M5.Display.setEpdMode(sweepMode);
+
+    const bool savedAutoDisplay = M5.Display.getPanel()->getAutoDisplay();
+    M5.Display.setAutoDisplay(false);
+    canvas->pushSprite(&M5.Display, 0, 0);
+    M5.Display.setAutoDisplay(savedAutoDisplay);
+
     const bool rtl = (effect == DisplayEffect::VerticalShutter);
-
-    for (int si = 0; si < stripCount; ++si) {
-        const int idx = rtl ? (stripCount - 1 - si) : si;
-        const int16_t x = static_cast<int16_t>(offsets[idx]);
-        const int16_t w = static_cast<int16_t>(offsets[idx + 1] - offsets[idx]);
-        if (w <= 0) continue;
-        M5.Display.setClipRect(x, 0, w, kPaperS3Height);
-        canvas->pushSprite(&M5.Display, 0, 0);
-        M5.Display.waitDisplay();
-        delay(1);
-    }
-
-    M5.Display.clearClipRect();
+    const uint16_t stripWidth = static_cast<uint16_t>(max(24, min(96, kPaperS3Width / effectStepsForStrategy(readerRefreshStrategy_) * 2)));
+    panel->displayScroll(0, 0, kPaperS3Width, kPaperS3Height, stripWidth, rtl);
     M5.Display.waitDisplay();
 }
 

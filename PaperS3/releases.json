@@ -7,13 +7,13 @@
     {
       "version": "v0.4.28-rc",
       "name": "Vink-PaperS3 v0.4.28-rc",
-      "summary": "RC：修复正文点击/锁屏解锁重启；翻页动画去除错误 Panel_EPDiy 强转，改走 PaperS3 官方 Panel_EPD 条带波形刷新；设置页诊断入口与 IMU 诊断。SHA256: 9fafef1a...",
+      "summary": "RC：Panel_EPD 底层复刻 EDCBook 式滚动条带调度，锁屏解锁直接整页刷新。SHA256: 8796bf4f...",
       "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.28-rc",
-      "changelog": "## Vink-PaperS3 v0.4.28-rc\n\n> SHA256: `9fafef1a384ed7350117be746814f0edf945095a049d44228379f16d51aa55fa`\n\n### 致命重启修复\n- 发布文件改用带测试标识的新文件名，避免 R2 immutable 旧缓存命中同名 RC 包。\n- 翻页动画修正为 PaperS3 当前官方 `Panel_EPD` 路径：移除错误的 `Panel_EPDiy` 强转和伪 `epd_hl` 访问，保留竖屏条带波形刷新效果。\n- 修复 v0.4.28 中正文阅读页点击后可能重启的问题。\n- 修复开启锁屏后双击锁屏区域解锁可能重启的问题。\n- 原因是旧动画路径错误地把当前 PaperS3 的 `Panel_EPD` 强转为 `Panel_EPDiy` 并读取伪 `epd_hl`，属于未定义行为；RC 中移除该路径，改走实际 `Panel_EPD` 条带波形刷新。\n\n### 诊断增强\n- 设置页新增“诊断”菜单入口，可直接打开触摸 / IMU 诊断页。\n- 诊断页新增 IMU 区块，显示 IMU 类型、姿态判断、加速度和陀螺仪数据，用于后续自动旋转功能前确认 BMI270 轴向。\n\n### UI 精简\n- 普通设置页隐藏“系统日志”入口，底层日志能力保留用于应急诊断。\n",
+      "changelog": "## Vink-PaperS3 v0.4.28-rc\n\n> SHA256: `8796bf4fe7067523fddf2fb4c0755c524011b5d896fc149c229d8dc14b4cf430`\n\n### 致命重启修复\n- 翻页动画改为驱动层 `Panel_EPD::displayScroll()`：先把下一页写入 Panel_EPD framebuffer，再由底层刷新任务按逻辑竖屏条带转换到物理坐标并逐条激活，复刻 EDCBook 的“刷新波前”思路。\n- 增加可复现的 M5GFX 补丁流程：PlatformIO 构建前自动应用 `patches/m5gfx-panel-epd-scroll.patch`，避免只修改本地 `.pio`。\n- 锁屏恢复路径收窄：双击屏幕解锁和侧键解锁都不再复用翻页条带动画，而是直接普通整页刷新；只有显式上一页/下一页才走翻页动画。\n- 发布文件继续使用带测试标识的新文件名，避免 R2 immutable 旧缓存命中同名 RC 包。\n- 翻页动画修正为 PaperS3 当前官方 `Panel_EPD` 路径：移除错误的 `Panel_EPDiy` 强转和伪 `epd_hl` 访问，保留竖屏条带波形刷新效果。\n- 修复 v0.4.28 中正文阅读页点击后可能重启的问题。\n- 修复开启锁屏后双击锁屏区域解锁可能重启的问题。\n- 原因是旧动画路径错误地把当前 PaperS3 的 `Panel_EPD` 强转为 `Panel_EPDiy` 并读取伪 `epd_hl`，属于未定义行为；RC 中移除该路径，改走实际 `Panel_EPD` 条带波形刷新。\n\n### 诊断增强\n- 设置页新增“诊断”菜单入口，可直接打开触摸 / IMU 诊断页。\n- 诊断页新增 IMU 区块，显示 IMU 类型、姿态判断、加速度和陀螺仪数据，用于后续自动旋转功能前确认 BMI270 轴向。\n\n### UI 精简\n- 普通设置页隐藏“系统日志”入口，底层日志能力保留用于应急诊断。\n",
       "assets": {
         "full": {
-          "name": "Vink-PaperS3-v0.4.28-rc-panel-epd-strip-full-16MB.bin",
-          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.28-rc/Vink-PaperS3-v0.4.28-rc-panel-epd-strip-full-16MB.bin",
+          "name": "Vink-PaperS3-v0.4.28-rc-edcscroll-lock-direct-full-16MB.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.28-rc/Vink-PaperS3-v0.4.28-rc-edcscroll-lock-direct-full-16MB.bin",
           "size": 16777216,
           "flashOffset": 0
         }
