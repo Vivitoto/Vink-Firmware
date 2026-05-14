@@ -216,7 +216,7 @@ private:
     int ttfFontCount_ = 0;
     int ttfFontIndex_ = 0;
     uint8_t webLineSpacing_ = 50;
-    uint8_t webParagraphSpacing_ = 50;
+    uint8_t webParagraphSpacing_ = 0;
     uint8_t webIndentFirstLine_ = 2;
     uint8_t webMarginLeft_ = 24;
     uint8_t webMarginTop_ = 68;

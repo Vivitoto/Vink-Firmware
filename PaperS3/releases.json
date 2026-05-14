@@ -5,6 +5,21 @@
   "description": "面向 M5Stack PaperS3 的 Vink 电子书阅读固件。",
   "releases": [
     {
+      "version": "v0.4.27-local-scroll",
+      "name": "Vink-PaperS3 v0.4.27-local-scroll",
+      "summary": "epdiy scroll翻页、段间距归零、侧键关机修复、TAB穿透修复。SHA256: 3f9a3df8...",
+      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.27-local-scroll",
+      "changelog": "## Vink-PaperS3 v0.4.27-local-scroll\n\n> SHA256: `3f9a3df8e0a5afdb3f77000f5902971f7171680976d571dc0dd2d7750b917648`\n\n### 段间距归零\n- webParagraphSpacing默认0，段间距=行间距\n- 老设备NVS自动迁移\n\n### 侧键关机\n- NVS持久化+ESP_RST_POWERON\n\n### TAB穿透修复",
+      "assets": {
+        "full": {
+          "name": "Vink-PaperS3-v0.4.27-local-scroll-full-16MB.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.27-local-scroll/Vink-PaperS3-v0.4.27-local-scroll-full-16MB.bin",
+          "size": 16777216,
+          "flashOffset": 0
+        }
+      }
+    },
+    {
       "version": "v0.4.27-local-skfix",
       "name": "Vink-PaperS3 v0.4.27-local-skfix",
       "summary": "侧键关机修复、TAB穿透修复、翻页丝滑单次DU。SHA256: 6f471b1b...",
@@ -74,21 +89,6 @@
         "full": {
           "name": "Vink-PaperS3-v0.4.23-full-16MB.bin",
           "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.23/Vink-PaperS3-v0.4.23-full-16MB.bin",
-          "size": 16777216,
-          "flashOffset": 0
-        }
-      }
-    },
-    {
-      "version": "v0.4.22-local4",
-      "name": "Vink-PaperS3 v0.4.22-local4",
-      "summary": "PMIC 侧键事件诊断包：禁用 GPIO36 日志，仅记录 BtnPWR click/hold，不触发关机。SHA256: 14a51be2...",
-      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.22-local4",
-      "changelog": "## Vink-PaperS3 v0.4.22-local4（PMIC 侧键事件诊断）\n\n> SHA256: `14a51be2ac0e4b885a8dd4fe820736477a622f7985589a458c2038df5632eae4`\n\n### 结论\n- GPIO36 已确认在真机上持续假跳变，不再有诊断价值。\n- 本版不再轮询/记录 GPIO36，避免系统日志被 `side-key LOW/HIGH` 淹没。\n\n### 改动\n- 保留 AXP2101 PMIC / M5Unified `BtnPWR` 事件读取。\n- 记录 `M5.BtnPWR.wasClicked()`、`wasSingleClicked()`、`wasHold()` 对应日志。\n- 诊断包只写日志，不进入关机流程。\n\n### 测试目标\n- 开机后不应再出现 GPIO36 `side-key LOW/HIGH` 日志。\n- 单击侧键时，如果固件能收到 PMIC 事件，应出现 `BtnPWR PMIC click observed`，随后可能出现 `BtnPWR PMIC single-click decided`。\n- 长按侧键时，如果固件能收到 PMIC 事件，应出现 `BtnPWR PMIC hold observed`。\n- 如果侧键导致设备直接重启且没有这些日志，说明 PMIC/硬件在固件前消费了按键。",
-      "assets": {
-        "full": {
-          "name": "Vink-PaperS3-v0.4.22-local4-full-16MB.bin",
-          "url": "",
           "size": 16777216,
           "flashOffset": 0
         }
