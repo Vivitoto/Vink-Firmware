@@ -1090,7 +1090,7 @@ bool VinkUiRenderer::scrollSettings(int8_t pages) {
 
     if (showReaderSettings_) {
         offset = &readerSettingsScrollY_;
-        contentBottom = kContentY + kRowH + kSettingsGap + 5 * kRowH + kSettingsGap + 6 * kRowH;
+        contentBottom = kContentY + kRowH + kSettingsGap + 5 * kRowH + kSettingsGap + 8 * kRowH;
     } else if (showSystemSettings_) {
         offset = &systemSettingsScrollY_;
         contentBottom = kContentY + kRowH + kSettingsGap + 2 * kRowH;
