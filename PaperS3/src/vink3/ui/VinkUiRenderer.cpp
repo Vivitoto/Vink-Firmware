@@ -1069,6 +1069,7 @@ void VinkUiRenderer::renderSettings() {
     static const char* kSysLabels[] = {"电源", "诊断", "关于"};
     const char* sysValues[] = {"点按关机", "触摸 / IMU", kVinkPaperS3FirmwareVersion};
     drawSettingsGroup(kMarginX, kSysGroupY, "系统", kSysLabels, sysValues, 3);
+    mainSettingsContentH_ = kRowH + kSettingsGap + kRowH + kSettingsGap + 4 * kRowH;
     canvas_->clearClipRect();
 }
 
@@ -1083,21 +1084,22 @@ bool VinkUiRenderer::scrollSettings(int8_t pages) {
 
     // Settings pages deliberately use continuous scroll rather than numbered
     // pages. The bottom margin keeps the final row clear of the screen edge.
+    // Content heights are set by their respective render functions so
+    // scrollSettings() never needs manual updating when cards grow.
     constexpr int16_t kViewportBottom = kPaperS3Height - kMarginX;
     constexpr int16_t kStep = kRowH + kSettingsGap;
-    int16_t contentBottom = kContentY;
+    int16_t contentH = mainSettingsContentH_;
     int16_t* offset = &settingsScrollY_;
 
     if (showReaderSettings_) {
         offset = &readerSettingsScrollY_;
-        contentBottom = kContentY + kRowH + kSettingsGap + 5 * kRowH + kSettingsGap + 8 * kRowH;
+        contentH = readerSettingsContentH_;
     } else if (showSystemSettings_) {
         offset = &systemSettingsScrollY_;
-        contentBottom = kContentY + kRowH + kSettingsGap + 2 * kRowH;
-    } else {
-        contentBottom = kContentY + kRowH + kSettingsGap + kRowH + kSettingsGap + 4 * kRowH;
+        contentH = systemSettingsContentH_;
     }
 
+    const int16_t contentBottom = kContentY + contentH;
     const int16_t maxScroll = max<int16_t>(0, contentBottom - kViewportBottom);
     const int16_t old = *offset;
     int16_t next = old + static_cast<int16_t>(pages) * kStep;
@@ -1150,6 +1152,7 @@ void VinkUiRenderer::renderSystemSettings() {
         const int16_t ry = gy + kRowH;
         cardRow(ry, "双击锁屏/解锁", g_readerText.doubleTapUnlockLabel());
     }
+    systemSettingsContentH_ = kRowH + kSettingsGap + 2 * kRowH;
     canvas_->clearClipRect();
 }
 
@@ -1256,6 +1259,7 @@ void VinkUiRenderer::renderReaderSettings() {
         ry += kRowH; cardDiv(ry);
         cardRow(ry, "残影补偿", ghostingProfileVal);
     }
+    readerSettingsContentH_ = kRowH + kSettingsGap + 5 * kRowH + kSettingsGap + 8 * kRowH;
     canvas_->clearClipRect();
 }
 

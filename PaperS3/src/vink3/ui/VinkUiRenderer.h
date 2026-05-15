@@ -115,6 +115,11 @@ private:
     int16_t settingsScrollY_ = 0;
     int16_t readerSettingsScrollY_ = 0;
     int16_t systemSettingsScrollY_ = 0;
+    // Content height below kContentY, set by each render function so
+    // scrollSettings() stays card-count-agnostic.
+    int16_t readerSettingsContentH_ = 0;
+    int16_t systemSettingsContentH_ = 0;
+    int16_t mainSettingsContentH_ = 0;
     uint8_t systemLogPage_ = 0;  // 0 = latest page; higher pages show older wrapped rows
 };
 
