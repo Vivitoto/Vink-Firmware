@@ -275,19 +275,22 @@ static int effectStepsForStrategy(ReaderRefreshStrategy s) {
 
 static uint16_t pageTurnScrollStripWidth() {
     // True EDCBook-like visual direction is a narrow moving front, not a broad
-    // blackboard-eraser block. 32px yields ~17 portrait strips on PaperS3: narrow
-    // enough to read as a line, while still materially faster than a 16px/24px
-    // debug sweep. Residue control comes from the text/quality waveform itself;
+    // blackboard-eraser block. Real-device photos showed 32px still reads as a
+    // visible eraser band because the text waveform has a dark intermediate tail.
+    // Use 16px (~34 portrait strips) as the line-first candidate; if too slow,
+    // the next practical fallback is 20/24px. Residue control comes from the
+    // private page-turn LUT or, on scheduled cleanup turns, the quality waveform;
     // the old high-speed DU-like mode is intentionally not used for animation.
-    return 32;
+    return 16;
 }
 
 static epd_mode_t pageTurnScrollMode(epd_mode_t scheduledMode) {
-    // Match epdiy's scroll idea: the strip itself should use the waveform that
-    // clears residue. If the reader's page counter scheduled a quality/full clean,
-    // make this page-turn scroll use that stronger waveform directly rather than
-    // appending a separate flash after the animation. Otherwise use text/GL16-like
-    // mode for every animated page turn; the old fastest DU mode is too ghosty.
+    // Match epdiy's scroll idea: normal page turns enter Panel_EPD's private
+    // short page-turn LUT inside displayScroll(), not the long text/GL16 LUT.
+    // If the page counter scheduled an explicit quality cleanup, keep that mode
+    // rather than
+    // appending a separate flash after the animation, so the frequency setting
+    // can still request a stronger full-clean turn inside the scroll itself.
     if (scheduledMode == kQualityRefresh) return kQualityRefresh;
     return kNormalRefresh;
 }

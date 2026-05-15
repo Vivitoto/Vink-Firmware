@@ -5,11 +5,26 @@
   "description": "面向 M5Stack PaperS3 的 Vink 电子书阅读固件。",
   "releases": [
     {
+      "version": "v0.4.31-rc",
+      "name": "Vink-PaperS3 v0.4.31-rc",
+      "date": "2026-05-15",
+      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.31-rc",
+      "changelog": "## Vink-PaperS3 v0.4.31-rc\n\n> SHA256: `63609e12b792fe320024b590aff1a93511a79f869830aa5d74c00346faa0f649`\n\n### Page-turn 专用短波形实验\n- 新增 Panel_EPD 私有 `lut_page_turn`，普通翻页动画不再复用过长的 `epd_text` / GL16 waveform。\n- `lut_page_turn` 使用短补偿 + 目标驱动/settle，目标是在单次翻页内兼顾线状波前、速度和残影控制。\n- scroll worker 对普通翻页条带使用私有 page-turn LUT；到达全刷频率时仍可使用 quality waveform。\n- 保留 16px 线状波前实验参数；由于 page-turn LUT 可见相位大幅缩短，预计比 16px+text 更窄且更快。\n- 发布前补强稳定性：`display()` / `displayScroll()` 队列发送失败时会清除 busy，避免 `waitDisplay()` 卡死；scroll 条带统一 4px 对齐，避免 packed 像素循环越界。\n- WebUI / 设备端设置保持：翻页动画独立开关，全刷频率低=20页、中=10页、高=5页。\n",
+      "assets": {
+        "full": {
+          "name": "Vink-PaperS3-v0.4.31-rc-pageturn-lut-full-16MB.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.31-rc/Vink-PaperS3-v0.4.31-rc-pageturn-lut-full-16MB.bin",
+          "size": 16777216,
+          "flashOffset": 0
+        }
+      }
+    },
+    {
       "version": "v0.4.30-rc",
       "name": "Vink-PaperS3 v0.4.30-rc",
       "date": "2026-05-14",
       "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.30-rc",
-      "changelog": "## Vink-PaperS3 v0.4.30-rc\n\n> SHA256: `4103e51fbc5e37688d50d16f1870bcbffbe5433a23f8b0840d74d465b1e64589`\n\n### 翻页动画与全刷频率解耦\n- 废弃不可用的高速 DU-like 翻页动画；翻页动画开关只控制是否启用动画，全刷频率单独设为低/中/高。\n- 翻页动画统一使用 text/GL16-like 清残影 waveform，保留条带内 eraser/target 清理，不再走高速模式。\n- 条带宽度从 72-90px 大块推进改为 32px 窄线推进，减少“黑板擦一块擦过去”的视觉块感，更接近 EDCBook 的线状波前。\n- 全刷频率固定为：低=20页，中=10页，高=5页；移除 WebUI 里难理解的“中间清影页数 / 全屏清影页数”。\n- 到达对应全刷频率时，本次翻页条带直接使用 quality waveform，不在动画结束后追加补闪。\n",
+      "changelog": "## Vink-PaperS3 v0.4.30-rc\n\n> SHA256: `4103e51fbc5e37688d50d16f1870bcbffbe5433a23f8b0840d74d465b1e64589`\n\n### 翻页动画与全刷频率解耦\n- 废弃不可用的高速 DU-like 翻页动画；翻页动画开关只控制是否启用动画，全刷频率单独设为低/中/高。\n- 翻页动画统一使用 text/GL16-like 清残影 waveform，保留条带内 eraser/target 清理，不再走高速模式。\n- 条带宽度从 72-90px 大块推进进一步收窄到 16px 线状波前，减少“黑板擦一块擦过去”的视觉块感，更接近 EDCBook。\n- 全刷频率固定为：低=20页，中=10页，高=5页；移除 WebUI 里难理解的“中间清影页数 / 全屏清影页数”。\n- 到达对应全刷频率时，本次翻页条带直接使用 quality waveform，不在动画结束后追加补闪。\n",
       "assets": {
         "full": {
           "name": "Vink-PaperS3-v0.4.30-rc-linewave-decoupled-full-16MB.bin",
@@ -75,21 +90,6 @@
         "full": {
           "name": "Vink-PaperS3-v0.4.27-local-scroll-full-16MB.bin",
           "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.27-local-scroll/Vink-PaperS3-v0.4.27-local-scroll-full-16MB.bin",
-          "size": 16777216,
-          "flashOffset": 0
-        }
-      }
-    },
-    {
-      "version": "v0.4.27-local-skfix",
-      "name": "Vink-PaperS3 v0.4.27-local-skfix",
-      "summary": "侧键关机修复、TAB穿透修复、翻页丝滑单次DU。SHA256: 6f471b1b...",
-      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.27-local-skfix",
-      "changelog": "## Vink-PaperS3 v0.4.27-local-skfix\n\n> SHA256: `6f471b1bb06c07a155d0f7e53417793f74283354f419461fec6ee5fc5ba73f86`\n\n### TAB穿透修复\n- 正文阅读页和菜单覆盖层点击TAB区域不再跳页。\n\n### 翻页效果\n- 改为单次DU波形全屏更新，EPD硬件逐行扫动，丝滑无条带。\n\n### 诊断日志\n- 启动早期NVS状态日志，侧键路径全链路可追踪。",
-      "assets": {
-        "full": {
-          "name": "Vink-PaperS3-v0.4.27-local-skfix-full-16MB.bin",
-          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.27-local-skfix/Vink-PaperS3-v0.4.27-local-skfix-full-16MB.bin",
           "size": 16777216,
           "flashOffset": 0
         }
