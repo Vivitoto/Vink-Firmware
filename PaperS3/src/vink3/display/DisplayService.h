@@ -19,6 +19,12 @@ enum class ReaderRefreshStrategy : uint8_t {
     Clear = 2,    // full-clean frequency: high
 };
 
+enum class ReaderPageTurnProfile : uint8_t {
+    Clean = 0,    // 8px strip: narrowest/cleanest candidate
+    Balanced = 1, // 12px strip: middle ground
+    Fast = 2,     // 16px strip: faster/wider fallback
+};
+
 // ReadPaper 1.7.6 style display message: flags + effect + rectangle.
 struct DisplayRequest {
     bool transparent = false; // ReadPaper flags[0]
@@ -48,9 +54,13 @@ public:
     void forceNextReaderFullRefresh();
     void cycleReaderRefreshStrategy();
     void setReaderRefreshStrategy(ReaderRefreshStrategy strategy);
+    void setReaderPageTurnProfile(ReaderPageTurnProfile profile);
+    void cycleReaderPageTurnProfile();
     bool saveLocalSettings() const;
     ReaderRefreshStrategy readerRefreshStrategy() const { return readerRefreshStrategy_; }
+    ReaderPageTurnProfile readerPageTurnProfile() const { return readerPageTurnProfile_; }
     const char* readerRefreshStrategyLabel() const;
+    const char* readerPageTurnProfileLabel() const;
 
 private:
     static void taskThunk(void* arg);
@@ -65,6 +75,7 @@ private:
     void pushShutterAnimation(M5Canvas* canvas, DisplayEffect effect, epd_mode_t mode);
     void pushSweepBandsEffect(M5Canvas* canvas, DisplayEffect effect, epd_mode_t mode);
     void M5DisplayStripSweep(M5Canvas* canvas, DisplayEffect effect, epd_mode_t mode);
+    uint16_t pageTurnScrollStripWidth() const;
 
     M5Canvas* canvas_ = nullptr;
     QueueHandle_t queue_ = nullptr;
@@ -78,6 +89,7 @@ private:
     // interactive UI, with periodic quality refreshes to clean ghosting.
     bool fastRefresh_ = true;
     ReaderRefreshStrategy readerRefreshStrategy_ = ReaderRefreshStrategy::Balanced;
+    ReaderPageTurnProfile readerPageTurnProfile_ = ReaderPageTurnProfile::Clean;
 };
 
 extern DisplayService g_displayService;

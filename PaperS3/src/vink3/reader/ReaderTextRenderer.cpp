@@ -926,7 +926,10 @@ void ReaderTextRenderer::formatReaderTime(char* out, size_t outSize) const {
 }
 
 void ReaderTextRenderer::drawReadingChrome(const char* title, uint16_t progressPermille, const ReaderRenderOptions& options, uint16_t color) {
-    const uint16_t mid = options.dark ? 0xC618 : 0x8410;
+    // Keep the reading page on a two-level target palette: background + body ink.
+    // Mixed gray chrome complicates the page-turn LUT because the same moving
+    // wavefront must settle both black body text and mid-gray header/footer.
+    const uint16_t chrome = color;
     const int16_t left = options.marginLeft;
     const int16_t right = kPaperS3Width - options.marginRight;
 
@@ -937,7 +940,7 @@ void ReaderTextRenderer::drawReadingChrome(const char* title, uint16_t progressP
 
         // ── Header: time left, battery right (matches tab page status bar) ──
         formatReaderTime(timeText, sizeof(timeText));
-        g_cjkText.drawText(left, 18, timeText, mid);
+        g_cjkText.drawText(left, 18, timeText, chrome);
 
         {
             int level = M5.Power.getBatteryLevel();
@@ -949,29 +952,29 @@ void ReaderTextRenderer::drawReadingChrome(const char* title, uint16_t progressP
                 else snprintf(battText, sizeof(battText), "--%%");
             }
         }
-        g_cjkText.drawRight(right, 18, battText, mid);
+        g_cjkText.drawRight(right, 18, battText, chrome);
 
         // ── Footer: chapter name left, progress % right ──
         const uint16_t permille = min<uint16_t>(progressPermille, 1000);
         snprintf(pctText, sizeof(pctText), "%u.%u%%", permille / 10, permille % 10);
-        g_cjkText.drawRight(right, kPaperS3Height - 38, pctText, mid);
+        g_cjkText.drawRight(right, kPaperS3Height - 38, pctText, chrome);
 
         {
             char nameText[96];
             const int16_t nameMaxW = right - left - g_cjkText.textWidth(pctText) - 16;
             g_cjkText.fitTextToWidth(title ? title : "", nameText, sizeof(nameText), nameMaxW);
-            g_cjkText.drawText(left, kPaperS3Height - 38, nameText, mid);
+            g_cjkText.drawText(left, kPaperS3Height - 38, nameText, chrome);
         }
     } else {
         char pctText[12];
         const uint16_t permille = min<uint16_t>(progressPermille, 1000);
         snprintf(pctText, sizeof(pctText), "%u.%u%%", permille / 10, permille % 10);
-        drawText(left, 18, "--:--", mid);
-        drawText(right - textWidth(pctText), kPaperS3Height - 38, pctText, mid);
-        if (title && title[0]) drawText(left, kPaperS3Height - 38, title, mid);
+        drawText(left, 18, "--:--", chrome);
+        drawText(right - textWidth(pctText), kPaperS3Height - 38, pctText, chrome);
+        if (title && title[0]) drawText(left, kPaperS3Height - 38, title, chrome);
     }
 
-    canvas_->drawFastHLine(left, kReaderHeaderDividerY, right - left, mid);
+    canvas_->drawFastHLine(left, kReaderHeaderDividerY, right - left, chrome);
 }
 
 void ReaderTextRenderer::renderTextPage(const char* title, const char* body, uint16_t page, uint16_t totalPages, const ReaderRenderOptions& options, uint16_t progressPermille) {

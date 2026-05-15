@@ -5,6 +5,21 @@
   "description": "面向 M5Stack PaperS3 的 Vink 电子书阅读固件。",
   "releases": [
     {
+      "version": "v0.4.32-rc",
+      "name": "Vink-PaperS3 v0.4.32-rc",
+      "date": "2026-05-15",
+      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.32-rc",
+      "changelog": "## Vink-PaperS3 v0.4.32-rc\n\n> SHA256: `dee017a4505a94d9585c9652b5aae07328d5427ebdff044512d46799c9018db7`\n\n### 单波前 page-turn LUT 修正\n- 不回退翻页动画底层方案，继续使用 `Panel_EPD::displayScroll()` 私有 page-turn LUT。\n- 修复 v0.4.31-rc 真机反馈：残影极重、新文字发淡、翻页出现两条线。\n- 移除可见反向预补偿；新的 `lut_page_turn` 改为单波前 target-driven：目标黑像素只向黑驱动，目标白像素只向白驱动；尾段只对白底/近白目标追加轻量清旧影，不再作用于黑字。\n- 增强黑向驱动，让新页文字先压实，不再先白化再拉黑。\n- 条带宽度调整为 8px，抵消 5 个目标驱动相位 + 2 个浅底尾段清影相位带来的视觉宽度，尽量避免分裂成第二条线。\n- 正文阅读页页眉/页脚/分隔线改用与正文一致的墨色，减少页面目标灰阶，降低 page-turn LUT 同时处理纯黑正文和灰色 chrome 的复杂度。\n- 设备端“设置 → 阅读设置”新增“翻页档位”，并在 WebUI 同步提供：清晰=8px、均衡=12px、快速=16px；阅读菜单只保留翻页动画开关，避免中间逻辑混淆。\n- 保留 v0.4.31 的稳定性补强：队列发送失败清 busy，scroll 条带 4px 对齐。\n",
+      "assets": {
+        "full": {
+          "name": "Vink-PaperS3-v0.4.32-rc-singlefront-lut-full-16MB.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.32-rc/Vink-PaperS3-v0.4.32-rc-singlefront-lut-full-16MB.bin",
+          "size": 16777216,
+          "flashOffset": 0
+        }
+      }
+    },
+    {
       "version": "v0.4.31-rc",
       "name": "Vink-PaperS3 v0.4.31-rc",
       "date": "2026-05-15",
@@ -75,21 +90,6 @@
         "full": {
           "name": "Vink-PaperS3-v0.4.28-full-16MB.bin",
           "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.28/Vink-PaperS3-v0.4.28-full-16MB.bin",
-          "size": 16777216,
-          "flashOffset": 0
-        }
-      }
-    },
-    {
-      "version": "v0.4.27-local-scroll",
-      "name": "Vink-PaperS3 v0.4.27-local-scroll",
-      "summary": "epdiy scroll翻页、段间距归零、侧键关机修复、TAB穿透修复。SHA256: 3f9a3df8...",
-      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.27-local-scroll",
-      "changelog": "## Vink-PaperS3 v0.4.27-local-scroll\n\n> SHA256: `3f9a3df8e0a5afdb3f77000f5902971f7171680976d571dc0dd2d7750b917648`\n\n### 段间距归零\n- webParagraphSpacing默认0，段间距=行间距\n- 老设备NVS自动迁移\n\n### 侧键关机\n- NVS持久化+ESP_RST_POWERON\n\n### TAB穿透修复",
-      "assets": {
-        "full": {
-          "name": "Vink-PaperS3-v0.4.27-local-scroll-full-16MB.bin",
-          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.27-local-scroll/Vink-PaperS3-v0.4.27-local-scroll-full-16MB.bin",
           "size": 16777216,
           "flashOffset": 0
         }

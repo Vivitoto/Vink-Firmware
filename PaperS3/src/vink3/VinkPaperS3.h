@@ -5,7 +5,7 @@
 
 namespace vink3 {
 
-static constexpr const char* kVinkPaperS3FirmwareVersion = "v0.4.31-rc";
+static constexpr const char* kVinkPaperS3FirmwareVersion = "v0.4.32-rc";
 
 // Vink-PaperS3 hardware profile and device configuration.
 // Official M5Stack PaperS3 hardware profile.

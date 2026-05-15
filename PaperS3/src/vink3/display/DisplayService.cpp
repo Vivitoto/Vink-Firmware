@@ -196,6 +196,7 @@ void DisplayService::loadLocalSettings() {
     Preferences prefs;
     if (!prefs.begin("vink-display", true)) return;
     const uint8_t raw = prefs.getUChar("refresh", static_cast<uint8_t>(readerRefreshStrategy_));
+    const uint8_t turnProfile = prefs.getUChar("turnprof", static_cast<uint8_t>(readerPageTurnProfile_));
     // Older RCs exposed numeric cleanup intervals. v0.4.30-rc removes them from
     // UI/WebUI, so ignore stale NVS keys and derive frequency solely from the
     // low/medium/high strategy.
@@ -203,12 +204,16 @@ void DisplayService::loadLocalSettings() {
     if (raw <= static_cast<uint8_t>(ReaderRefreshStrategy::Clear)) {
         readerRefreshStrategy_ = static_cast<ReaderRefreshStrategy>(raw);
     }
+    if (turnProfile <= static_cast<uint8_t>(ReaderPageTurnProfile::Fast)) {
+        readerPageTurnProfile_ = static_cast<ReaderPageTurnProfile>(turnProfile);
+    }
 }
 
 bool DisplayService::saveLocalSettings() const {
     Preferences prefs;
     if (!prefs.begin("vink-display", false)) return false;
     prefs.putUChar("refresh", static_cast<uint8_t>(readerRefreshStrategy_));
+    prefs.putUChar("turnprof", static_cast<uint8_t>(readerPageTurnProfile_));
     prefs.end();
     return true;
 }
@@ -236,6 +241,28 @@ void DisplayService::setReaderRefreshStrategy(ReaderRefreshStrategy strategy) {
     Serial.printf("[vink3][display] reader refresh strategy -> %s\n", readerRefreshStrategyLabel());
 }
 
+void DisplayService::setReaderPageTurnProfile(ReaderPageTurnProfile profile) {
+    readerPageTurnProfile_ = profile;
+    resetReaderPageTurnCount();
+    saveLocalSettings();
+    Serial.printf("[vink3][display] reader page-turn profile -> %s\n", readerPageTurnProfileLabel());
+}
+
+void DisplayService::cycleReaderPageTurnProfile() {
+    switch (readerPageTurnProfile_) {
+        case ReaderPageTurnProfile::Clean:
+            setReaderPageTurnProfile(ReaderPageTurnProfile::Balanced);
+            break;
+        case ReaderPageTurnProfile::Balanced:
+            setReaderPageTurnProfile(ReaderPageTurnProfile::Fast);
+            break;
+        case ReaderPageTurnProfile::Fast:
+        default:
+            setReaderPageTurnProfile(ReaderPageTurnProfile::Clean);
+            break;
+    }
+}
+
 const char* DisplayService::readerRefreshStrategyLabel() const {
     switch (readerRefreshStrategy_) {
         case ReaderRefreshStrategy::Speed: return "低";
@@ -243,6 +270,15 @@ const char* DisplayService::readerRefreshStrategyLabel() const {
         case ReaderRefreshStrategy::Clear: return "高";
     }
     return "中";
+}
+
+const char* DisplayService::readerPageTurnProfileLabel() const {
+    switch (readerPageTurnProfile_) {
+        case ReaderPageTurnProfile::Clean:    return "清晰";
+        case ReaderPageTurnProfile::Balanced: return "均衡";
+        case ReaderPageTurnProfile::Fast:     return "快速";
+    }
+    return "清晰";
 }
 
 // Native IT8951 page-turn sweep. Keep this isolated in DisplayService so it
@@ -273,15 +309,20 @@ static int effectStepsForStrategy(ReaderRefreshStrategy s) {
     }
 }
 
-static uint16_t pageTurnScrollStripWidth() {
-    // True EDCBook-like visual direction is a narrow moving front, not a broad
-    // blackboard-eraser block. Real-device photos showed 32px still reads as a
-    // visible eraser band because the text waveform has a dark intermediate tail.
-    // Use 16px (~34 portrait strips) as the line-first candidate; if too slow,
-    // the next practical fallback is 20/24px. Residue control comes from the
-    // private page-turn LUT or, on scheduled cleanup turns, the quality waveform;
+uint16_t DisplayService::pageTurnScrollStripWidth() const {
+    // Runtime-selectable strip width lets one firmware test the main speed/line
+    // tradeoff without reflashing. The LUT stays single-front + selective light
+    // tail; only spatial spacing changes.
+    // 清晰: 8px, safest against double-line fronts.
+    // 均衡: 12px, faster if 8px is too slow.
+    // 快速: 16px, widest/faster fallback if the waveform itself looks clean.
     // the old high-speed DU-like mode is intentionally not used for animation.
-    return 16;
+    switch (readerPageTurnProfile_) {
+        case ReaderPageTurnProfile::Balanced: return 12;
+        case ReaderPageTurnProfile::Fast:     return 16;
+        case ReaderPageTurnProfile::Clean:
+        default:                              return 8;
+    }
 }
 
 static epd_mode_t pageTurnScrollMode(epd_mode_t scheduledMode) {
