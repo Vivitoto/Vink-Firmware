@@ -1173,6 +1173,7 @@ void VinkUiRenderer::renderReaderSettings() {
     const char* pageTurnVal = g_readerText.pageTurnEffectLabel();
     const char* pageTurnProfileVal = g_displayService.readerPageTurnProfileLabel();
     const char* ghostingProfileVal = g_displayService.readerGhostingProfileLabel();
+    const char* underlineVal = g_readerText.underlineEnabled() ? "开启" : "关闭";
 
     const int16_t kCardX = kMarginX;
     const int16_t kCardW = kContentW;
@@ -1239,13 +1240,15 @@ void VinkUiRenderer::renderReaderSettings() {
         gy += cardH + kSettingsGap;
     }
 
-    // ══════ 阅读 / 显示：title + 7 rows ══════
+    // ══════ 阅读 / 显示：title + 8 rows ══════
     {
-        const int16_t cardH = 8 * kRowH;
+        const int16_t cardH = 9 * kRowH;
         drawSurfacePanel(canvas_, kCardX, gy, kCardW, cardH);
         titleRow(gy, "阅读 / 显示");
         int16_t ry = gy + kRowH;
         cardRow(ry, "排版优化", layoutVal);
+        ry += kRowH; cardDiv(ry);
+        cardRow(ry, "下划线", underlineVal);
         ry += kRowH; cardDiv(ry);
         cardRow(ry, "抗锯齿", antiAliasVal);
         ry += kRowH; cardDiv(ry);
@@ -1259,7 +1262,7 @@ void VinkUiRenderer::renderReaderSettings() {
         ry += kRowH; cardDiv(ry);
         cardRow(ry, "残影补偿", ghostingProfileVal);
     }
-    readerSettingsContentH_ = kRowH + kSettingsGap + 5 * kRowH + kSettingsGap + 8 * kRowH;
+    readerSettingsContentH_ = kRowH + kSettingsGap + 5 * kRowH + kSettingsGap + 9 * kRowH;
     canvas_->clearClipRect();
 }
 
@@ -1601,10 +1604,12 @@ UiAction VinkUiRenderer::hitTest(SystemState state, int16_t x, int16_t y) const 
                     if (inRect(x, yy, kMarginX + 22, ry, kContentW - 44, kRowH)) return UiAction::CycleReaderLineSpacing;
                 }
                 {
-                    // 阅读 / 显示 table: title + seven setting rows
+                    // 阅读 / 显示 table: title + eight setting rows
                     const int16_t g1 = g0 + 5 * kRowH + kSettingsGap;
                     int16_t ry = g1 + kRowH;
                     if (inRect(x, yy, kMarginX + 22, ry, kContentW - 44, kRowH)) return UiAction::CycleReaderLayoutPreset;
+                    ry += kRowH;
+                    if (inRect(x, yy, kMarginX + 22, ry, kContentW - 44, kRowH)) return UiAction::ToggleReaderUnderline;
                     ry += kRowH;
                     if (inRect(x, yy, kMarginX + 22, ry, kContentW - 44, kRowH)) return UiAction::ToggleReaderAntiAlias;
                     ry += kRowH;

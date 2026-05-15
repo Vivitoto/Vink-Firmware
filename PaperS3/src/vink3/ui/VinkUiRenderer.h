@@ -26,6 +26,7 @@ enum class UiAction : uint8_t {
     CycleReaderRefreshStrategy,
     ToggleReaderAntiAlias,
     CycleReaderAntialiasProfile,
+    ToggleReaderUnderline,
     CycleReaderLayoutPreset,
     CycleReaderPageMargin,
     CycleReaderLineSpacing,

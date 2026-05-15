@@ -446,7 +446,7 @@
 +
 +            update_data_t strip = new_data;
 +            strip.scroll = false;
-+            strip.scroll_waveform = (new_data.mode != epd_mode_t::epd_quality);
++            strip.scroll_waveform = false; // use standard mode LUT, not experimental short LUTs
 +            strip.x = (xs + me->_cfg.offset_x) & ~3u;
 +            strip.w = ((xe + me->_cfg.offset_x) | 3u) - strip.x + 1;
 +            strip.y = ys + me->_cfg.offset_y;
@@ -477,4 +477,4 @@
    }
  
 
-# NOTE: v0.4.34 experiment patch also adds page_turn_lut_offset(old/new) selection and scroll_compensation propagation in Panel_EPD::task_update.
+# NOTE: v0.4.35 scroll_waveform disabled (standard mode LUT) due to short experimental LUTs causing rough ink.

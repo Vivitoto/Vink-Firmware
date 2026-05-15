@@ -447,6 +447,15 @@ void StateMachine::handle(const Message& message) {
                     suppressAfterTransition();
                     break;
 
+                case UiAction::ToggleReaderUnderline:
+                    g_readerText.toggleUnderline();
+                    g_readerBook.invalidatePaginationForLayoutChange();
+                    state_ = SystemState::Settings;
+                    renderState(state_);
+                    g_displayService.enqueueFull(false, 100);
+                    suppressAfterTransition();
+                    break;
+
                 case UiAction::CycleReaderAntialiasProfile:
                     g_readerText.cycleAntialiasProfile();
                     state_ = SystemState::Settings;
