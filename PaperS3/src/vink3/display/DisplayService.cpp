@@ -375,12 +375,10 @@ uint16_t DisplayService::pageTurnScrollStripWidth() const {
 }
 
 static epd_mode_t pageTurnScrollMode(epd_mode_t scheduledMode) {
-    // Match epdiy's scroll idea: normal page turns enter Panel_EPD's private
-    // short page-turn LUT inside displayScroll(), not the long text/GL16 LUT.
-    // If the page counter scheduled an explicit quality cleanup, keep that mode
-    // rather than
-    // appending a separate flash after the animation, so the frequency setting
-    // can still request a stronger full-clean turn inside the scroll itself.
+    // Stable baseline: displayScroll reveals strips but lets Panel_EPD use the
+    // normal text/quality LUTs. The previous private short page-turn LUTs caused
+    // rough, uneven ink even with AA disabled, so compensation experiments must
+    // be reintroduced separately only after this baseline is clean.
     if (scheduledMode == kQualityRefresh) return kQualityRefresh;
     return kNormalRefresh;
 }
@@ -457,9 +455,9 @@ void DisplayService::M5DisplayStripSweep(M5Canvas* canvas, DisplayEffect effect,
 
     const bool rtl = (effect == DisplayEffect::VerticalShutter);
     const uint16_t stripWidth = pageTurnScrollStripWidth();
-    const uint8_t compensation = pageTurnCompensationLevel();
-    Serial.printf("[vink3][display] page-turn scroll profile=%s ghost=%s strip=%u comp=%u\n",
-                  readerPageTurnProfileLabel(), readerGhostingProfileLabel(), stripWidth, compensation);
+    const uint8_t compensation = 0;  // disabled while using the stable standard-LUT path
+    Serial.printf("[vink3][display] page-turn scroll profile=%s ghost=disabled-standard-lut strip=%u comp=%u\n",
+                  readerPageTurnProfileLabel(), stripWidth, compensation);
     panel->displayScroll(0, 0, kPaperS3Width, kPaperS3Height, stripWidth, rtl, compensation);
     M5.Display.waitDisplay();
 }

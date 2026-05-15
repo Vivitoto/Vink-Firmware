@@ -1068,8 +1068,9 @@ void VinkUiRenderer::renderSettings() {
     const int16_t kSysGroupY = kSysCardY + kMainCardH + kSettingsGap;
     static const char* kSysLabels[] = {"电源", "诊断", "关于"};
     const char* sysValues[] = {"点按关机", "触摸 / IMU", kVinkPaperS3FirmwareVersion};
-    drawSettingsGroup(kMarginX, kSysGroupY, "系统", kSysLabels, sysValues, 3);
-    mainSettingsContentH_ = kRowH + kSettingsGap + kRowH + kSettingsGap + 4 * kRowH;
+    constexpr int16_t kSysGroupRows = 3;
+    drawSettingsGroup(kMarginX, kSysGroupY, "系统", kSysLabels, sysValues, kSysGroupRows);
+    mainSettingsContentH_ = (kSysGroupY + (kSysGroupRows + 1) * kRowH) - kContentY - sy;
     canvas_->clearClipRect();
 }
 
@@ -1152,7 +1153,7 @@ void VinkUiRenderer::renderSystemSettings() {
         const int16_t ry = gy + kRowH;
         cardRow(ry, "双击锁屏/解锁", g_readerText.doubleTapUnlockLabel());
     }
-    systemSettingsContentH_ = kRowH + kSettingsGap + 2 * kRowH;
+    systemSettingsContentH_ = (gy + 2 * kRowH + systemSettingsScrollY_) - kContentY;
     canvas_->clearClipRect();
 }
 
@@ -1172,7 +1173,6 @@ void VinkUiRenderer::renderReaderSettings() {
     const char* refreshVal = g_displayService.readerRefreshStrategyLabel();
     const char* pageTurnVal = g_readerText.pageTurnEffectLabel();
     const char* pageTurnProfileVal = g_displayService.readerPageTurnProfileLabel();
-    const char* ghostingProfileVal = g_displayService.readerGhostingProfileLabel();
     const char* underlineVal = g_readerText.underlineEnabled() ? "开启" : "关闭";
 
     const int16_t kCardX = kMarginX;
@@ -1240,9 +1240,9 @@ void VinkUiRenderer::renderReaderSettings() {
         gy += cardH + kSettingsGap;
     }
 
-    // ══════ 阅读 / 显示：title + 8 rows ══════
+    // ══════ 阅读 / 显示：title + 7 rows ══════
     {
-        const int16_t cardH = 9 * kRowH;
+        const int16_t cardH = 8 * kRowH;
         drawSurfacePanel(canvas_, kCardX, gy, kCardW, cardH);
         titleRow(gy, "阅读 / 显示");
         int16_t ry = gy + kRowH;
@@ -1259,10 +1259,8 @@ void VinkUiRenderer::renderReaderSettings() {
         cardRow(ry, "翻页动画", pageTurnVal);
         ry += kRowH; cardDiv(ry);
         cardRow(ry, "翻页档位", pageTurnProfileVal);
-        ry += kRowH; cardDiv(ry);
-        cardRow(ry, "残影补偿", ghostingProfileVal);
+        readerSettingsContentH_ = (gy + cardH + readerSettingsScrollY_) - kContentY;
     }
-    readerSettingsContentH_ = kRowH + kSettingsGap + 5 * kRowH + kSettingsGap + 9 * kRowH;
     canvas_->clearClipRect();
 }
 
@@ -1604,7 +1602,7 @@ UiAction VinkUiRenderer::hitTest(SystemState state, int16_t x, int16_t y) const 
                     if (inRect(x, yy, kMarginX + 22, ry, kContentW - 44, kRowH)) return UiAction::CycleReaderLineSpacing;
                 }
                 {
-                    // 阅读 / 显示 table: title + eight setting rows
+                    // 阅读 / 显示 table: title + seven setting rows
                     const int16_t g1 = g0 + 5 * kRowH + kSettingsGap;
                     int16_t ry = g1 + kRowH;
                     if (inRect(x, yy, kMarginX + 22, ry, kContentW - 44, kRowH)) return UiAction::CycleReaderLayoutPreset;
@@ -1620,8 +1618,6 @@ UiAction VinkUiRenderer::hitTest(SystemState state, int16_t x, int16_t y) const 
                     if (inRect(x, yy, kMarginX + 22, ry, kContentW - 44, kRowH)) return UiAction::ToggleReaderPageTurnEffect;
                     ry += kRowH;
                     if (inRect(x, yy, kMarginX + 22, ry, kContentW - 44, kRowH)) return UiAction::CycleReaderPageTurnProfile;
-                    ry += kRowH;
-                    if (inRect(x, yy, kMarginX + 22, ry, kContentW - 44, kRowH)) return UiAction::CycleReaderGhostingProfile;
                 }
                 break;
             }
