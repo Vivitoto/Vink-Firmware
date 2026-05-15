@@ -779,38 +779,35 @@ void VinkUiRenderer::renderUiListPage(SystemState active, const char* title, con
 
     if (totalPages > 1) {
         if (readerList) {
-            // TOC step-nav: mirror the font-size stepper style.
-            //   <<  <  [page/max]  >  >>
-            // Only the four arrow segments are buttons; the centre is plain text.
-            constexpr int16_t navY = 890;
-            constexpr int16_t navH = 38;
-            constexpr int16_t kSegW = 68;
-            constexpr int16_t kSegH = 48;
-            constexpr int16_t navX = kMarginX + (kContentW - kSegW * 5) / 2;
+            // TOC step-nav: four larger arrow buttons plus a wider inert page label.
+            //   <<   <    [page/max]    >   >>
+            // Keep these constants mirrored with ReaderBookService::handleTocNavTap().
+            constexpr int16_t navY = 884;
+            constexpr int16_t navH = 46;
+            constexpr int16_t kBtnW = 76;
+            constexpr int16_t kPageW = 108;
+            constexpr int16_t kGap = 9;
+            constexpr int16_t kTotalW = kBtnW * 4 + kPageW + kGap * 4;
+            constexpr int16_t navX = kMarginX + (kContentW - kTotalW) / 2;
+            const int16_t back5X = navX;
+            const int16_t back1X = back5X + kBtnW + kGap;
+            const int16_t pageX = back1X + kBtnW + kGap;
+            const int16_t next1X = pageX + kPageW + kGap;
+            const int16_t next5X = next1X + kBtnW + kGap;
 
-            for (int si = 0; si < 5; ++si) {
-                const int16_t sx = navX + si * kSegW;
-                const bool isBtn = (si != 2);
-                bool grayed = false;
-                const char* lb = "";
-                switch (si) {
-                    case 0: lb = "<<"; grayed = page <= 5; break;
-                    case 1: lb = "<";  grayed = page <= 1; break;
-                    case 2: break;
-                    case 3: lb = ">";  grayed = page >= totalPages; break;
-                    case 4: lb = ">>"; grayed = page + 5 > totalPages; break;
-                }
-                constexpr int16_t kInnerW = kSegW - 8;
-                if (isBtn) {
-                    canvas_->fillRect(sx, navY, kInnerW, navH, grayed ? kSurface : kSurfaceDeep);
-                    canvas_->drawRect(sx, navY, kInnerW, navH, grayed ? kInkLight : kInk);
-                    g_cjkText.drawCentered(sx, navY, kInnerW, navH, lb, grayed ? kInkLight : kInk);
-                } else {
-                    char footer[32];
-                    snprintf(footer, sizeof(footer), "%u/%u", static_cast<unsigned>(page), static_cast<unsigned>(totalPages));
-                    g_cjkText.drawCentered(sx, navY, kInnerW, navH, footer, kInkMid);
-                }
-            }
+            auto drawTocButton = [&](int16_t bx, const char* lb, bool grayed) {
+                canvas_->fillRect(bx, navY, kBtnW, navH, grayed ? kSurface : kSurfaceDeep);
+                canvas_->drawRect(bx, navY, kBtnW, navH, grayed ? kInkLight : kInk);
+                g_cjkText.drawCentered(bx, navY, kBtnW, navH, lb, grayed ? kInkLight : kInk);
+            };
+            drawTocButton(back5X, "<<", page <= 5);
+            drawTocButton(back1X, "<", page <= 1);
+            char footer[32];
+            snprintf(footer, sizeof(footer), "%u/%u", static_cast<unsigned>(page), static_cast<unsigned>(totalPages));
+            canvas_->fillRect(pageX, navY, kPageW, navH, kSurface);
+            g_cjkText.drawCentered(pageX, navY, kPageW, navH, footer, kInkMid);
+            drawTocButton(next1X, ">", page >= totalPages);
+            drawTocButton(next5X, ">>", page + 5 > totalPages);
         } else {
             char footer[48];
             snprintf(footer, sizeof(footer), "%u / %u", static_cast<unsigned>(page), static_cast<unsigned>(totalPages));
@@ -1168,9 +1165,11 @@ void VinkUiRenderer::renderReaderSettings() {
     const char* lineSpacingVal = g_readerText.lineSpacingLabel();
     const char* layoutVal = g_readerText.layoutPresetLabel();
     const char* antiAliasVal = g_readerText.antiAliasLabel();
+    const char* aaProfileVal = g_readerText.antialiasProfileLabel();
     const char* refreshVal = g_displayService.readerRefreshStrategyLabel();
     const char* pageTurnVal = g_readerText.pageTurnEffectLabel();
     const char* pageTurnProfileVal = g_displayService.readerPageTurnProfileLabel();
+    const char* ghostingProfileVal = g_displayService.readerGhostingProfileLabel();
 
     const int16_t kCardX = kMarginX;
     const int16_t kCardW = kContentW;
@@ -1237,9 +1236,9 @@ void VinkUiRenderer::renderReaderSettings() {
         gy += cardH + kSettingsGap;
     }
 
-    // ══════ 阅读 / 显示：title + 5 rows ══════
+    // ══════ 阅读 / 显示：title + 7 rows ══════
     {
-        const int16_t cardH = 6 * kRowH;
+        const int16_t cardH = 8 * kRowH;
         drawSurfacePanel(canvas_, kCardX, gy, kCardW, cardH);
         titleRow(gy, "阅读 / 显示");
         int16_t ry = gy + kRowH;
@@ -1247,11 +1246,15 @@ void VinkUiRenderer::renderReaderSettings() {
         ry += kRowH; cardDiv(ry);
         cardRow(ry, "抗锯齿", antiAliasVal);
         ry += kRowH; cardDiv(ry);
+        cardRow(ry, "抗锯齿档位", aaProfileVal);
+        ry += kRowH; cardDiv(ry);
         cardRow(ry, "全刷频率", refreshVal);
         ry += kRowH; cardDiv(ry);
         cardRow(ry, "翻页动画", pageTurnVal);
         ry += kRowH; cardDiv(ry);
         cardRow(ry, "翻页档位", pageTurnProfileVal);
+        ry += kRowH; cardDiv(ry);
+        cardRow(ry, "残影补偿", ghostingProfileVal);
     }
     canvas_->clearClipRect();
 }
@@ -1594,18 +1597,22 @@ UiAction VinkUiRenderer::hitTest(SystemState state, int16_t x, int16_t y) const 
                     if (inRect(x, yy, kMarginX + 22, ry, kContentW - 44, kRowH)) return UiAction::CycleReaderLineSpacing;
                 }
                 {
-                    // 阅读 / 显示 table: title + five setting rows
+                    // 阅读 / 显示 table: title + seven setting rows
                     const int16_t g1 = g0 + 5 * kRowH + kSettingsGap;
                     int16_t ry = g1 + kRowH;
                     if (inRect(x, yy, kMarginX + 22, ry, kContentW - 44, kRowH)) return UiAction::CycleReaderLayoutPreset;
                     ry += kRowH;
                     if (inRect(x, yy, kMarginX + 22, ry, kContentW - 44, kRowH)) return UiAction::ToggleReaderAntiAlias;
                     ry += kRowH;
+                    if (inRect(x, yy, kMarginX + 22, ry, kContentW - 44, kRowH)) return UiAction::CycleReaderAntialiasProfile;
+                    ry += kRowH;
                     if (inRect(x, yy, kMarginX + 22, ry, kContentW - 44, kRowH)) return UiAction::CycleReaderRefreshStrategy;
                     ry += kRowH;
                     if (inRect(x, yy, kMarginX + 22, ry, kContentW - 44, kRowH)) return UiAction::ToggleReaderPageTurnEffect;
                     ry += kRowH;
                     if (inRect(x, yy, kMarginX + 22, ry, kContentW - 44, kRowH)) return UiAction::CycleReaderPageTurnProfile;
+                    ry += kRowH;
+                    if (inRect(x, yy, kMarginX + 22, ry, kContentW - 44, kRowH)) return UiAction::CycleReaderGhostingProfile;
                 }
                 break;
             }

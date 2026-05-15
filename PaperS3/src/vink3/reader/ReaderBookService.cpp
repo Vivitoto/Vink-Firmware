@@ -1749,10 +1749,16 @@ bool ReaderBookService::handleTocNavTap(int16_t x, int16_t y) {
         return tx >= rx && tx < rx + rw && ty >= ry && ty < ry + rh;
     };
 
-    if (inRect(x, y, segX,                         kTocNavY, kTocSegW, kTocNavH)) return tocJumpBack(5);
-    if (inRect(x, y, segX + kTocSegW,             kTocNavY, kTocSegW, kTocNavH)) return prevTocPage();
-    if (inRect(x, y, segX + kTocSegW * 3,         kTocNavY, kTocSegW, kTocNavH)) return nextTocPage();
-    if (inRect(x, y, segX + kTocSegW * 4,         kTocNavY, kTocSegW, kTocNavH)) return tocJumpForward(5);
+    const int16_t back5X = segX;
+    const int16_t back1X = back5X + kTocNavBtnW + kTocNavGap;
+    const int16_t pageX = back1X + kTocNavBtnW + kTocNavGap;
+    const int16_t next1X = pageX + kTocNavPageW + kTocNavGap;
+    const int16_t next5X = next1X + kTocNavBtnW + kTocNavGap;
+
+    if (inRect(x, y, back5X, kTocNavY, kTocNavBtnW, kTocNavH)) return tocJumpBack(5);
+    if (inRect(x, y, back1X, kTocNavY, kTocNavBtnW, kTocNavH)) return prevTocPage();
+    if (inRect(x, y, next1X, kTocNavY, kTocNavBtnW, kTocNavH)) return nextTocPage();
+    if (inRect(x, y, next5X, kTocNavY, kTocNavBtnW, kTocNavH)) return tocJumpForward(5);
     return false;
 }
 

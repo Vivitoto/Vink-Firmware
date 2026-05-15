@@ -25,6 +25,13 @@ enum class ReaderFastTurnMode : uint8_t {
     DisplayPriority = 1,
 };
 
+enum class ReaderAntialiasProfile : uint8_t {
+    Current = 0,
+    EdcSoft = 1,
+    EdcBalanced = 2,
+    EdcCrisp = 3,
+};
+
 struct ReaderSettings {
     uint8_t schema = 1;
     // Vink reader-core model: formatting1, render_opt1 and spacing are
@@ -55,6 +62,7 @@ struct ReaderSettings {
     bool notchLockEnabled() const { return getSlot(renderOpt1, 2) != 0; }
     bool pageTurnEffectEnabled() const { return getSlot(renderOpt1, 3) != 0; }
     bool textShadowEnabled() const { return getSlot(renderOpt1, 4) != 0; }
+    uint8_t antialiasProfile() const { return getSlot(renderOpt1, 5); }
     bool doubleTapUnlockEnabled() const { return getSlot(renderOpt1, 6) != 0; }
 
     uint8_t topBottomLevel() const { return getSlot(spacing, 0); }
@@ -100,6 +108,10 @@ public:
     void setAntiAlias(bool enabled);
     bool antiAliasEnabled() const { return settings_.antiAliasEnabled(); }
     const char* antiAliasLabel() const { return antiAliasEnabled() ? "开启" : "关闭"; }
+    void cycleAntialiasProfile();
+    void setAntialiasProfile(ReaderAntialiasProfile profile);
+    ReaderAntialiasProfile antialiasProfile() const { return static_cast<ReaderAntialiasProfile>(settings_.antialiasProfile() & 0x3); }
+    const char* antialiasProfileLabel() const;
 
     // ── SD card TTF font support ──
     void cycleFontSource();

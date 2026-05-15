@@ -25,6 +25,12 @@ enum class ReaderPageTurnProfile : uint8_t {
     Fast = 2,     // 180px strip: fast 3-band turn
 };
 
+enum class ReaderGhostingProfile : uint8_t {
+    Light = 0,    // fastest compensation, least cleanup
+    Balanced = 1, // default old/new-aware compensation
+    Strong = 2,   // stronger old-dark -> white cleanup, slower/riskier
+};
+
 // ReadPaper 1.7.6 style display message: flags + effect + rectangle.
 struct DisplayRequest {
     bool transparent = false; // ReadPaper flags[0]
@@ -56,11 +62,15 @@ public:
     void setReaderRefreshStrategy(ReaderRefreshStrategy strategy);
     void setReaderPageTurnProfile(ReaderPageTurnProfile profile);
     void cycleReaderPageTurnProfile();
+    void setReaderGhostingProfile(ReaderGhostingProfile profile);
+    void cycleReaderGhostingProfile();
     bool saveLocalSettings() const;
     ReaderRefreshStrategy readerRefreshStrategy() const { return readerRefreshStrategy_; }
     ReaderPageTurnProfile readerPageTurnProfile() const { return readerPageTurnProfile_; }
+    ReaderGhostingProfile readerGhostingProfile() const { return readerGhostingProfile_; }
     const char* readerRefreshStrategyLabel() const;
     const char* readerPageTurnProfileLabel() const;
+    const char* readerGhostingProfileLabel() const;
 
 private:
     static void taskThunk(void* arg);
@@ -76,6 +86,7 @@ private:
     void pushSweepBandsEffect(M5Canvas* canvas, DisplayEffect effect, epd_mode_t mode);
     void M5DisplayStripSweep(M5Canvas* canvas, DisplayEffect effect, epd_mode_t mode);
     uint16_t pageTurnScrollStripWidth() const;
+    uint8_t pageTurnCompensationLevel() const;
 
     M5Canvas* canvas_ = nullptr;
     QueueHandle_t queue_ = nullptr;
@@ -90,6 +101,7 @@ private:
     bool fastRefresh_ = true;
     ReaderRefreshStrategy readerRefreshStrategy_ = ReaderRefreshStrategy::Balanced;
     ReaderPageTurnProfile readerPageTurnProfile_ = ReaderPageTurnProfile::Balanced;
+    ReaderGhostingProfile readerGhostingProfile_ = ReaderGhostingProfile::Balanced;
 };
 
 extern DisplayService g_displayService;

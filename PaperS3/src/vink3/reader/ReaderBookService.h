@@ -72,12 +72,14 @@ private:
     static constexpr int kMaxTocEntries = 2000;
     static constexpr int kTocEntriesPerPage = 10;
 
-    // TOC step-nav: mirror the font-size stepper style. 5×68px segments,
-    // 38px tall, bottom-aligned 32px from screen edge.
-    static constexpr int16_t kTocNavY = 890;
-    static constexpr int16_t kTocNavH = 38;
-    static constexpr int16_t kTocSegW = 68;
-    static constexpr int16_t kTocNavTotalW = kTocSegW * 5;
+    // TOC step-nav: four larger arrow buttons plus a wider inert page label.
+    // The wider centre slot keeps long labels like "110/190" away from arrows.
+    static constexpr int16_t kTocNavY = 884;
+    static constexpr int16_t kTocNavH = 46;
+    static constexpr int16_t kTocNavBtnW = 76;
+    static constexpr int16_t kTocNavPageW = 108;
+    static constexpr int16_t kTocNavGap = 9;
+    static constexpr int16_t kTocNavTotalW = kTocNavBtnW * 4 + kTocNavPageW + kTocNavGap * 4;
     static constexpr int16_t kTocNavX = 28 + (540 - 56 - kTocNavTotalW) / 2;
     static constexpr int kMaxBooks = 160;
     static constexpr int kBooksPerPage = 9;

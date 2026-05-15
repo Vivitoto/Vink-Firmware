@@ -41,7 +41,8 @@ public:
     /// Draw a single glyph onto a canvas.
     /// @return true if a glyph was drawn.
     bool drawGlyph(uint32_t unicode, int16_t x, int16_t y,
-                   uint16_t color, M5Canvas* canvas);
+                   uint16_t color, M5Canvas* canvas,
+                   bool antialias = true, uint8_t antialiasProfile = 0);
 
     /// Render glyph to a caller-provided buffer.
     /// @return true if the glyph was found and rendered.

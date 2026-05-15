@@ -252,7 +252,42 @@ void ReaderTextRenderer::setAntiAlias(bool enabled) {
     if (settings_.schema == 0) applyLayoutPresetToSettings();
     ReaderSettings::setSlot(settings_.renderOpt1, 1, enabled ? 1 : 0);
     saveLocalSettings();
-    Serial.printf("[vink3][reader] anti-alias -> %s\n", antiAliasLabel());
+    Serial.printf("[vink3][reader] anti-alias -> %s profile=%s\n", antiAliasLabel(), antialiasProfileLabel());
+}
+
+void ReaderTextRenderer::setAntialiasProfile(ReaderAntialiasProfile profile) {
+    if (settings_.schema == 0) applyLayoutPresetToSettings();
+    ReaderSettings::setSlot(settings_.renderOpt1, 5, static_cast<uint8_t>(profile));
+    saveLocalSettings();
+    Serial.printf("[vink3][reader] anti-alias profile -> %s render_opt1=0x%04x\n", antialiasProfileLabel(), settings_.renderOpt1);
+}
+
+void ReaderTextRenderer::cycleAntialiasProfile() {
+    switch (antialiasProfile()) {
+        case ReaderAntialiasProfile::Current:
+            setAntialiasProfile(ReaderAntialiasProfile::EdcSoft);
+            break;
+        case ReaderAntialiasProfile::EdcSoft:
+            setAntialiasProfile(ReaderAntialiasProfile::EdcBalanced);
+            break;
+        case ReaderAntialiasProfile::EdcBalanced:
+            setAntialiasProfile(ReaderAntialiasProfile::EdcCrisp);
+            break;
+        case ReaderAntialiasProfile::EdcCrisp:
+        default:
+            setAntialiasProfile(ReaderAntialiasProfile::Current);
+            break;
+    }
+}
+
+const char* ReaderTextRenderer::antialiasProfileLabel() const {
+    switch (antialiasProfile()) {
+        case ReaderAntialiasProfile::Current: return "当前";
+        case ReaderAntialiasProfile::EdcSoft: return "柔和";
+        case ReaderAntialiasProfile::EdcBalanced: return "均衡";
+        case ReaderAntialiasProfile::EdcCrisp: return "锐利";
+    }
+    return "当前";
 }
 
 void ReaderTextRenderer::toggleUnderline() {
@@ -607,21 +642,39 @@ uint16_t ReaderTextRenderer::pixelColorForNibble(uint8_t nibble, uint16_t color)
     // PaperS3's M5GFX EPD panel accepts grayscale and stores 4bpp/16-level ink.
     // Keep true grayscale anti-aliasing for smooth text, but boost low coverage
     // edges darker so the hardware waveform does not look like weak/faint ink.
-    static const uint8_t kInkBoost[16] __attribute__((aligned(1))) = {
+    static const uint8_t kCurrent[16] __attribute__((aligned(1))) = {
         0, 3, 5, 6, 7, 8, 9, 10, 10, 11, 12, 13, 13, 14, 15, 15
+    };
+    static const uint8_t kSoft[16] __attribute__((aligned(1))) = {
+        0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15
+    };
+    static const uint8_t kBalanced[16] __attribute__((aligned(1))) = {
+        0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 9, 12, 13, 15, 15
+    };
+    static const uint8_t kCrisp[16] __attribute__((aligned(1))) = {
+        0, 0, 0, 0, 0, 4, 6, 6, 8, 10, 12, 14, 15, 15, 15, 15
     };
     static const uint16_t k4BitToRgb565[16] __attribute__((aligned(2))) = {
         0xFFFF, 0xDEDB, 0xC618, 0xAD75, 0x9CD3, 0x8C51, 0x7BCF, 0x6B4D,
         0x5ACB, 0x4A69, 0x39E7, 0x3186, 0x2124, 0x10A2, 0x0841, 0x0000
     };
-    return k4BitToRgb565[kInkBoost[nibble & 0x0F]];
+    const uint8_t idx = nibble & 0x0F;
+    const uint8_t* table = kCurrent;
+    switch (antialiasProfile()) {
+        case ReaderAntialiasProfile::EdcSoft: table = kSoft; break;
+        case ReaderAntialiasProfile::EdcBalanced: table = kBalanced; break;
+        case ReaderAntialiasProfile::EdcCrisp: table = kCrisp; break;
+        case ReaderAntialiasProfile::Current:
+        default: table = kCurrent; break;
+    }
+    return k4BitToRgb565[table[idx]];
 }
 
 void ReaderTextRenderer::drawGlyph(uint32_t unicode, int16_t x, int16_t y, uint16_t color) {
     if (!canvas_) return;
     // SD card TTF font (highest priority when it actually contains the glyph).
     if (sdCardFontActive_ && ttfFont_.isLoaded() && ttfFont_.hasGlyph(unicode)) {
-        if (ttfFont_.drawGlyph(unicode, x, y, color, canvas_)) return;
+        if (ttfFont_.drawGlyph(unicode, x, y, color, canvas_, antiAliasEnabled(), static_cast<uint8_t>(antialiasProfile()))) return;
         // If an SD font is selected but cannot render this glyph, keep falling
         // through to the built-in Wenkai/tofu path. Otherwise a Latin-only or
         // broken SD font can make the whole body page blank while header/footer

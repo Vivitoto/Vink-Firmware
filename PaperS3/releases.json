@@ -5,6 +5,36 @@
   "description": "面向 M5Stack PaperS3 的 Vink 电子书阅读固件。",
   "releases": [
     {
+      "version": "v0.4.35-rc",
+      "name": "Vink-PaperS3 v0.4.35-rc",
+      "date": "2026-05-15",
+      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.35-rc",
+      "changelog": "## Vink-PaperS3 v0.4.35-rc\n\n### 抗锯齿实验套件\n- 在 v0.4.34-rc 单包翻页/残影实验套件基础上，新增抗锯齿档位：当前、柔和、均衡、锐利。\n- 设备端阅读设置页与 WebUI 均可切换抗锯齿档位，继续保持一次烧录、多档对比。\n- 内置 Wenkai 灰阶路径新增 EDCBook-style palette/threshold 映射，弱灰边可变白、强笔画压黑，用于比较平滑度、字心黑度和快刷灰边残影。\n- SD 卡 TTF 路径新增 EDCBook-style 双阈值量化：当前、柔和、均衡、锐利四档；不再只是简单 `(coverage + 8) >> 4` 线性量化。\n- TTF 绘制会根据抗锯齿开关和档位量化 coverage，再经过对应灰阶映射输出到 EPD framebuffer；保留当前档作为安全回退。\n- 章节目录页底部步进按钮放大到 76×46，并把页码区域加宽到 108px，避免 110/190 这类长页码挤到按钮。\n- 保留 v0.4.34 的翻页档位、残影补偿和 old/new-aware page-turn LUT 实验。\n",
+      "assets": {
+        "full": {
+          "name": "Vink-PaperS3-v0.4.35-rc-aa-expsuite-full-16MB.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.35-rc/Vink-PaperS3-v0.4.35-rc-aa-expsuite-full-16MB.bin",
+          "size": 16777216,
+          "flashOffset": 0
+        }
+      }
+    },
+    {
+      "version": "v0.4.34-rc",
+      "name": "Vink-PaperS3 v0.4.34-rc",
+      "date": "2026-05-15",
+      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.34-rc",
+      "changelog": "## Vink-PaperS3 v0.4.34-rc\n\n### 单包翻页/残影实验套件\n- 为减少反复烧录，本版把主要翻页实验参数改为运行时可切换：WebUI 与设备设置页提供“翻页档位”和“残影补偿”。\n- 翻页档位继续控制底层 `Panel_EPD::displayScroll()` 条带宽度：清晰=64px、均衡=108px、快速=180px，用一个固件覆盖连续性/速度三档。\n- 新增“残影补偿”轻/均衡/强：在 `Panel_EPD` 私有 page-turn LUT 内按 old/new 灰阶差异选择补偿强度；强档只对 old-dark → new near-white 旧字消失区域使用更强尾段清影，避免把新正文洗淡。\n- 保留 fallback 与队列 busy 保护；不回到上层 `clipRect + pushSprite + waitDisplay()` 逐条带方案，不把周期全刷作为单页残影主解。\n- 新增负面结论与策略文档：`docs/PaperS3_Negative_Findings.md`、`docs/PaperS3_PageTurn_Ghosting_Strategy.md`。\n",
+      "assets": {
+        "full": {
+          "name": "Vink-PaperS3-v0.4.34-rc-oneburn-expsuite-full-16MB.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.34-rc/Vink-PaperS3-v0.4.34-rc-oneburn-expsuite-full-16MB.bin",
+          "size": 16777216,
+          "flashOffset": 0
+        }
+      }
+    },
+    {
       "version": "v0.4.33-rc",
       "name": "Vink-PaperS3 v0.4.33-rc",
       "date": "2026-05-15",
@@ -62,36 +92,6 @@
           "size": 16777216,
           "flashOffset": 0,
           "sha256": "4103e51fbc5e37688d50d16f1870bcbffbe5433a23f8b0840d74d465b1e64589"
-        }
-      }
-    },
-    {
-      "version": "v0.4.29",
-      "name": "Vink-PaperS3 v0.4.29",
-      "date": "2026-05-14",
-      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.29",
-      "changelog": "## Vink-PaperS3 v0.4.29\n\n> SHA256: `342f682eec62b559f3a596e03ed2f1c640ea53270b83037da665e6e07d6d7ff7`\n\n### 翻页动画残影优化\n- 新版本发布，不覆盖 v0.4.28-rc；资产文件名独立为 `Vink-PaperS3-v0.4.29-edcscroll-interval-clean-full-16MB.bin`。\n- 保留 EDCBook 风格的驱动层条带翻页动画，但把“中间清影页数 / 全屏清影页数”的计数调度接入动画路径本身。\n- 到达全屏清影页数时，本次翻页条带直接使用 `kQualityRefresh` waveform；到达中间清影页数时，本次翻页条带使用 `kNormalRefresh`/text waveform。\n- 不再采用“翻页动画结束后追加一轮 GL16”的方案，避免翻完后额外闪一下。\n- 高速模式仍优先速度；标准/清晰模式继续把 eraser/target 清残影流程并入每个 scroll strip。\n",
-      "assets": {
-        "full": {
-          "name": "Vink-PaperS3-v0.4.29-edcscroll-interval-clean-full-16MB.bin",
-          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.29/Vink-PaperS3-v0.4.29-edcscroll-interval-clean-full-16MB.bin",
-          "size": 16777216,
-          "flashOffset": 0
-        }
-      }
-    },
-    {
-      "version": "v0.4.28-rc",
-      "name": "Vink-PaperS3 v0.4.28-rc",
-      "summary": "RC：Panel_EPD 底层复刻 EDCBook 式滚动条带调度，锁屏解锁直接整页刷新。SHA256: 8796bf4f...",
-      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.28-rc",
-      "changelog": "## Vink-PaperS3 v0.4.28-rc\n\n> SHA256: `8796bf4fe7067523fddf2fb4c0755c524011b5d896fc149c229d8dc14b4cf430`\n\n### 致命重启修复\n- 翻页动画改为驱动层 `Panel_EPD::displayScroll()`：先把下一页写入 Panel_EPD framebuffer，再由底层刷新任务按逻辑竖屏条带转换到物理坐标并逐条激活，复刻 EDCBook 的“刷新波前”思路。\n- 增加可复现的 M5GFX 补丁流程：PlatformIO 构建前自动应用 `patches/m5gfx-panel-epd-scroll.patch`，避免只修改本地 `.pio`。\n- 锁屏恢复路径收窄：双击屏幕解锁和侧键解锁都不再复用翻页条带动画，而是直接普通整页刷新；只有显式上一页/下一页才走翻页动画。\n- 发布文件继续使用带测试标识的新文件名，避免 R2 immutable 旧缓存命中同名 RC 包。\n- 翻页动画修正为 PaperS3 当前官方 `Panel_EPD` 路径：移除错误的 `Panel_EPDiy` 强转和伪 `epd_hl` 访问，保留竖屏条带波形刷新效果。\n- 修复 v0.4.28 中正文阅读页点击后可能重启的问题。\n- 修复开启锁屏后双击锁屏区域解锁可能重启的问题。\n- 原因是旧动画路径错误地把当前 PaperS3 的 `Panel_EPD` 强转为 `Panel_EPDiy` 并读取伪 `epd_hl`，属于未定义行为；RC 中移除该路径，改走实际 `Panel_EPD` 条带波形刷新。\n\n### 诊断增强\n- 设置页新增“诊断”菜单入口，可直接打开触摸 / IMU 诊断页。\n- 诊断页新增 IMU 区块，显示 IMU 类型、姿态判断、加速度和陀螺仪数据，用于后续自动旋转功能前确认 BMI270 轴向。\n\n### UI 精简\n- 普通设置页隐藏“系统日志”入口，底层日志能力保留用于应急诊断。\n",
-      "assets": {
-        "full": {
-          "name": "Vink-PaperS3-v0.4.28-rc-edcscroll-lock-direct-full-16MB.bin",
-          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.28-rc/Vink-PaperS3-v0.4.28-rc-edcscroll-lock-direct-full-16MB.bin",
-          "size": 16777216,
-          "flashOffset": 0
         }
       }
     }

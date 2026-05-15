@@ -221,9 +221,11 @@ static const char kHtml[] PROGMEM = R"rawliteral(
   <div class="card"><h2>刷新策略</h2>
     <div class="row"><label>全刷频率</label><select id="refreshStrategy"><option value="0">低</option><option value="1">中</option><option value="2">高</option></select><span>低=20页，中=10页，高=5页</span></div>
     <div class="row"><label>翻页档位</label><select id="pageTurnProfile"><option value="0">清晰</option><option value="1">均衡</option><option value="2">快速</option></select><span>清晰=64px，均衡=108px，快速=180px</span></div>
+    <div class="row"><label>残影补偿</label><select id="ghostingProfile"><option value="0">轻</option><option value="1">均衡</option><option value="2">强</option></select><span>单包实验：旧字清除由轻到强</span></div>
   </div>
   <div class="card"><h2>显示效果</h2>
     <div class="row"><label>抗锯齿</label><input type="checkbox" id="antiAlias"></div>
+    <div class="row"><label>抗锯齿档位</label><select id="antialiasProfile"><option value="0">当前</option><option value="1">柔和</option><option value="2">均衡</option><option value="3">锐利</option></select><span>EDC 风格灰阶映射实验</span></div>
     <div class="row"><label>下划线</label><input type="checkbox" id="underline"></div>
     <div class="row"><label>翻页动画</label><input type="checkbox" id="pageTurnEffect"></div>
     <div class="row"><label>双击锁屏/解锁</label><input type="checkbox" id="doubleTapUnlock"></div>
@@ -250,8 +252,8 @@ async function mkdir(){let n=prompt('目录名');if(!n)return;let p=join(cur,n);
 async function del(p){if(!confirm('删除 '+p+' ?'))return;let r=await fetch('/api/files/'+enc(p),{method:'DELETE'});showMsg(r.ok?'已删除':'删除失败',r.ok);load()}
 async function ren(p){let n=prompt('新路径',p);if(!n||n===p)return;let r=await fetch('/api/files/rename?from='+encodeURIComponent(p)+'&to='+encodeURIComponent(n),{method:'POST'});showMsg(r.ok?'已重命名':'重命名失败',r.ok);load()}
 async function upload(base){let fs=$('files').files;if(!fs.length){showMsg('请选择文件',false);return}await fetch('/api/files?path='+encodeURIComponent(base),{method:'POST'});for(const f of fs){let dest=join(base,f.name);let r=await fetch('/api/files/'+enc(dest),{method:'PUT',body:f});if(!r.ok){showMsg('上传失败：'+f.name,false);return}}showMsg('上传完成');$('files').value='';go(base)}
-async function loadConfig(){let c=await (await fetch('/api/config')).json();['fontSize','lineSpacing','paragraphSpacing','indentFirstLine','marginLeft','marginRight','marginTop','marginBottom','layoutPreset','refreshStrategy','pageTurnProfile','wifiSsid','autoSleepMinutes','lockScreenImagePath'].forEach(id=>{if($(id)&&c[id]!==undefined)$(id).value=c[id]});['justify','antiAlias','underline','pageTurnEffect','doubleTapUnlock','autoSleepEnabled','lockScreenEnabled','lockScreenWakeOnDoubleClick','simplifiedChinese'].forEach(id=>{if($(id)&&c[id]!==undefined)$(id).checked=!!c[id]});if($('wifiPassword'))$('wifiPassword').placeholder=c.wifiPasswordSet?'已保存，留空不修改':'留空不设置'}
-async function saveConfig(){let body=new URLSearchParams();['fontSize','lineSpacing','paragraphSpacing','indentFirstLine','marginLeft','marginRight','marginTop','marginBottom','layoutPreset','refreshStrategy','pageTurnProfile','wifiSsid'].forEach(id=>body.set(id,$(id).value));if($('wifiPassword').value)body.set('wifiPassword',$('wifiPassword').value);['justify','antiAlias','underline','pageTurnEffect','doubleTapUnlock'].forEach(id=>body.set(id,$(id).checked?'1':'0'));let r=await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body});let j=await r.json();let m=$('cfgMsg');m.style.display='block';m.className='msg '+(j.saved?'ok':'err');m.textContent=j.saved?'已保存到本机配置':'保存失败';if(j.saved)loadConfig()}
+async function loadConfig(){let c=await (await fetch('/api/config')).json();['fontSize','lineSpacing','paragraphSpacing','indentFirstLine','marginLeft','marginRight','marginTop','marginBottom','layoutPreset','refreshStrategy','pageTurnProfile','ghostingProfile','antialiasProfile','wifiSsid','autoSleepMinutes','lockScreenImagePath'].forEach(id=>{if($(id)&&c[id]!==undefined)$(id).value=c[id]});['justify','antiAlias','underline','pageTurnEffect','doubleTapUnlock','autoSleepEnabled','lockScreenEnabled','lockScreenWakeOnDoubleClick','simplifiedChinese'].forEach(id=>{if($(id)&&c[id]!==undefined)$(id).checked=!!c[id]});if($('wifiPassword'))$('wifiPassword').placeholder=c.wifiPasswordSet?'已保存，留空不修改':'留空不设置'}
+async function saveConfig(){let body=new URLSearchParams();['fontSize','lineSpacing','paragraphSpacing','indentFirstLine','marginLeft','marginRight','marginTop','marginBottom','layoutPreset','refreshStrategy','pageTurnProfile','ghostingProfile','antialiasProfile','wifiSsid'].forEach(id=>body.set(id,$(id).value));if($('wifiPassword').value)body.set('wifiPassword',$('wifiPassword').value);['justify','antiAlias','underline','pageTurnEffect','doubleTapUnlock'].forEach(id=>body.set(id,$(id).checked?'1':'0'));let r=await fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body});let j=await r.json();let m=$('cfgMsg');m.style.display='block';m.className='msg '+(j.saved?'ok':'err');m.textContent=j.saved?'已保存到本机配置':'保存失败';if(j.saved)loadConfig()}
 async function info(){let r=await fetch('/api/system/info');let i=await r.json();$('info').innerHTML='固件版本：'+esc(i.version)+'<br>访问地址：http://'+esc(i.ip)+'<br>可用内存：'+i.freeHeap+' B<br>PSRAM：'+i.freePsram+' B<br>Flash：'+i.flashSize+' B<br>SD：'+i.sdUsed+' / '+i.sdTotal+' B<br>运行时间：'+Math.floor(i.uptimeSeconds/60)+' 分钟'}
 load();info();
 </script></body></html>
@@ -450,11 +452,13 @@ String configJson() {
     body += "\"pageMarginLevel\":" + String(g_readerText.pageMarginLevel()) + ",";
     body += "\"lineSpacingLevel\":" + String(g_readerText.lineSpacingLevel()) + ",";
     body += "\"antiAlias\":" + String(g_readerText.antiAliasEnabled() ? "true" : "false") + ",";
+    body += "\"antialiasProfile\":" + String(static_cast<uint8_t>(g_readerText.antialiasProfile())) + ",";
     body += "\"underline\":" + String(g_readerText.underlineEnabled() ? "true" : "false") + ",";
     body += "\"pageTurnEffect\":" + String(g_readerText.pageTurnEffectEnabled() ? "true" : "false") + ",";
     body += "\"doubleTapUnlock\":" + String(g_readerText.doubleTapUnlockEnabled() ? "true" : "false") + ",";
     body += "\"refreshStrategy\":" + String(static_cast<uint8_t>(g_displayService.readerRefreshStrategy())) + ",";
     body += "\"pageTurnProfile\":" + String(static_cast<uint8_t>(g_displayService.readerPageTurnProfile())) + ",";
+    body += "\"ghostingProfile\":" + String(static_cast<uint8_t>(g_displayService.readerGhostingProfile())) + ",";
     body += "\"wifiSsid\":\"" + jsonEscape(localWifiSsid()) + "\",";
     body += "\"wifiPasswordSet\":" + String(localWifiPasswordSet() ? "true" : "false") + ",";
     body += "\"autoSleepEnabled\":false,\"autoSleepMinutes\":5,";
@@ -502,6 +506,8 @@ esp_err_t configPost(httpd_req_t* req) {
         formU8(body, "marginBottom", g_readerText.webMarginBottom(), 0, 160),
         formBool(body, "justify", g_readerText.webJustify()));
     g_readerText.setAntiAlias(formBool(body, "antiAlias", g_readerText.antiAliasEnabled()));
+    const uint8_t aaProfile = formU8(body, "antialiasProfile", static_cast<uint8_t>(g_readerText.antialiasProfile()), 0, 3);
+    g_readerText.setAntialiasProfile(static_cast<ReaderAntialiasProfile>(aaProfile));
     g_readerText.setUnderline(formBool(body, "underline", g_readerText.underlineEnabled()));
     g_readerText.setPageTurnEffect(formBool(body, "pageTurnEffect", g_readerText.pageTurnEffectEnabled()));
     g_readerText.setDoubleTapUnlock(formBool(body, "doubleTapUnlock", g_readerText.doubleTapUnlockEnabled()));
@@ -509,6 +515,8 @@ esp_err_t configPost(httpd_req_t* req) {
     g_displayService.setReaderRefreshStrategy(static_cast<ReaderRefreshStrategy>(refresh));
     const uint8_t pageTurnProfile = formU8(body, "pageTurnProfile", static_cast<uint8_t>(g_displayService.readerPageTurnProfile()), 0, 2);
     g_displayService.setReaderPageTurnProfile(static_cast<ReaderPageTurnProfile>(pageTurnProfile));
+    const uint8_t ghostingProfile = formU8(body, "ghostingProfile", static_cast<uint8_t>(g_displayService.readerGhostingProfile()), 0, 2);
+    g_displayService.setReaderGhostingProfile(static_cast<ReaderGhostingProfile>(ghostingProfile));
     String ssid;
     if (formValue(body, "wifiSsid", ssid)) {
         String password;

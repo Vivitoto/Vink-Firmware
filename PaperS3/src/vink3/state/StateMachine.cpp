@@ -447,6 +447,14 @@ void StateMachine::handle(const Message& message) {
                     suppressAfterTransition();
                     break;
 
+                case UiAction::CycleReaderAntialiasProfile:
+                    g_readerText.cycleAntialiasProfile();
+                    state_ = SystemState::Settings;
+                    renderState(state_);
+                    g_displayService.enqueueFull(false, 100);
+                    suppressAfterTransition();
+                    break;
+
                 case UiAction::CycleReaderFontSize:
                     if (!g_readerText.isSdFont()) {
                         g_readerText.cycleReaderFontSize();
@@ -548,6 +556,14 @@ void StateMachine::handle(const Message& message) {
 
                 case UiAction::CycleReaderPageTurnProfile:
                     g_displayService.cycleReaderPageTurnProfile();
+                    state_ = SystemState::Settings;
+                    renderState(state_);
+                    g_displayService.enqueueFull(false, 100);
+                    suppressAfterTransition();
+                    break;
+
+                case UiAction::CycleReaderGhostingProfile:
+                    g_displayService.cycleReaderGhostingProfile();
                     state_ = SystemState::Settings;
                     renderState(state_);
                     g_displayService.enqueueFull(false, 100);
