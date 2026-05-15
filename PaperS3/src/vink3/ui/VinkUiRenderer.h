@@ -91,6 +91,8 @@ public:
 
     UiAction hitTest(SystemState state, int16_t x, int16_t y) const;
     UiAction hitTestTabs(int16_t x, int16_t y) const;
+    bool scrollSettings(int8_t pages);
+    void resetSettingsScroll();
 
 private:
     void clear();
@@ -108,6 +110,9 @@ private:
     bool showReaderSettings_ = false;
     bool showSystemSettings_ = false;
     bool lastReaderHomeHasBook_ = false;
+    int16_t settingsScrollY_ = 0;
+    int16_t readerSettingsScrollY_ = 0;
+    int16_t systemSettingsScrollY_ = 0;
     uint8_t systemLogPage_ = 0;  // 0 = latest page; higher pages show older wrapped rows
 };
 

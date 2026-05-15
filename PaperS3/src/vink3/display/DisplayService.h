@@ -20,9 +20,9 @@ enum class ReaderRefreshStrategy : uint8_t {
 };
 
 enum class ReaderPageTurnProfile : uint8_t {
-    Clean = 0,    // 8px strip: narrowest/cleanest candidate
-    Balanced = 1, // 12px strip: middle ground
-    Fast = 2,     // 16px strip: faster/wider fallback
+    Clean = 0,    // 64px strip: cleaner/wavefront candidate
+    Balanced = 1, // 108px strip: default 5-band turn
+    Fast = 2,     // 180px strip: fast 3-band turn
 };
 
 // ReadPaper 1.7.6 style display message: flags + effect + rectangle.
@@ -89,7 +89,7 @@ private:
     // interactive UI, with periodic quality refreshes to clean ghosting.
     bool fastRefresh_ = true;
     ReaderRefreshStrategy readerRefreshStrategy_ = ReaderRefreshStrategy::Balanced;
-    ReaderPageTurnProfile readerPageTurnProfile_ = ReaderPageTurnProfile::Clean;
+    ReaderPageTurnProfile readerPageTurnProfile_ = ReaderPageTurnProfile::Balanced;
 };
 
 extern DisplayService g_displayService;

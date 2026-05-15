@@ -5,6 +5,21 @@
   "description": "面向 M5Stack PaperS3 的 Vink 电子书阅读固件。",
   "releases": [
     {
+      "version": "v0.4.33-rc",
+      "name": "Vink-PaperS3 v0.4.33-rc",
+      "date": "2026-05-15",
+      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.33-rc",
+      "changelog": "## Vink-PaperS3 v0.4.33-rc\n\n> SHA256: `0450ab93e7df8c8c4f793281f4e4a2cf14a2f4cc9a9e0150a7b4e1b3992ee823`\n\n### 抗锯齿保护型翻页 LUT\n- 根据 v0.4.32-rc 真机反馈修正：翻页速度太慢、抗锯齿灰阶变硬、残影像墨迹渗开。\n- `lut_page_turn` 改为 AA-preserving：黑字核心短多相位黑驱动，中灰抗锯齿边缘保持 no-op，近白背景 cleanup 延后到尾段，避免早期白色擦除波前和灰边被洗淡。\n- 减少可见相位，从 7 相位降到 3 相位，降低每条带扫描次数；白底尾段在后两相位集中处理。\n- 翻页档位改为按真实条带数提速：清晰=64px（约 9 条带）、均衡=108px（5 条带）、快速=180px（3 条带）；默认均衡，避免小条带导致整屏重复扫描太多次。\n- 保留设备端设置页与 WebUI 的翻页档位切换，阅读菜单仍只控制翻页动画开关。\n- 设置页/阅读设置/系统设置支持上下滑动，内容区裁剪滚动，不显示页码，避免设置项超出屏幕。\n",
+      "assets": {
+        "full": {
+          "name": "Vink-PaperS3-v0.4.33-rc-aa-preserve-full-16MB.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.33-rc/Vink-PaperS3-v0.4.33-rc-aa-preserve-full-16MB.bin",
+          "size": 16777216,
+          "flashOffset": 0
+        }
+      }
+    },
+    {
       "version": "v0.4.32-rc",
       "name": "Vink-PaperS3 v0.4.32-rc",
       "date": "2026-05-15",
@@ -75,21 +90,6 @@
         "full": {
           "name": "Vink-PaperS3-v0.4.28-rc-edcscroll-lock-direct-full-16MB.bin",
           "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.28-rc/Vink-PaperS3-v0.4.28-rc-edcscroll-lock-direct-full-16MB.bin",
-          "size": 16777216,
-          "flashOffset": 0
-        }
-      }
-    },
-    {
-      "version": "v0.4.28",
-      "name": "Vink-PaperS3 v0.4.28",
-      "summary": "锁屏侧键精确恢复正文页/SD字体样式、解锁条带刷新、epdiy翻页修正、段间距归零。SHA256: 22aafa3f...",
-      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.28",
-      "changelog": "## Vink-PaperS3 v0.4.28\n\n> SHA256: `22aafa3fb6c3914603aea63421cc5e76ea9b00367a06f474f9ee0580c4f0e2ea`\n\n### 锁屏恢复\n- 双击屏幕解锁和锁屏后单击侧键解锁统一走 `resumeFromLockScreen()`。\n- 解锁后跳过书籍入口页，并通过保存的正文 byte offset 精确回到锁屏前正在阅读的页面。\n- 解锁刷新使用阅读页条带刷新，避免出现普通重启/开机页式的全屏刷屏。\n- SD 卡 TTF 字体源与字号会随阅读设置持久化，侧键解锁跨 reset 后会优先恢复同一个字体文件和字号；若 SD 卡或字体文件不可用，则回退内置文楷。\n- 不改变正常开机首页，也不改变未锁屏时单击侧键关机。\n\n### epdiy 翻页\n- 修正 scroll 条带刷新 mask，每个条带只刷新自己的列。\n- scroll 后保留 front/back framebuffer diff，让后续 quality cleanup 能清理残留。\n\n### 排版优化\n- 原始 / 优化 / 紧凑三档都显式 `paragraphGap = 0`，段间距不再额外大于行间距。\n- 老设备段间距默认值迁移后持久化保存。\n- 优化=开启缩进/空行压缩/动态行高/断行优化；紧凑=在优化基础上进一步收窄边距和行距。",
-      "assets": {
-        "full": {
-          "name": "Vink-PaperS3-v0.4.28-full-16MB.bin",
-          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.28/Vink-PaperS3-v0.4.28-full-16MB.bin",
           "size": 16777216,
           "flashOffset": 0
         }

@@ -732,6 +732,14 @@ void StateMachine::handle(const Message& message) {
             break;
 
         case MessageType::SwipeUp:
+            if (state_ == SystemState::Settings) {
+                if (g_uiRenderer.scrollSettings(+1)) {
+                    g_uiRenderer.renderSettings();
+                    g_displayService.enqueueFull(false, 100);
+                }
+                suppressAfterTransition();
+                break;
+            }
             if (state_ == SystemState::SystemLogs) {
                 if (g_uiRenderer.scrollSystemLogs(+1)) {
                     g_uiRenderer.renderSystemLogs();
@@ -753,6 +761,14 @@ void StateMachine::handle(const Message& message) {
             break;
 
         case MessageType::SwipeDown:
+            if (state_ == SystemState::Settings) {
+                if (g_uiRenderer.scrollSettings(-1)) {
+                    g_uiRenderer.renderSettings();
+                    g_displayService.enqueueFull(false, 100);
+                }
+                suppressAfterTransition();
+                break;
+            }
             if (state_ == SystemState::SystemLogs) {
                 if (g_uiRenderer.scrollSystemLogs(-1)) {
                     g_uiRenderer.renderSystemLogs();

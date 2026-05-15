@@ -1047,15 +1047,19 @@ void VinkUiRenderer::renderSettings() {
     }
 
     // ── Main settings page ────────────────────────────────────────────
-    // "阅读设置" / "系统设置" cards → taps open sub-pages
-    constexpr int16_t kMainCardY = kContentY;
+    // "阅读设置" / "系统设置" cards → taps open sub-pages. Keep this content
+    // scrollable even when future settings rows exceed the visible area; no page
+    // numbers, just natural up/down swipes within the settings tab.
+    canvas_->setClipRect(0, kContentY, kPaperS3Width, kPaperS3Height - kContentY);
+    const int16_t sy = -settingsScrollY_;
+    const int16_t kMainCardY = kContentY + sy;
     constexpr int16_t kMainCardH = kRowH;
     drawSurfacePanel(canvas_, kMarginX, kMainCardY, kContentW, kMainCardH);
     const int16_t mainTextY = g_cjkText.lineTopForBox(kMainCardY, kMainCardH);
     g_cjkText.drawText(kMarginX + 22, mainTextY, "阅读设置", kInk);
     g_cjkText.drawRight(kMarginX + kContentW - 22, mainTextY, ">", kInkMid);
 
-    constexpr int16_t kSysCardY = kMainCardY + kMainCardH + kSettingsGap;
+    const int16_t kSysCardY = kMainCardY + kMainCardH + kSettingsGap;
     drawSurfacePanel(canvas_, kMarginX, kSysCardY, kContentW, kMainCardH);
     const int16_t sysTextY = g_cjkText.lineTopForBox(kSysCardY, kMainCardH);
     g_cjkText.drawText(kMarginX + 22, sysTextY, "系统设置", kInk);
@@ -1064,17 +1068,53 @@ void VinkUiRenderer::renderSettings() {
     // System group: below the two sub-page cards. Keep the persistent system-log
     // service available internally for crash diagnostics, but hide the manual log
     // page from the normal settings UI to reduce clutter in this RC.
-    constexpr int16_t kSysGroupY = kSysCardY + kMainCardH + kSettingsGap;
+    const int16_t kSysGroupY = kSysCardY + kMainCardH + kSettingsGap;
     static const char* kSysLabels[] = {"电源", "诊断", "关于"};
     const char* sysValues[] = {"点按关机", "触摸 / IMU", kVinkPaperS3FirmwareVersion};
     drawSettingsGroup(kMarginX, kSysGroupY, "系统", kSysLabels, sysValues, 3);
+    canvas_->clearClipRect();
 }
 
-void VinkUiRenderer::showSystemSettings()  { showSystemSettings_ = true; }
-void VinkUiRenderer::hideSystemSettings() { showSystemSettings_ = false; }
+void VinkUiRenderer::resetSettingsScroll() {
+    settingsScrollY_ = 0;
+    readerSettingsScrollY_ = 0;
+    systemSettingsScrollY_ = 0;
+}
 
-void VinkUiRenderer::showReaderSettings()  { showReaderSettings_ = true; }
-void VinkUiRenderer::hideReaderSettings() { showReaderSettings_ = false; showSystemSettings_ = false; }
+bool VinkUiRenderer::scrollSettings(int8_t pages) {
+    if (pages == 0) return false;
+
+    // Settings pages deliberately use continuous scroll rather than numbered
+    // pages. The bottom margin keeps the final row clear of the screen edge.
+    constexpr int16_t kViewportBottom = kPaperS3Height - kMarginX;
+    constexpr int16_t kStep = kRowH + kSettingsGap;
+    int16_t contentBottom = kContentY;
+    int16_t* offset = &settingsScrollY_;
+
+    if (showReaderSettings_) {
+        offset = &readerSettingsScrollY_;
+        contentBottom = kContentY + kRowH + kSettingsGap + 5 * kRowH + kSettingsGap + 6 * kRowH;
+    } else if (showSystemSettings_) {
+        offset = &systemSettingsScrollY_;
+        contentBottom = kContentY + kRowH + kSettingsGap + 2 * kRowH;
+    } else {
+        contentBottom = kContentY + kRowH + kSettingsGap + kRowH + kSettingsGap + 4 * kRowH;
+    }
+
+    const int16_t maxScroll = max<int16_t>(0, contentBottom - kViewportBottom);
+    const int16_t old = *offset;
+    int16_t next = old + static_cast<int16_t>(pages) * kStep;
+    if (next < 0) next = 0;
+    if (next > maxScroll) next = maxScroll;
+    *offset = next;
+    return next != old;
+}
+
+void VinkUiRenderer::showSystemSettings()  { showSystemSettings_ = true; systemSettingsScrollY_ = 0; }
+void VinkUiRenderer::hideSystemSettings() { showSystemSettings_ = false; systemSettingsScrollY_ = 0; }
+
+void VinkUiRenderer::showReaderSettings()  { showReaderSettings_ = true; readerSettingsScrollY_ = 0; }
+void VinkUiRenderer::hideReaderSettings() { showReaderSettings_ = false; showSystemSettings_ = false; readerSettingsScrollY_ = 0; systemSettingsScrollY_ = 0; }
 
 void VinkUiRenderer::renderSystemSettings() {
     // ── Back row ───────────────────────────────────────────────────────
@@ -1102,7 +1142,8 @@ void VinkUiRenderer::renderSystemSettings() {
         g_cjkText.drawRight(kValX, textY, valueLine, kInkMid);
     };
 
-    const int16_t gy = kBackY + kRowH + kSettingsGap;
+    canvas_->setClipRect(0, kBackY + kRowH, kPaperS3Width, kPaperS3Height - (kBackY + kRowH));
+    const int16_t gy = kBackY + kRowH + kSettingsGap - systemSettingsScrollY_;
 
     // ══════ 系统：title + toggle rows ══════
     {
@@ -1112,6 +1153,7 @@ void VinkUiRenderer::renderSystemSettings() {
         const int16_t ry = gy + kRowH;
         cardRow(ry, "双击锁屏/解锁", g_readerText.doubleTapUnlockLabel());
     }
+    canvas_->clearClipRect();
 }
 
 void VinkUiRenderer::renderReaderSettings() {
@@ -1151,7 +1193,8 @@ void VinkUiRenderer::renderReaderSettings() {
         g_cjkText.drawRight(kValX, textY, valueLine, kInkMid);
     };
 
-    int16_t gy = kBackY + kRowH + kSettingsGap;
+    canvas_->setClipRect(0, kBackY + kRowH, kPaperS3Width, kPaperS3Height - (kBackY + kRowH));
+    int16_t gy = kBackY + kRowH + kSettingsGap - readerSettingsScrollY_;
 
     // ══════ 排版：title + 4 rows ══════
     {
@@ -1210,6 +1253,7 @@ void VinkUiRenderer::renderReaderSettings() {
         ry += kRowH; cardDiv(ry);
         cardRow(ry, "翻页档位", pageTurnProfileVal);
     }
+    canvas_->clearClipRect();
 }
 
 void VinkUiRenderer::renderDiagnostics(const Message& lastTouch, const char* eventName) {
@@ -1512,6 +1556,7 @@ UiAction VinkUiRenderer::hitTest(SystemState state, int16_t x, int16_t y) const 
         case SystemState::Settings:
             if (showReaderSettings_) {
                 if (inRect(x, y, kMarginX, kContentY, 120, kRowH)) return UiAction::BackToSettings;
+                const int16_t yy = y + ((y >= kContentY + kRowH) ? readerSettingsScrollY_ : 0);
                 const int16_t g0 = kContentY + kRowH + kSettingsGap;
                 {
                     // 排版 table: title + 字体 / 字号 / 页边距 / 行间距.
@@ -1526,7 +1571,7 @@ UiAction VinkUiRenderer::hitTest(SystemState state, int16_t x, int16_t y) const 
                         const int16_t valueW = g_cjkText.textWidth(fontSrcLine);
                         const int16_t valueX = max<int16_t>(kMarginX + 150, valueRight - valueW - 18);
                         const int16_t valueWWithPad = valueRight - valueX + 18;
-                        if (inRect(x, y, valueX, ry, valueWWithPad, kRowH)) return UiAction::CycleReaderFontSource;
+                        if (inRect(x, yy, valueX, ry, valueWWithPad, kRowH)) return UiAction::CycleReaderFontSource;
                     }
                     ry += kRowH;
                     constexpr int16_t kSegW = 60;
@@ -1535,51 +1580,53 @@ UiAction VinkUiRenderer::hitTest(SystemState state, int16_t x, int16_t y) const 
                     const int16_t segY = ry + (kRowH - kSegH) / 2;
                     constexpr int16_t kW = 56;
                     const bool isSd = g_readerText.isSdFont();
-                    const bool inStepperY = y >= segY && y < segY + kSegH;
+                    const bool inStepperY = yy >= segY && yy < segY + kSegH;
                     if (inStepperY && x >= segX && x < segX + 5 * kSegW) {
-                        if (isSd && inRect(x, y, segX,                 segY, kW, kSegH)) return UiAction::DecreaseSdFontSizeBig;
-                        if (isSd && inRect(x, y, segX + kSegW,         segY, kW, kSegH)) return UiAction::DecreaseSdFontSize;
-                        if (isSd && inRect(x, y, segX + 3 * kSegW,     segY, kW, kSegH)) return UiAction::IncreaseSdFontSize;
-                        if (isSd && inRect(x, y, segX + 4 * kSegW,     segY, kW, kSegH)) return UiAction::IncreaseSdFontSizeBig;
+                        if (isSd && inRect(x, yy, segX,                 segY, kW, kSegH)) return UiAction::DecreaseSdFontSizeBig;
+                        if (isSd && inRect(x, yy, segX + kSegW,         segY, kW, kSegH)) return UiAction::DecreaseSdFontSize;
+                        if (isSd && inRect(x, yy, segX + 3 * kSegW,     segY, kW, kSegH)) return UiAction::IncreaseSdFontSize;
+                        if (isSd && inRect(x, yy, segX + 4 * kSegW,     segY, kW, kSegH)) return UiAction::IncreaseSdFontSizeBig;
                         return UiAction::None; // tapped in stepper but button disabled — consume
                     }
                     ry += kRowH;
-                    if (inRect(x, y, kMarginX + 22, ry, kContentW - 44, kRowH)) return UiAction::CycleReaderPageMargin;
+                    if (inRect(x, yy, kMarginX + 22, ry, kContentW - 44, kRowH)) return UiAction::CycleReaderPageMargin;
                     ry += kRowH;
-                    if (inRect(x, y, kMarginX + 22, ry, kContentW - 44, kRowH)) return UiAction::CycleReaderLineSpacing;
+                    if (inRect(x, yy, kMarginX + 22, ry, kContentW - 44, kRowH)) return UiAction::CycleReaderLineSpacing;
                 }
                 {
                     // 阅读 / 显示 table: title + five setting rows
                     const int16_t g1 = g0 + 5 * kRowH + kSettingsGap;
                     int16_t ry = g1 + kRowH;
-                    if (inRect(x, y, kMarginX + 22, ry, kContentW - 44, kRowH)) return UiAction::CycleReaderLayoutPreset;
+                    if (inRect(x, yy, kMarginX + 22, ry, kContentW - 44, kRowH)) return UiAction::CycleReaderLayoutPreset;
                     ry += kRowH;
-                    if (inRect(x, y, kMarginX + 22, ry, kContentW - 44, kRowH)) return UiAction::ToggleReaderAntiAlias;
+                    if (inRect(x, yy, kMarginX + 22, ry, kContentW - 44, kRowH)) return UiAction::ToggleReaderAntiAlias;
                     ry += kRowH;
-                    if (inRect(x, y, kMarginX + 22, ry, kContentW - 44, kRowH)) return UiAction::CycleReaderRefreshStrategy;
+                    if (inRect(x, yy, kMarginX + 22, ry, kContentW - 44, kRowH)) return UiAction::CycleReaderRefreshStrategy;
                     ry += kRowH;
-                    if (inRect(x, y, kMarginX + 22, ry, kContentW - 44, kRowH)) return UiAction::ToggleReaderPageTurnEffect;
+                    if (inRect(x, yy, kMarginX + 22, ry, kContentW - 44, kRowH)) return UiAction::ToggleReaderPageTurnEffect;
                     ry += kRowH;
-                    if (inRect(x, y, kMarginX + 22, ry, kContentW - 44, kRowH)) return UiAction::CycleReaderPageTurnProfile;
+                    if (inRect(x, yy, kMarginX + 22, ry, kContentW - 44, kRowH)) return UiAction::CycleReaderPageTurnProfile;
                 }
                 break;
             }
             if (showSystemSettings_) {
                 if (inRect(x, y, kMarginX, kContentY, 120, kRowH)) return UiAction::BackToSettings;
+                const int16_t yy = y + ((y >= kContentY + kRowH) ? systemSettingsScrollY_ : 0);
                 const int16_t g0 = kContentY + kRowH + kSettingsGap;
                 const int16_t ry = g0 + kRowH;
-                if (inRect(x, y, kMarginX + 22, ry, kContentW - 44, kRowH)) return UiAction::ToggleDoubleTapUnlock;
+                if (inRect(x, yy, kMarginX + 22, ry, kContentW - 44, kRowH)) return UiAction::ToggleDoubleTapUnlock;
                 break;
             }
             // Main page: "阅读设置" card + "系统设置" card + system group table
-            if (inRect(x, y, kMarginX, kContentY, kContentW, kRowH)) return UiAction::OpenReaderSettings;
             {
-                constexpr int16_t kSysCardY = kContentY + kRowH + kSettingsGap;
-                if (inRect(x, y, kMarginX, kSysCardY, kContentW, kRowH)) return UiAction::OpenSystemSettings;
+                const int16_t yy = y + settingsScrollY_;
+                if (inRect(x, yy, kMarginX, kContentY, kContentW, kRowH)) return UiAction::OpenReaderSettings;
+                const int16_t kSysCardY = kContentY + kRowH + kSettingsGap;
+                if (inRect(x, yy, kMarginX, kSysCardY, kContentW, kRowH)) return UiAction::OpenSystemSettings;
                 const int16_t sysY = kSysCardY + kRowH + kSettingsGap;
-                if (inRect(x, y, 56, sysY + kRowH,          424, kRowH)) return UiAction::RequestShutdown;
-                if (inRect(x, y, 56, sysY + 2 * kRowH,      424, kRowH)) return UiAction::OpenDiagnostics;
-                if (inRect(x, y, 56, sysY + 3 * kRowH,      424, kRowH)) return UiAction::OpenSettings;
+                if (inRect(x, yy, 56, sysY + kRowH,          424, kRowH)) return UiAction::RequestShutdown;
+                if (inRect(x, yy, 56, sysY + 2 * kRowH,      424, kRowH)) return UiAction::OpenDiagnostics;
+                if (inRect(x, yy, 56, sysY + 3 * kRowH,      424, kRowH)) return UiAction::OpenSettings;
             }
             break;
         case SystemState::ShutdownConfirm:

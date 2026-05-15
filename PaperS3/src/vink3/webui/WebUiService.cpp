@@ -220,7 +220,7 @@ static const char kHtml[] PROGMEM = R"rawliteral(
   </div>
   <div class="card"><h2>刷新策略</h2>
     <div class="row"><label>全刷频率</label><select id="refreshStrategy"><option value="0">低</option><option value="1">中</option><option value="2">高</option></select><span>低=20页，中=10页，高=5页</span></div>
-    <div class="row"><label>翻页档位</label><select id="pageTurnProfile"><option value="0">清晰</option><option value="1">均衡</option><option value="2">快速</option></select><span>清晰=8px，均衡=12px，快速=16px</span></div>
+    <div class="row"><label>翻页档位</label><select id="pageTurnProfile"><option value="0">清晰</option><option value="1">均衡</option><option value="2">快速</option></select><span>清晰=64px，均衡=108px，快速=180px</span></div>
   </div>
   <div class="card"><h2>显示效果</h2>
     <div class="row"><label>抗锯齿</label><input type="checkbox" id="antiAlias"></div>
