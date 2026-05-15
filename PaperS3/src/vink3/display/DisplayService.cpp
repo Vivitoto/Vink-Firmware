@@ -358,19 +358,25 @@ uint8_t DisplayService::pageTurnCompensationLevel() const {
 }
 
 uint16_t DisplayService::pageTurnScrollStripWidth() const {
-    // Runtime-selectable strip width lets one firmware test the main speed/line
-    // tradeoff without reflashing. Panel_EPD's worker scans the full EPD for
-    // every strip phase, so small 8/12/16/20/32px strips are objectively slow
-    // even if the visible line is nice. Use band-count-scale widths here:
-    // 清晰: 64px  (~9 bands), cleaner/wavefront candidate.
-    // 均衡: 108px (5 bands), default practical reading speed.
-    // 快速: 180px (3 bands), fast fallback if the banding is acceptable.
+    // Fallback strip width if the driver cannot use the EDC-style offset table.
     // the old high-speed DU-like mode is intentionally not used for animation.
     switch (readerPageTurnProfile_) {
         case ReaderPageTurnProfile::Balanced: return 108;
         case ReaderPageTurnProfile::Fast:     return 180;
         case ReaderPageTurnProfile::Clean:
         default:                              return 64;
+    }
+}
+
+uint8_t DisplayService::pageTurnScrollEffectSteps() const {
+    // EDCBook-like offset table seed: n = clamp(effectSteps / 2, 1, 24),
+    // step = ceil(width / (n * 16)) * 16. These values map the existing runtime
+    // page-turn profiles to band counts while keeping one-burn tunability.
+    switch (readerPageTurnProfile_) {
+        case ReaderPageTurnProfile::Fast:     return 12; // ~6 strips @ 540px
+        case ReaderPageTurnProfile::Balanced: return 24; // ~12 strips
+        case ReaderPageTurnProfile::Clean:
+        default:                              return 48; // ~17 strips, 16px aligned
     }
 }
 
@@ -455,10 +461,11 @@ void DisplayService::M5DisplayStripSweep(M5Canvas* canvas, DisplayEffect effect,
 
     const bool rtl = (effect == DisplayEffect::VerticalShutter);
     const uint16_t stripWidth = pageTurnScrollStripWidth();
+    const uint8_t effectSteps = pageTurnScrollEffectSteps();
     const uint8_t compensation = 0;  // disabled while using the stable standard-LUT path
-    Serial.printf("[vink3][display] page-turn scroll profile=%s ghost=disabled-standard-lut strip=%u comp=%u\n",
-                  readerPageTurnProfileLabel(), stripWidth, compensation);
-    panel->displayScroll(0, 0, kPaperS3Width, kPaperS3Height, stripWidth, rtl, compensation);
+    Serial.printf("[vink3][display] page-turn scroll profile=%s ghost=disabled-standard-lut strip=%u effectSteps=%u comp=%u\n",
+                  readerPageTurnProfileLabel(), stripWidth, effectSteps, compensation);
+    panel->displayScroll(0, 0, kPaperS3Width, kPaperS3Height, stripWidth, rtl, compensation, effectSteps);
     M5.Display.waitDisplay();
 }
 

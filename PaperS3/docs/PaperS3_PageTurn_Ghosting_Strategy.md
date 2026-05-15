@@ -188,3 +188,16 @@ Runtime knobs in the one-burn suite:
   - 强: old-dark -> new near-white transitions use a stronger tail-heavy LUT; new dark glyph targets stay on balanced path to avoid washed text.
 
 This is still not the final “perfect” residual solution, but it moves in the correct direction: old/new-aware in-sweep compensation within one flashable RC, not periodic full refresh and not per-binary parameter roulette.
+
+## 2026-05-15 implementation pass: standard-LUT diff gate baseline
+
+After user feedback confirmed rough/uneven ink even with AA disabled, the next local-only implementation pass keeps the standard text LUT baseline and adds a low-risk old/new diff gate inside `Panel_EPD::task_update()`:
+
+- `displayScroll()` marks scroll requests with `scroll_diff_gate = true`.
+- Each scroll strip still uses the stable standard text LUT (`scroll_waveform = false`).
+- The worker compares old/new packed framebuffer bytes from `_step_framebuf`/`_buf`.
+- Unchanged packed bytes are skipped instead of being re-prepared for a text update.
+- Changed bytes use the existing standard text path; no private short LUT is re-enabled.
+- The worker logs nibble-aware counters: changed/same bytes, old-dark→new-light pixels, new-dark pixels, and gray transitions.
+
+This is intentionally not the final compensation algorithm. It is the safe baseline needed before adding stronger masked eraser or medium-length private LUT experiments.

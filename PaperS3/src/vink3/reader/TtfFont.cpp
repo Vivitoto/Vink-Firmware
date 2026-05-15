@@ -1,4 +1,5 @@
 #include "TtfFont.h"
+#include "ReaderAaPolicy.h"
 
 #define STB_TRUETYPE_IMPLEMENTATION
 #include "../text/stb_truetype.h"
@@ -7,57 +8,6 @@
 #include <SPI.h>
 #include <cstring>
 
-// ── Gamma-0.7 4bpp → RGB565 table (same as CjkTextRenderer / ReaderTextRenderer) ──
-static const uint16_t k4BitToRgb565[16] = {
-    0xFFFF, 0xDEDB, 0xC618, 0xAD75, 0x9CD3, 0x8C51, 0x7BCF, 0x6B4D,
-    0x5ACB, 0x4A69, 0x39E7, 0x3186, 0x2124, 0x10A2, 0x0841, 0x0000
-};
-
-static uint8_t mapTtfNibbleForProfile(uint8_t nibble, uint8_t profile) {
-    static const uint8_t kCurrent[16] = {
-        0, 3, 5, 6, 7, 8, 9, 10, 10, 11, 12, 13, 13, 14, 15, 15
-    };
-    static const uint8_t kSoft[16] = {
-        0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15
-    };
-    static const uint8_t kBalanced[16] = {
-        0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 9, 12, 13, 15, 15
-    };
-    static const uint8_t kCrisp[16] = {
-        0, 0, 0, 0, 0, 4, 6, 6, 8, 10, 12, 14, 15, 15, 15, 15
-    };
-    const uint8_t idx = nibble & 0x0F;
-    switch (profile & 0x3) {
-        case 1: return kSoft[idx];
-        case 2: return kBalanced[idx];
-        case 3: return kCrisp[idx];
-        default: return kCurrent[idx];
-    }
-}
-
-static uint8_t quantizeCoverageForProfile(uint8_t coverage, bool antialias, uint8_t profile) {
-    if (!antialias) return coverage >= 128 ? 15 : 0;
-    if ((profile & 0x3) == 0) return (coverage + 8) >> 4;
-
-    uint8_t whiteThreshold = 32;
-    uint8_t blackThreshold = 223;
-    switch (profile & 0x3) {
-        case 1: whiteThreshold = 24; blackThreshold = 232; break;
-        case 2: whiteThreshold = 32; blackThreshold = 223; break;
-        case 3: whiteThreshold = 48; blackThreshold = 208; break;
-    }
-    if (coverage <= whiteThreshold) return 0;
-    if (coverage >= blackThreshold) return 15;
-    const uint16_t num = static_cast<uint16_t>(coverage - whiteThreshold) * 14u;
-    const uint16_t den = static_cast<uint16_t>(blackThreshold - whiteThreshold);
-    return 1 + static_cast<uint8_t>((num + den / 2) / den);
-}
-
-static uint16_t pixelColorForNibbleTtf(uint8_t nibble, uint16_t color, uint8_t profile) {
-    if (color == TFT_WHITE) return TFT_WHITE;
-    if (color != TFT_BLACK) return color;
-    return k4BitToRgb565[mapTtfNibbleForProfile(nibble, profile) & 0x0F];
-}
 
 /// Local UTF-8→codepoint decoder (same logic as ReaderTextRenderer::decodeUtf8).
 static uint32_t decodeUtf8(const uint8_t* buf, size_t& pos, size_t len) {
@@ -398,7 +348,9 @@ bool TtfFont::drawGlyph(uint32_t unicode, int16_t x, int16_t y,
     const int16_t drawX = x + bx;
     const int16_t drawY = y + ascender_ + by;
 
-    // Quantize 8bpp → 4bpp and draw
+    // Quantize 8bpp → 4bpp and draw. Metrics are unchanged by profile; only
+    // coverage quantization and palette mapping vary.
+    const auto profile = ReaderAaPolicy::fromU8(antialiasProfile);
     for (int row = 0; row < gh; row++) {
         const int16_t py = drawY + row;
         if (py < 0 || py >= kPaperS3Height) continue;
@@ -410,9 +362,9 @@ bool TtfFont::drawGlyph(uint32_t unicode, int16_t x, int16_t y,
             // EDCBook-style policy: weak coverage can become white, strong
             // cores become black, and middle coverage stays gray. This keeps
             // SD-card TTF fonts on the same EPD-friendly path as embedded fonts.
-            const uint8_t nibble = quantizeCoverageForProfile(val8, antialias, antialiasProfile);
+            const uint8_t nibble = ReaderAaPolicy::quantizeCoverage(val8, antialias, profile);
             if (nibble > 0) {
-                canvas->drawPixel(px, py, pixelColorForNibbleTtf(nibble, color, antialiasProfile));
+                canvas->drawPixel(px, py, ReaderAaPolicy::rgb565ForNibble(nibble, color, antialias, profile));
             }
         }
     }

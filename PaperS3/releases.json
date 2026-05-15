@@ -9,11 +9,11 @@
       "name": "Vink-PaperS3 v0.4.35-rc",
       "date": "2026-05-15",
       "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.35-rc",
-      "changelog": "## Vink-PaperS3 v0.4.35-rc\n\n### 抗锯齿实验套件\n- 在 v0.4.34-rc 单包翻页/残影实验套件基础上，新增抗锯齿档位：当前、柔和、均衡、锐利。\n- 设备端阅读设置页与 WebUI 均可切换抗锯齿档位，继续保持一次烧录、多档对比。\n- 内置 Wenkai 灰阶路径新增 EDCBook-style palette/threshold 映射，弱灰边可变白、强笔画压黑，用于比较平滑度、字心黑度和快刷灰边残影。\n- SD 卡 TTF 路径新增 EDCBook-style 双阈值量化：当前、柔和、均衡、锐利四档；不再只是简单 `(coverage + 8) >> 4` 线性量化。\n- TTF 绘制会根据抗锯齿开关和档位量化 coverage，再经过对应灰阶映射输出到 EPD framebuffer；保留当前档作为安全回退。\n- 章节目录页底部步进按钮放大到 76×46，并把页码区域加宽到 108px，避免 110/190 这类长页码挤到按钮。\n- 保留 v0.4.34 的翻页档位、残影补偿和 old/new-aware page-turn LUT 实验。\n### 地基清理覆盖\n- 清理错误追踪的 `.pio/libdeps` 依赖源码，恢复为只维护可重复应用的 patch。\n- 标准 LUT 稳定路径下撤下“残影补偿”可见设置，避免无效旋钮误导测试。\n- 设置页滚动范围改为按实际内容 bottom 计算。\n- 保留下划线设备设置入口。\n- 记录 AA 与翻页补偿必须独立归因和测试。\n\n",
+      "changelog": "## Vink-PaperS3 v0.4.35-rc\n\n### 抗锯齿实验套件\n- 在 v0.4.34-rc 单包翻页/残影实验套件基础上，新增抗锯齿档位：当前、柔和、均衡、锐利。\n- 设备端阅读设置页与 WebUI 均可切换抗锯齿档位，继续保持一次烧录、多档对比。\n- 内置 Wenkai 灰阶路径新增 EDCBook-style palette/threshold 映射，弱灰边可变白、强笔画压黑，用于比较平滑度、字心黑度和快刷灰边残影。\n- SD 卡 TTF 路径新增 EDCBook-style 双阈值量化：当前、柔和、均衡、锐利四档；不再只是简单 `(coverage + 8) >> 4` 线性量化。\n- TTF 绘制会根据抗锯齿开关和档位量化 coverage，再经过对应灰阶映射输出到 EPD framebuffer；保留当前档作为安全回退。\n- 章节目录页底部步进按钮放大到 76×46，并把页码区域加宽到 108px，避免 110/190 这类长页码挤到按钮。\n- 保留 v0.4.34 的翻页档位、残影补偿和 old/new-aware page-turn LUT 实验。\n### 地基清理覆盖\n- 清理错误追踪的 `.pio/libdeps` 依赖源码，恢复为只维护可重复应用的 patch。\n- 标准 LUT 稳定路径下撤下“残影补偿”可见设置，避免无效旋钮误导测试。\n- 设置页滚动范围改为按实际内容 bottom 计算。\n- 保留下划线设备设置入口。\n- 记录 AA 与翻页补偿必须独立归因和测试。\n\n### EDC offset diff 测试覆盖\n- 翻页驱动改为 EDCBook-style `effectSteps -> offsets[]` 推进：快速=12、均衡=24、清晰=48，用同一固件对比速度/连续性。\n- `Panel_EPD::displayScroll()` 保留标准 text LUT，不回到导致墨迹毛糙的短私有 LUT。\n- scroll worker 接入 old/new diff gate：unchanged 跳过，新黑字 target-only，old-dark->light 与灰阶变化走保守标准 text 路径。\n- scroll-diff 日志增加 strips/effectSteps，方便真机反馈定位翻页段数、残影与墨迹均匀性。\n- 新增 `ReaderAaPolicy`，统一内置 Wenkai 与 SD TTF 的 AA 策略，保持 AA 与翻页刷新解耦。\n\n",
       "assets": {
         "full": {
-          "name": "Vink-PaperS3-v0.4.35-rc-foundation-cleanup-full-16MB.bin",
-          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.35-rc/Vink-PaperS3-v0.4.35-rc-foundation-cleanup-full-16MB.bin",
+          "name": "Vink-PaperS3-v0.4.35-rc-edc-offset-diff-full-16MB.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.35-rc/Vink-PaperS3-v0.4.35-rc-edc-offset-diff-full-16MB.bin",
           "size": 16777216,
           "flashOffset": 0
         }

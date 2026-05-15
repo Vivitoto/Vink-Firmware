@@ -263,3 +263,14 @@ Implemented as a one-burn AA experiment suite on top of v0.4.34:
   - 均衡: cutoff 32 / 223.
   - 锐利: cutoff 48 / 208.
 - TTF profile is applied at draw-time from the 8bpp glyph cache, so switching profile does not require clearing the glyph cache. Future optimization can cache post-quantized 4bpp glyphs if performance becomes an issue.
+
+## 2026-05-15 implementation pass: ReaderAaPolicy boundary
+
+A local-only pass introduced `ReaderAaPolicy` as the common AA strategy layer:
+
+- Embedded Wenkai 4bpp rendering calls `ReaderAaPolicy::rgb565ForNibble()`.
+- SD-card TTF rendering calls `ReaderAaPolicy::quantizeCoverage()` and then the same palette function.
+- AA profile changes remain pixel-only; metrics, pagination, line height, advance, and baseline are not changed by profile.
+- Vink nibble direction is documented in one place: `0 = white/skip`, `15 = black`; EDCBook evidence uses the reverse stored level direction, so tables must be adapted.
+
+This keeps AA independent from page-turn/ghosting. Display refresh should consume the finished framebuffer and must not mutate AA thresholds or palettes.

@@ -2,6 +2,7 @@
 #include <Arduino.h>
 #include <M5Unified.h>
 #include "../../FontManager.h"
+#include "ReaderAaPolicy.h"
 #include "TtfFont.h"
 
 namespace vink3 {
@@ -23,13 +24,6 @@ enum class ReaderFlashPeriod : uint8_t {
 enum class ReaderFastTurnMode : uint8_t {
     SpeedPriority = 0,
     DisplayPriority = 1,
-};
-
-enum class ReaderAntialiasProfile : uint8_t {
-    Current = 0,
-    EdcSoft = 1,
-    EdcBalanced = 2,
-    EdcCrisp = 3,
 };
 
 struct ReaderSettings {
@@ -110,7 +104,7 @@ public:
     const char* antiAliasLabel() const { return antiAliasEnabled() ? "开启" : "关闭"; }
     void cycleAntialiasProfile();
     void setAntialiasProfile(ReaderAntialiasProfile profile);
-    ReaderAntialiasProfile antialiasProfile() const { return static_cast<ReaderAntialiasProfile>(settings_.antialiasProfile() & 0x3); }
+    ReaderAntialiasProfile antialiasProfile() const { return ReaderAaPolicy::fromU8(settings_.antialiasProfile()); }
     const char* antialiasProfileLabel() const;
 
     // ── SD card TTF font support ──

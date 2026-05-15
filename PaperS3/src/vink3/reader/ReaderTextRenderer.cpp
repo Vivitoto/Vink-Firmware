@@ -636,38 +636,7 @@ int16_t ReaderTextRenderer::textWidth(const char* text) const {
 }
 
 uint16_t ReaderTextRenderer::pixelColorForNibble(uint8_t nibble, uint16_t color) const {
-    if (color == TFT_WHITE) return TFT_WHITE;
-    if (color != TFT_BLACK) return color;
-    if (!antiAliasEnabled()) return (nibble >= 8) ? TFT_BLACK : TFT_WHITE;
-    // PaperS3's M5GFX EPD panel accepts grayscale and stores 4bpp/16-level ink.
-    // Keep true grayscale anti-aliasing for smooth text, but boost low coverage
-    // edges darker so the hardware waveform does not look like weak/faint ink.
-    static const uint8_t kCurrent[16] __attribute__((aligned(1))) = {
-        0, 3, 5, 6, 7, 8, 9, 10, 10, 11, 12, 13, 13, 14, 15, 15
-    };
-    static const uint8_t kSoft[16] __attribute__((aligned(1))) = {
-        0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15
-    };
-    static const uint8_t kBalanced[16] __attribute__((aligned(1))) = {
-        0, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 9, 12, 13, 15, 15
-    };
-    static const uint8_t kCrisp[16] __attribute__((aligned(1))) = {
-        0, 0, 0, 0, 0, 4, 6, 6, 8, 10, 12, 14, 15, 15, 15, 15
-    };
-    static const uint16_t k4BitToRgb565[16] __attribute__((aligned(2))) = {
-        0xFFFF, 0xDEDB, 0xC618, 0xAD75, 0x9CD3, 0x8C51, 0x7BCF, 0x6B4D,
-        0x5ACB, 0x4A69, 0x39E7, 0x3186, 0x2124, 0x10A2, 0x0841, 0x0000
-    };
-    const uint8_t idx = nibble & 0x0F;
-    const uint8_t* table = kCurrent;
-    switch (antialiasProfile()) {
-        case ReaderAntialiasProfile::EdcSoft: table = kSoft; break;
-        case ReaderAntialiasProfile::EdcBalanced: table = kBalanced; break;
-        case ReaderAntialiasProfile::EdcCrisp: table = kCrisp; break;
-        case ReaderAntialiasProfile::Current:
-        default: table = kCurrent; break;
-    }
-    return k4BitToRgb565[table[idx]];
+    return ReaderAaPolicy::rgb565ForNibble(nibble, color, antiAliasEnabled(), antialiasProfile());
 }
 
 void ReaderTextRenderer::drawGlyph(uint32_t unicode, int16_t x, int16_t y, uint16_t color) {

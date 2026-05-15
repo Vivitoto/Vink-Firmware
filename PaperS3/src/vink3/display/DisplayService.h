@@ -86,6 +86,7 @@ private:
     void pushSweepBandsEffect(M5Canvas* canvas, DisplayEffect effect, epd_mode_t mode);
     void M5DisplayStripSweep(M5Canvas* canvas, DisplayEffect effect, epd_mode_t mode);
     uint16_t pageTurnScrollStripWidth() const;
+    uint8_t pageTurnScrollEffectSteps() const;
     uint8_t pageTurnCompensationLevel() const;
 
     M5Canvas* canvas_ = nullptr;

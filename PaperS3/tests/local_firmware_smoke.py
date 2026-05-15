@@ -294,7 +294,9 @@ def vink3_source_invariants(main_cpp: str) -> None:
         "reader body Wenkai font covers common Chinese text characters",
     )
     assert_contains(reader_cpp, "fontSize()) - glyph.bearingY", "reader Wenkai body font aligns glyphs to a shared baseline")
-    assert_contains(reader_cpp, "Keep true grayscale anti-aliasing", "reader body text keeps 16-gray anti-aliasing with contrast boost")
+    reader_aa_policy_h = read("src/vink3/reader/ReaderAaPolicy.h")
+    assert_contains(reader_aa_policy_h, "Vink nibble semantics", "reader AA policy documents Vink 4bpp direction")
+    assert_contains(reader_aa_policy_h, "rgb565ForNibble", "reader body text uses shared AA palette mapping")
     assert_contains(reader_cpp, "never let a missing body glyph silently disappear", "reader body missing glyphs render visible tofu instead of blank pages")
     assert_contains(reader_cpp, "v0.4.15 shipped with a sparse Wenkai font", "smoke test documents the v0.4.15 blank-body root cause")
     assert_contains(reader_cpp, "ReaderTextRenderer", "v0.3 has a separate reader body renderer")
