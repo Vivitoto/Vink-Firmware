@@ -1,8 +1,6 @@
+#define STB_TRUETYPE_IMPLEMENTATION
 #include "TtfFont.h"
 #include "ReaderAaPolicy.h"
-
-#define STB_TRUETYPE_IMPLEMENTATION
-#include "../text/stb_truetype.h"
 
 #include "../VinkPaperS3.h"
 #include <SPI.h>
@@ -92,14 +90,16 @@ bool TtfFont::loadFromSd(const char* path) {
         return false;
     }
 
-    // Validate with stbtt — TTF uses offset 0, OTF/TTC uses GetFontOffsetForIndex
-    stbtt_fontinfo info;
+    // Validate once and keep stb_truetype's parsed fontinfo. Reinitializing it
+    // for every glyph/advance is measurable on an e-reader page full of CJK.
     fontOffset_ = stbtt_GetFontOffsetForIndex(ttfData_, 0);
     if (fontOffset_ < 0) fontOffset_ = 0;
-    if (!stbtt_InitFont(&info, ttfData_, fontOffset_)) {
+    fontInfoReady_ = stbtt_InitFont(&fontInfo_, ttfData_, fontOffset_) != 0;
+    if (!fontInfoReady_) {
         // Try offset 0 as plain TTF
         fontOffset_ = 0;
-        if (!stbtt_InitFont(&info, ttfData_, 0)) {
+        fontInfoReady_ = stbtt_InitFont(&fontInfo_, ttfData_, 0) != 0;
+        if (!fontInfoReady_) {
             Serial.printf("[vink3][ttf] stbtt_InitFont failed for %s\n", path);
             free(ttfData_);
             ttfData_ = nullptr;
@@ -137,6 +137,8 @@ void TtfFont::unload() {
     ttfDataSize_ = 0;
     fontPath_[0] = '\0';
     loaded_ = false;
+    fontInfoReady_ = false;
+    memset(&fontInfo_, 0, sizeof(fontInfo_));
     cacheAge_ = 0;
 }
 
@@ -159,31 +161,25 @@ void TtfFont::setSize(uint8_t pxSize) {
 }
 
 void TtfFont::recalcMetrics() {
-    if (!loaded_ || !ttfData_) return;
-    stbtt_fontinfo info;
-    if (!stbtt_InitFont(&info, ttfData_, fontOffset_)) return;
-    scale_ = stbtt_ScaleForPixelHeight(&info, pxSize_);
+    if (!loaded_ || !ttfData_ || !fontInfoReady_) return;
+    scale_ = stbtt_ScaleForPixelHeight(&fontInfo_, pxSize_);
     int asc, desc, lg;
-    stbtt_GetFontVMetrics(&info, &asc, &desc, &lg);
+    stbtt_GetFontVMetrics(&fontInfo_, &asc, &desc, &lg);
     ascender_  = static_cast<int16_t>(asc * scale_);
     descender_ = static_cast<int16_t>(desc * scale_);
     lineHeight_ = static_cast<int16_t>((asc - desc) * scale_);
 }
 
 bool TtfFont::hasGlyph(uint32_t unicode) const {
-    if (!loaded_ || !ttfData_) return false;
+    if (!loaded_ || !ttfData_ || !fontInfoReady_) return false;
     if (unicode == '\n' || unicode == '\r' || unicode == ' ' || unicode == '\t') return true;
-    stbtt_fontinfo info;
-    if (!stbtt_InitFont(&info, ttfData_, fontOffset_)) return false;
-    return stbtt_FindGlyphIndex(&info, static_cast<int>(unicode)) != 0;
+    return stbtt_FindGlyphIndex(&fontInfo_, static_cast<int>(unicode)) != 0;
 }
 
 int16_t TtfFont::charAdvance(uint32_t unicode) const {
-    if (!loaded_ || !ttfData_) return pxSize_;
-    stbtt_fontinfo info;
-    if (!stbtt_InitFont(&info, ttfData_, fontOffset_)) return pxSize_;
+    if (!loaded_ || !ttfData_ || !fontInfoReady_) return pxSize_;
     int adv, lsb;
-    stbtt_GetCodepointHMetrics(&info, static_cast<int>(unicode), &adv, &lsb);
+    stbtt_GetCodepointHMetrics(&fontInfo_, static_cast<int>(unicode), &adv, &lsb);
     int16_t a = static_cast<int16_t>(adv * scale_);
     return a > 0 ? a : static_cast<int16_t>(pxSize_ / 2);
 }
@@ -263,13 +259,11 @@ bool TtfFont::drawGlyphToBuffer(uint32_t unicode, uint8_t* buf,
         return true;
     }
 
-    // Render via stb_truetype
-    stbtt_fontinfo info;
-    if (!stbtt_InitFont(&info, ttfData_, fontOffset_)) return false;
+    if (!fontInfoReady_) return false;
 
     int cw = 0, ch = 0, xoff = 0, yoff = 0;
     unsigned char* rendered = stbtt_GetCodepointBitmap(
-        &info, scale_, scale_, static_cast<int>(unicode),
+        &fontInfo_, scale_, scale_, static_cast<int>(unicode),
         &cw, &ch, &xoff, &yoff);
 
     if (!rendered || cw <= 0 || ch <= 0) {
@@ -286,7 +280,7 @@ bool TtfFont::drawGlyphToBuffer(uint32_t unicode, uint8_t* buf,
     }
 
     int adv, lsb;
-    stbtt_GetCodepointHMetrics(&info, static_cast<int>(unicode), &adv, &lsb);
+    stbtt_GetCodepointHMetrics(&fontInfo_, static_cast<int>(unicode), &adv, &lsb);
     int16_t fa = static_cast<int16_t>(adv * scale_);
     if (fa < 1) fa = static_cast<int16_t>(pxSize_ / 2);
 
@@ -318,18 +312,16 @@ bool TtfFont::drawGlyph(uint32_t unicode, int16_t x, int16_t y,
                          bool antialias, uint8_t antialiasProfile) {
     if (!loaded_ || !ttfData_ || !canvas) return false;
 
-    // Allocate on heap for safety; max reasonable glyph at 64px = ~4KB
+    // One reusable glyph scratch buffer avoids malloc/free churn for every
+    // character while still keeping the cache storage separately owned.
     constexpr int kMaxGlyphPixels = 64 * 64;
-    uint8_t* bmpBuf = static_cast<uint8_t*>(malloc(kMaxGlyphPixels));
-    if (!bmpBuf) return false;
+    static uint8_t bmpBuf[kMaxGlyphPixels];
 
     int gw = 0, gh = 0, adv = 0;
     if (!drawGlyphToBuffer(unicode, bmpBuf, &gw, &gh, &adv)) {
-        free(bmpBuf);
         return false;
     }
     if (gw <= 0 || gh <= 0 || gw > 64 || gh > 64) {
-        free(bmpBuf);
         return false;
     }
 
@@ -369,7 +361,6 @@ bool TtfFont::drawGlyph(uint32_t unicode, int16_t x, int16_t y,
         }
     }
 
-    free(bmpBuf);
     return true;
 }
 
@@ -407,10 +398,13 @@ int TtfFont::scanSdFonts(char paths[][64], int maxCount) {
             continue;
         }
 
+        char nameBuf[96];
         const char* name = entry.name();
+        if (name) strlcpy(nameBuf, name, sizeof(nameBuf));
+        else nameBuf[0] = '\0';
         entry.close();
-        if (!name) continue;
-        const char* dot = strrchr(name, '.');
+        if (!nameBuf[0]) continue;
+        const char* dot = strrchr(nameBuf, '.');
         if (!dot) continue;
 
         if (strcasecmp(dot, ".ttf") == 0 || strcasecmp(dot, ".otf") == 0) {
@@ -418,9 +412,9 @@ int TtfFont::scanSdFonts(char paths[][64], int maxCount) {
             char full[64];
             const char* dirPath = root.path();
             if (dirPath && dirPath[0] == '/' && dirPath[1]) {
-                snprintf(full, sizeof(full), "%s/%s", dirPath, name);
+                snprintf(full, sizeof(full), "%s/%s", dirPath, nameBuf);
             } else {
-                snprintf(full, sizeof(full), "/%s", name);
+                snprintf(full, sizeof(full), "/%s", nameBuf);
             }
             full[sizeof(full) - 1] = '\0';
             strncpy(paths[count], full, 63);

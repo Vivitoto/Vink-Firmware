@@ -32,7 +32,6 @@ enum class UiAction : uint8_t {
     CycleReaderLineSpacing,
     ToggleReaderPageTurnEffect,
     CycleReaderPageTurnProfile,
-    CycleReaderGhostingProfile,
     CycleReaderFontSize,
     CycleReaderFontSource,
     IncreaseSdFontSize,

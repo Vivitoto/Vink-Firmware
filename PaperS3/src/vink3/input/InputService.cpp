@@ -1,5 +1,6 @@
 #include "InputService.h"
 #include "../display/DisplayService.h"
+#include "../reader/ReaderBookService.h"
 #include "../system/SystemLog.h"
 #include "../VinkPaperS3.h"
 #include <driver/gpio.h>
@@ -24,12 +25,20 @@ static void IRAM_ATTR gt911_isr_handler(void*) {
     }
 }
 constexpr uint32_t kPollDelayMs = 5;    // ~200 Hz touch polling for responsive feel
-constexpr uint32_t kDebounceMs = 25;
+// Keep the v0.4.36 GT911 interrupt path, but tune the app-level gesture
+// classifier toward EDCBook's reading-first feel: lighter press debounce, a
+// wider tap-jitter envelope, and a short multi-frame release debounce so one
+// missing GT911/M5Unified sample does not prematurely end a gesture.
+constexpr uint32_t kDebounceMs = 18;
+constexpr uint8_t kLiftDebounceFrames = 3;
 constexpr uint32_t kMoveDiagnosticMs = 100;
+constexpr uint32_t kReaderQuickTurnStableMs = 35;
+constexpr uint32_t kReaderQuickTurnMinIntervalMs = 120;
+constexpr int16_t kReaderQuickTurnCancelPx = 58;
 constexpr uint32_t kPowerBootIgnoreMs = 3000;
 constexpr uint32_t kLongPressMs = 600;
-constexpr int16_t kTapSlopPx = 30;
-constexpr int16_t kLongPressMovePx = 34;
+constexpr int16_t kTapSlopPx = 50;
+constexpr int16_t kLongPressMovePx = 50;
 constexpr int16_t kSwipeThresholdPx = 80;
 
 const char* touchCoordModeName(TouchCoordMode) {
@@ -114,6 +123,9 @@ void InputService::suppressFor(uint32_t cooldownMs) {
     waitRelease_ = false;
     wasPressed_ = false;
     lastMovePostMs_ = 0;
+    liftMissingFrames_ = 0;
+    resetReaderQuickTurn();
+    pendingReaderTurn_ = false;
     Serial.printf("[vink3][touch] suppress for %lu ms\n", static_cast<unsigned long>(cooldownMs));
 }
 
@@ -122,11 +134,54 @@ void InputService::suppressUntilRelease(uint32_t cooldownMs) {
     waitRelease_ = true;
     wasPressed_ = false;
     lastMovePostMs_ = 0;
+    liftMissingFrames_ = 0;
+    resetReaderQuickTurn();
+    pendingReaderTurn_ = false;
     Serial.printf("[vink3][touch] suppress until release for %lu ms\n", static_cast<unsigned long>(cooldownMs));
 }
 
 void InputService::updateTouchCoordMode(int, int) {
     // Official baseline: no coordinate-mode guessing.
+}
+
+bool InputService::readerQuickTurnZone(const TouchPoint& point, bool& outNext) const {
+    // Reading-body only: keep the v0.4.36 GT911 interrupt path, but make body
+    // page turns EDCBook-like. Do not make the header, center menu, TOC/book
+    // entry, settings, or library eager.
+    if (!stateMachine_ || stateMachine_->state() != SystemState::ReaderMenu) return false;
+    if (!g_readerBook.isReadingBodyVisible()) return false;
+    if (point.y < 150) return false;
+    if (point.x < kPaperS3Width / 3) {
+        outNext = false;
+        return true;
+    }
+    if (point.x > (kPaperS3Width * 2) / 3) {
+        outNext = true;
+        return true;
+    }
+    return false;
+}
+
+void InputService::resetReaderQuickTurn() {
+    readerQuickTurnCandidate_ = false;
+    readerQuickTurnNext_ = false;
+    readerQuickTurnFired_ = false;
+    readerQuickTurnStartedMs_ = 0;
+}
+
+bool InputService::postReaderQuickTurn(bool next, uint32_t now, const TouchPoint& point, const TouchPoint& rawPoint) {
+    if (!stateMachine_ || now - lastReaderQuickTurnMs_ < kReaderQuickTurnMinIntervalMs) return false;
+    if (stateMachine_->state() != SystemState::ReaderMenu || !g_readerBook.isReadingBodyVisible()) return false;
+    Message msg;
+    msg.type = next ? MessageType::PageNext : MessageType::PagePrev;
+    msg.timestampMs = now;
+    msg.touch = point;
+    msg.rawTouch = rawPoint;
+    msg.value = next ? 1 : -1;
+    if (!stateMachine_->post(msg, 0)) return false;
+    lastReaderQuickTurnMs_ = now;
+    g_systemLog.append(next ? "reader quick turn next" : "reader quick turn prev");
+    return true;
 }
 
 void InputService::pollPowerButton(uint32_t now) {
@@ -184,6 +239,9 @@ void InputService::pollTouch() {
             wasPressed_ = false;
             waitRelease_ = false;
         }
+        liftMissingFrames_ = 0;
+        resetReaderQuickTurn();
+        pendingReaderTurn_ = false;
         return;
     }
 
@@ -192,24 +250,52 @@ void InputService::pollTouch() {
     const bool pressed = detail.isPressed() && count == 1;
     const uint32_t now = millis();
 
+    if (!displayPushing && pendingReaderTurn_) {
+        const bool next = pendingReaderTurnNext_;
+        const TouchPoint point = pendingReaderTurnPoint_;
+        const TouchPoint rawPoint = pendingReaderTurnRawPoint_;
+        pendingReaderTurn_ = false;
+        if (g_readerBook.isReadingBodyVisible() && postReaderQuickTurn(next, now, point, rawPoint)) {
+            wasPressed_ = false;
+            resetReaderQuickTurn();
+            if (pressed) {
+                waitRelease_ = true;
+                suppressUntilMs_ = now + 80;
+            }
+            return;
+        }
+    }
+
     if (pressed) {
+        liftMissingFrames_ = 0;
         updateTouchCoordMode(detail.x, detail.y);
         const TouchPoint rawPoint(static_cast<int16_t>(detail.x), static_cast<int16_t>(detail.y));
         const TouchPoint currentPoint = normalizeTouchPoint(detail.x, detail.y);
 
         // During display pushes and page transitions, keep internal edge state
-        // fresh but do not emit UI actions. This avoids stale release/tap events
-        // landing on a newly rendered page.
+        // fresh but do not emit normal UI actions. For reading-body left/right
+        // zones, preserve one EDCBook-style page-turn intent so rapid taps during
+        // EPD refresh are not swallowed.
         if (displayPushing || waitRelease_ || now < suppressUntilMs_) {
             lastPoint_ = currentPoint;
             lastRawPoint_ = rawPoint;
-            // During EPD pushes, accept the down event but defer semantic
-        // processing so rapid reading taps are not swallowed.
-        // Keep edge state clean between pushes without dropping events.
-        if (displayPushing) {
-            if (wasPressed_) { wasPressed_ = false; }
+            if (displayPushing && !pendingReaderTurn_) {
+                bool next = false;
+                if (readerQuickTurnZone(currentPoint, next)) {
+                    pendingReaderTurn_ = true;
+                    pendingReaderTurnNext_ = next;
+                    pendingReaderTurnPoint_ = currentPoint;
+                    pendingReaderTurnRawPoint_ = rawPoint;
+                    pendingReaderTurnMs_ = now;
+                }
+            }
+            if (displayPushing) {
+                // Keep edge state clean between refreshes. If the same physical
+                // press is still held after a quick-turn action, wait for release
+                // rather than emitting a second tap on the new page.
+                wasPressed_ = false;
+            }
             return;
-        }
         }
 
         if (!wasPressed_) {
@@ -221,6 +307,11 @@ void InputService::pollTouch() {
             pressRawPoint_ = rawPoint;
             lastRawPoint_ = rawPoint;
             lastMovePostMs_ = now;
+            readerQuickTurnCandidate_ = readerQuickTurnZone(currentPoint, readerQuickTurnNext_);
+            readerQuickTurnFired_ = false;
+            readerQuickTurnPressPoint_ = currentPoint;
+            readerQuickTurnRawPoint_ = rawPoint;
+            readerQuickTurnStartedMs_ = now;
             Serial.printf("[vink3][touch] down raw=%d,%d norm=%d,%d count=%d mode=%s\n",
                           rawPoint.x, rawPoint.y, currentPoint.x, currentPoint.y, count,
                           touchCoordModeName(gPaperS3TouchCoordMode));
@@ -236,6 +327,20 @@ void InputService::pollTouch() {
 
         lastPoint_ = currentPoint;
         lastRawPoint_ = rawPoint;
+        if (readerQuickTurnCandidate_ && !readerQuickTurnFired_) {
+            const int16_t qdx = currentPoint.x - readerQuickTurnPressPoint_.x;
+            const int16_t qdy = currentPoint.y - readerQuickTurnPressPoint_.y;
+            if (max(abs(qdx), abs(qdy)) > kReaderQuickTurnCancelPx) {
+                resetReaderQuickTurn();
+            } else if (now - readerQuickTurnStartedMs_ >= kReaderQuickTurnStableMs &&
+                       postReaderQuickTurn(readerQuickTurnNext_, now, readerQuickTurnPressPoint_, readerQuickTurnRawPoint_)) {
+                readerQuickTurnFired_ = true;
+                wasPressed_ = false;
+                waitRelease_ = true;
+                suppressUntilMs_ = now + 80;
+                return;
+            }
+        }
         if (now - lastMovePostMs_ >= kMoveDiagnosticMs) {
             lastMovePostMs_ = now;
             Message move;
@@ -249,7 +354,19 @@ void InputService::pollTouch() {
         return;
     }
 
+    if (!pressed && wasPressed_) {
+        // GT911/M5Unified can occasionally miss a frame while a finger is still
+        // down. EDCBook-like processing waits for several absent frames before
+        // emitting lift; this costs ~15-60 ms on the interrupt+timeout loop but
+        // avoids flaky taps and broken swipes from single missing samples.
+        if (liftMissingFrames_ < kLiftDebounceFrames) {
+            liftMissingFrames_++;
+            return;
+        }
+    }
+
     if (!pressed) {
+        if (!wasPressed_) liftMissingFrames_ = 0;
         if (waitRelease_ && now >= suppressUntilMs_) {
             waitRelease_ = false;
             Serial.println("[vink3][touch] release observed, suppression cleared");
@@ -259,6 +376,8 @@ void InputService::pollTouch() {
 
     if (!pressed && wasPressed_) {
         wasPressed_ = false;
+        liftMissingFrames_ = 0;
+        resetReaderQuickTurn();
         lastEventMs_ = now;
         const TouchPoint releasePoint = lastPoint_;
         const TouchPoint releaseRawPoint = lastRawPoint_;

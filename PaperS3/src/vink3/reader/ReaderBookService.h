@@ -20,6 +20,7 @@ public:
     bool openFirstBook();
     bool openBook(const char* path);
     bool isOpen() const { return open_; }
+    bool isReadingBodyVisible() const { return open_ && !showingBookEntry_ && !showingReaderMenu_ && !showingToc_ && pageCount_ > 0; }
     int tocCount() const { return tocCount_; }
     const char* title() const { return title_; }
     const char* path() const { return bookPath_; }

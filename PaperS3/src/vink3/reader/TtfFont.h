@@ -2,6 +2,7 @@
 #include <Arduino.h>
 #include <M5Unified.h>
 #include <SD.h>
+#include "../text/stb_truetype.h"
 
 namespace vink3 {
 
@@ -73,6 +74,8 @@ private:
                         int8_t bx, int8_t by, uint8_t adv);
 
     bool loaded_ = false;
+    bool fontInfoReady_ = false;
+    stbtt_fontinfo fontInfo_{};
     uint8_t* ttfData_ = nullptr;
     size_t ttfDataSize_ = 0;
     char fontPath_[128] = {0};

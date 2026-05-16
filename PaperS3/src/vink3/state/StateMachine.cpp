@@ -587,14 +587,6 @@ void StateMachine::handle(const Message& message) {
                     suppressAfterTransition();
                     break;
 
-                case UiAction::CycleReaderGhostingProfile:
-                    g_displayService.cycleReaderGhostingProfile();
-                    state_ = SystemState::Settings;
-                    renderState(state_);
-                    g_displayService.enqueueFull(false, 100);
-                    suppressAfterTransition();
-                    break;
-
                 case UiAction::ToggleWifiAp:
                     if (g_wifiService.httpServerRunning()) {
                         g_wifiService.stop();
@@ -738,6 +730,20 @@ void StateMachine::handle(const Message& message) {
             }
             break;
         }
+
+        case MessageType::PageNext:
+            if (state_ == SystemState::ReaderMenu && g_readerBook.isReadingBodyVisible() && g_readerBook.nextPage()) {
+                enqueueReaderAwareRefresh(DisplayEffect::VerticalShutter);
+                suppressAfterTransition();
+            }
+            break;
+
+        case MessageType::PagePrev:
+            if (state_ == SystemState::ReaderMenu && g_readerBook.isReadingBodyVisible() && g_readerBook.prevPage()) {
+                enqueueReaderAwareRefresh(DisplayEffect::HorizontalShutter);
+                suppressAfterTransition();
+            }
+            break;
 
         case MessageType::SwipeLeft:
             s_lastInteractionMs = millis();

@@ -457,7 +457,6 @@ String configJson() {
     body += "\"doubleTapUnlock\":" + String(g_readerText.doubleTapUnlockEnabled() ? "true" : "false") + ",";
     body += "\"refreshStrategy\":" + String(static_cast<uint8_t>(g_displayService.readerRefreshStrategy())) + ",";
     body += "\"pageTurnProfile\":" + String(static_cast<uint8_t>(g_displayService.readerPageTurnProfile())) + ",";
-    body += "\"ghostingProfile\":" + String(static_cast<uint8_t>(g_displayService.readerGhostingProfile())) + ",";
     body += "\"wifiSsid\":\"" + jsonEscape(localWifiSsid()) + "\",";
     body += "\"wifiPasswordSet\":" + String(localWifiPasswordSet() ? "true" : "false") + ",";
     body += "\"autoSleepEnabled\":false,\"autoSleepMinutes\":5,";
@@ -514,8 +513,6 @@ esp_err_t configPost(httpd_req_t* req) {
     g_displayService.setReaderRefreshStrategy(static_cast<ReaderRefreshStrategy>(refresh));
     const uint8_t pageTurnProfile = formU8(body, "pageTurnProfile", static_cast<uint8_t>(g_displayService.readerPageTurnProfile()), 0, 2);
     g_displayService.setReaderPageTurnProfile(static_cast<ReaderPageTurnProfile>(pageTurnProfile));
-    const uint8_t ghostingProfile = formU8(body, "ghostingProfile", static_cast<uint8_t>(g_displayService.readerGhostingProfile()), 0, 2);
-    g_displayService.setReaderGhostingProfile(static_cast<ReaderGhostingProfile>(ghostingProfile));
     String ssid;
     if (formValue(body, "wifiSsid", ssid)) {
         String password;

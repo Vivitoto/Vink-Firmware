@@ -18,6 +18,9 @@ private:
     void pollPowerButton(uint32_t now);
     void pollSideKey(uint32_t now);
     void updateTouchCoordMode(int rawX, int rawY);
+    bool readerQuickTurnZone(const TouchPoint& point, bool& outNext) const;
+    bool postReaderQuickTurn(bool next, uint32_t now, const TouchPoint& point, const TouchPoint& rawPoint);
+    void resetReaderQuickTurn();
 
     StateMachine* stateMachine_ = nullptr;
     TaskHandle_t task_ = nullptr;
@@ -32,6 +35,19 @@ private:
     uint32_t suppressUntilMs_ = 0;
     bool waitRelease_ = false;
     uint32_t lastMovePostMs_ = 0;
+    uint8_t liftMissingFrames_ = 0;
+    bool readerQuickTurnCandidate_ = false;
+    bool readerQuickTurnNext_ = false;
+    bool readerQuickTurnFired_ = false;
+    TouchPoint readerQuickTurnPressPoint_{};
+    TouchPoint readerQuickTurnRawPoint_{};
+    uint32_t readerQuickTurnStartedMs_ = 0;
+    uint32_t lastReaderQuickTurnMs_ = 0;
+    bool pendingReaderTurn_ = false;
+    bool pendingReaderTurnNext_ = false;
+    TouchPoint pendingReaderTurnPoint_{};
+    TouchPoint pendingReaderTurnRawPoint_{};
+    uint32_t pendingReaderTurnMs_ = 0;
     bool powerArmed_ = false;
     bool powerWasPressed_ = false;
     bool sideKeyArmed_ = false;

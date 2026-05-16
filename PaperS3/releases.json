@@ -5,6 +5,21 @@
   "description": "面向 M5Stack PaperS3 的 Vink 电子书阅读固件。",
   "releases": [
     {
+      "version": "v0.4.37-rc",
+      "name": "Vink-PaperS3 v0.4.37-rc",
+      "date": "2026-05-16",
+      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.37-rc",
+      "changelog": "## Vink-PaperS3 v0.4.37-rc\n\n### 触屏跟手性补强\n- 保留 v0.4.36-rc 的 GT911 GPIO48 中断触摸链路，在应用层加入 EDCBook 风格手势调校。\n- tap 抖动容忍从 30px 放宽到 50px，press debounce 从 25ms 降到 18ms，连续轻触和轻微手指漂移更容易被识别。\n- release 需要连续 3 帧无触摸才确认，避免 GT911/M5Unified 单帧丢点造成误抬手或误取消。\n- 正文阅读页左右 1/3 增加快速翻页路径：按下稳定约 35ms 即预触发上一页/下一页，release 会被吞掉以避免一次点翻两页。\n- EPD 刷新期间最多缓存一次正文左右翻页意图，刷新结束后补发，降低快速阅读点按被吞的概率。\n\n### SD TTF 性能与稳定性\n- 缓存 stb_truetype 的 fontinfo，避免每个 glyph/advance 重复初始化。\n- SD TTF 单字渲染改用复用 scratch buffer，减少每个字符 malloc/free 带来的 heap 抖动。\n- 修复扫描 SD 字体时 entry.name() 在 File.close() 后继续使用的生命周期风险。\n\n### 设计清理\n- 移除当前未启用的 ghost-compensation 用户设置/API 外露；本版明确使用 stable standard-LUT + 周期全刷清残影，避免真机测试时把无效旋钮误认为已生效。\n- 快速翻页消息增加 ReaderMenu/正文可见性二次校验，缓存翻页意图在状态变化后不会误投。\n\n### 保留 v0.4.36-rc 地基\n- 继续保留扩展窗口翻页动画、TAB 周期清残影、GT911 中断触摸、自动关机、CPU 变频和锁屏/解锁优化。\n\n### 验证\n- python3 tests/local_firmware_smoke.py 通过。\n- PlatformIO build 通过。\n- full 16MB 固件包重新生成。\n",
+      "assets": {
+        "full": {
+          "name": "Vink-PaperS3-v0.4.37-rc-full-16MB.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.37-rc/Vink-PaperS3-v0.4.37-rc-full-16MB.bin",
+          "size": 16777216,
+          "flashOffset": 0
+        }
+      }
+    },
+    {
       "version": "v0.4.36-rc",
       "name": "Vink-PaperS3 v0.4.36-rc",
       "date": "2026-05-16",
@@ -74,21 +89,6 @@
         "full": {
           "name": "Vink-PaperS3-v0.4.32-rc-singlefront-lut-full-16MB.bin",
           "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.32-rc/Vink-PaperS3-v0.4.32-rc-singlefront-lut-full-16MB.bin",
-          "size": 16777216,
-          "flashOffset": 0
-        }
-      }
-    },
-    {
-      "version": "v0.4.31-rc",
-      "name": "Vink-PaperS3 v0.4.31-rc",
-      "date": "2026-05-15",
-      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.31-rc",
-      "changelog": "## Vink-PaperS3 v0.4.31-rc\n\n> SHA256: `63609e12b792fe320024b590aff1a93511a79f869830aa5d74c00346faa0f649`\n\n### Page-turn 专用短波形实验\n- 新增 Panel_EPD 私有 `lut_page_turn`，普通翻页动画不再复用过长的 `epd_text` / GL16 waveform。\n- `lut_page_turn` 使用短补偿 + 目标驱动/settle，目标是在单次翻页内兼顾线状波前、速度和残影控制。\n- scroll worker 对普通翻页条带使用私有 page-turn LUT；到达全刷频率时仍可使用 quality waveform。\n- 保留 16px 线状波前实验参数；由于 page-turn LUT 可见相位大幅缩短，预计比 16px+text 更窄且更快。\n- 发布前补强稳定性：`display()` / `displayScroll()` 队列发送失败时会清除 busy，避免 `waitDisplay()` 卡死；scroll 条带统一 4px 对齐，避免 packed 像素循环越界。\n- WebUI / 设备端设置保持：翻页动画独立开关，全刷频率低=20页、中=10页、高=5页。\n",
-      "assets": {
-        "full": {
-          "name": "Vink-PaperS3-v0.4.31-rc-pageturn-lut-full-16MB.bin",
-          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.31-rc/Vink-PaperS3-v0.4.31-rc-pageturn-lut-full-16MB.bin",
           "size": 16777216,
           "flashOffset": 0
         }

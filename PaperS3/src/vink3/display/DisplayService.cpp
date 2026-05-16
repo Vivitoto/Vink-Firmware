@@ -197,19 +197,15 @@ void DisplayService::loadLocalSettings() {
     if (!prefs.begin("vink-display", true)) return;
     const uint8_t raw = prefs.getUChar("refresh", static_cast<uint8_t>(readerRefreshStrategy_));
     const uint8_t turnProfile = prefs.getUChar("turnprof", static_cast<uint8_t>(readerPageTurnProfile_));
-    const uint8_t ghostProfile = prefs.getUChar("ghostprof", static_cast<uint8_t>(readerGhostingProfile_));
-    // Older RCs exposed numeric cleanup intervals. v0.4.30-rc removes them from
-    // UI/WebUI, so ignore stale NVS keys and derive frequency solely from the
-    // low/medium/high strategy.
+    // Older RCs exposed numeric cleanup intervals and ghost-compensation
+    // experiments. This stable line-sweep baseline ignores those stale NVS keys
+    // and derives cleanup only from the low/medium/high full-clean frequency.
     prefs.end();
     if (raw <= static_cast<uint8_t>(ReaderRefreshStrategy::Clear)) {
         readerRefreshStrategy_ = static_cast<ReaderRefreshStrategy>(raw);
     }
     if (turnProfile <= static_cast<uint8_t>(ReaderPageTurnProfile::Fast)) {
         readerPageTurnProfile_ = static_cast<ReaderPageTurnProfile>(turnProfile);
-    }
-    if (ghostProfile <= static_cast<uint8_t>(ReaderGhostingProfile::Strong)) {
-        readerGhostingProfile_ = static_cast<ReaderGhostingProfile>(ghostProfile);
     }
 }
 
@@ -218,7 +214,6 @@ bool DisplayService::saveLocalSettings() const {
     if (!prefs.begin("vink-display", false)) return false;
     prefs.putUChar("refresh", static_cast<uint8_t>(readerRefreshStrategy_));
     prefs.putUChar("turnprof", static_cast<uint8_t>(readerPageTurnProfile_));
-    prefs.putUChar("ghostprof", static_cast<uint8_t>(readerGhostingProfile_));
     prefs.end();
     return true;
 }
@@ -268,28 +263,6 @@ void DisplayService::cycleReaderPageTurnProfile() {
     }
 }
 
-void DisplayService::setReaderGhostingProfile(ReaderGhostingProfile profile) {
-    readerGhostingProfile_ = profile;
-    resetReaderPageTurnCount();
-    saveLocalSettings();
-    Serial.printf("[vink3][display] reader ghosting profile -> %s\n", readerGhostingProfileLabel());
-}
-
-void DisplayService::cycleReaderGhostingProfile() {
-    switch (readerGhostingProfile_) {
-        case ReaderGhostingProfile::Light:
-            setReaderGhostingProfile(ReaderGhostingProfile::Balanced);
-            break;
-        case ReaderGhostingProfile::Balanced:
-            setReaderGhostingProfile(ReaderGhostingProfile::Strong);
-            break;
-        case ReaderGhostingProfile::Strong:
-        default:
-            setReaderGhostingProfile(ReaderGhostingProfile::Light);
-            break;
-    }
-}
-
 const char* DisplayService::readerRefreshStrategyLabel() const {
     switch (readerRefreshStrategy_) {
         case ReaderRefreshStrategy::Speed: return "低";
@@ -306,15 +279,6 @@ const char* DisplayService::readerPageTurnProfileLabel() const {
         case ReaderPageTurnProfile::Fast:     return "快速";
     }
     return "清晰";
-}
-
-const char* DisplayService::readerGhostingProfileLabel() const {
-    switch (readerGhostingProfile_) {
-        case ReaderGhostingProfile::Light:    return "轻";
-        case ReaderGhostingProfile::Balanced: return "均衡";
-        case ReaderGhostingProfile::Strong:   return "强";
-    }
-    return "均衡";
 }
 
 // Native IT8951 page-turn sweep. Keep this isolated in DisplayService so it
@@ -343,18 +307,6 @@ static int effectStepsForStrategy(ReaderRefreshStrategy s) {
         case ReaderRefreshStrategy::Clear:  return 48;
         default:                            return 24;
     }
-}
-
-uint8_t DisplayService::pageTurnCompensationLevel() const {
-    // One burn should cover the main single-page ghosting experiments. The
-    // driver uses this value to select old/new-aware private page-turn LUTs
-    // per changed pixel instead of waiting for periodic full refresh.
-    switch (readerGhostingProfile_) {
-        case ReaderGhostingProfile::Light:    return 0;
-        case ReaderGhostingProfile::Balanced: return 1;
-        case ReaderGhostingProfile::Strong:   return 2;
-    }
-    return 1;
 }
 
 uint16_t DisplayService::pageTurnScrollStripWidth() const {
