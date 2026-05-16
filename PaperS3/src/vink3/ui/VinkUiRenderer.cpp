@@ -1147,13 +1147,15 @@ void VinkUiRenderer::renderSystemSettings() {
 
     // ══════ 系统：title + toggle rows ══════
     {
-        const int16_t cardH = 2 * kRowH;
+        const int16_t cardH = 3 * kRowH;
         drawSurfacePanel(canvas_, kCardX, gy, kCardW, cardH);
         titleRow(gy, "系统");
-        const int16_t ry = gy + kRowH;
-        cardRow(ry, "双击锁屏/解锁", g_readerText.doubleTapUnlockLabel());
+        const int16_t ry1 = gy + kRowH;
+        const int16_t ry2 = gy + 2 * kRowH;
+        cardRow(ry1, "双击解锁", g_readerText.doubleTapUnlockLabel());
+        cardRow(ry2, "自动关机", g_readerText.autoOffMinutesLabel());
     }
-    systemSettingsContentH_ = (gy + 2 * kRowH + systemSettingsScrollY_) - kContentY;
+    systemSettingsContentH_ = (gy + 3 * kRowH + systemSettingsScrollY_) - kContentY;
     canvas_->clearClipRect();
 }
 
@@ -1474,14 +1476,8 @@ void VinkUiRenderer::renderLockScreen(const char* bookTitle) {
         g_cjkText.drawCentered(84, 352, 372, 34, "当前阅读进度已保存", kInkMid);
     }
 
-    g_cjkText.drawCentered(76, 430, 388, 32, "双击右下角解锁", kInk);
-    g_cjkText.drawCentered(76, 480, 388, 32, "或单击侧边键重启后恢复", kInkMid);
-    g_cjkText.drawCentered(76, 530, 388, 32, "这不是完全断电，耗电会高于关机", kInkMid);
-
-    canvas_->drawRect(334, 742, 168, 138, kInk);
-    canvas_->drawRect(342, 750, 152, 122, kInkLight);
-    g_cjkText.drawCentered(342, 782, 152, 38, "解锁区", kInk);
-    g_cjkText.drawCentered(342, 826, 152, 28, "双击", kInkMid);
+    g_cjkText.drawCentered(76, 430, 388, 32, "单击侧边键重启后恢复", kInkMid);
+    g_cjkText.drawCentered(76, 480, 388, 32, "这不是完全断电，耗电会高于关机", kInkMid);
 }
 
 void VinkUiRenderer::renderShutdown(const char* reason) {
@@ -1625,8 +1621,10 @@ UiAction VinkUiRenderer::hitTest(SystemState state, int16_t x, int16_t y) const 
                 if (inRect(x, y, kMarginX, kContentY, 120, kRowH)) return UiAction::BackToSettings;
                 const int16_t yy = y + ((y >= kContentY + kRowH) ? systemSettingsScrollY_ : 0);
                 const int16_t g0 = kContentY + kRowH + kSettingsGap;
-                const int16_t ry = g0 + kRowH;
-                if (inRect(x, yy, kMarginX + 22, ry, kContentW - 44, kRowH)) return UiAction::ToggleDoubleTapUnlock;
+                const int16_t ry1 = g0 + kRowH;
+                const int16_t ry2 = g0 + 2 * kRowH;
+                if (inRect(x, yy, kMarginX + 22, ry1, kContentW - 44, kRowH)) return UiAction::ToggleDoubleTapUnlock;
+                if (inRect(x, yy, kMarginX + 22, ry2, kContentW - 44, kRowH)) return UiAction::CycleAutoOffMinutes;
                 break;
             }
             // Main page: "阅读设置" card + "系统设置" card + system group table

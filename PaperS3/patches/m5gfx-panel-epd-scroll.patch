@@ -176,7 +176,7 @@
    }
 
  #if defined( __XTENSA__ )
-@@ -899,165 +996,291 @@
+@@ -899,165 +996,311 @@
 
      auto bus = me->getBusEPD();
 
@@ -376,7 +376,8 @@
 -                  if (d0 >= (lut_eraser_step << 8)) {
 -                    d[0] = (uint8_t)d0;
 -                  }
--                }
++                  if (d0 >= (lut_eraser_step << 8)) { d[0] = (uint8_t)d0; }
+                 }
 -
 -                // 白以外またはリクエスト済みの内容と相違がある場合に更新
 -                if (white != d3 || d3 != s1) {
@@ -386,8 +387,7 @@
 -                    // 消去処理を挟んで更新指示する。(元の値の下位8bitのみを使用するとlut_eraser扱いになる)
 -                    d[2] = (uint8_t)d2;
 -                  }
-+                  if (d0 >= (lut_eraser_step << 8)) { d[0] = (uint8_t)d0; }
-                 }
+-                }
 -                s += 2;
 -                d += 4;
                }
@@ -521,29 +521,29 @@
 +        if (new_data.scroll && new_data.scroll_strip_width > 0) {
 +          const uint16_t x0 = new_data.x;
 +          const uint16_t x1 = new_data.x + new_data.w;
-+          uint16_t offsets[25];
-+          uint16_t strip_count = 0;
-+          if (new_data.scroll_effect_steps > 0) {
-+            const uint16_t n0 = std::min<uint16_t>(24, std::max<uint16_t>(1, new_data.scroll_effect_steps / 2));
-+            const uint16_t step = ((new_data.w + n0 * 16u - 1u) / (n0 * 16u)) * 16u;
-+            strip_count = (new_data.w + step - 1u) / step;
-+            if (strip_count < 1) { strip_count = 1; }
-+            if (strip_count > 24) { strip_count = 24; }
-+            for (uint16_t oi = 0; oi < strip_count; ++oi) { offsets[oi] = std::min<uint16_t>(new_data.w, oi * step); }
-+            offsets[strip_count] = new_data.w;
-+          } else {
-+            const uint16_t strip_w = std::max<uint16_t>(4, new_data.scroll_strip_width & ~3u);
-+            strip_count = (new_data.w + strip_w - 1) / strip_w;
-+            if (strip_count > 24) { strip_count = 24; }
-+            for (uint16_t oi = 0; oi < strip_count; ++oi) { offsets[oi] = std::min<uint16_t>(new_data.w, oi * strip_w); }
-+            offsets[strip_count] = new_data.w;
-+          }
++          const bool reverse = new_data.scroll_reverse;
++          // ── expanding‑window reveal (not fixed‑strip) ──
++          // Each step copies a growing region of the new framebuffer into the
++          // step buffer, then runs one text‑LUT phase.  Previously revealed
++          // columns go through the same phase cycle together, so the wavefront
++          // is a soft gradient rather than a hard board‑edge.
++          uint16_t n_steps = new_data.scroll_effect_steps > 0
++            ? std::min<uint16_t>(54, std::max<uint16_t>(12, new_data.scroll_effect_steps))
++            : std::min<uint16_t>(54, std::max<uint16_t>(12, new_data.w / 30));
++          const uint16_t step_px = std::max<uint16_t>(4u, (new_data.w + n_steps - 1) / n_steps);
++
 +          scroll_diff_stats_t scroll_stats;
 +          active_scroll_stats = new_data.scroll_diff_gate ? &scroll_stats : nullptr;
-+          for (uint16_t si = 0; si < strip_count; ++si) {
-+            const uint16_t idx = new_data.scroll_reverse ? (strip_count - 1 - si) : si;
-+            const uint16_t sx = x0 + offsets[idx];
-+            const uint16_t ex = x0 + offsets[idx + 1];
++
++          for (uint16_t si = 0; si < n_steps; ++si) {
++            uint16_t sx, ex;
++            if (reverse) {
++              sx = (si + 1 >= n_steps) ? x0 : std::max<uint16_t>(x0, x1 - (si + 1) * step_px);
++              ex = x1;
++            } else {
++              sx = x0;
++              ex = (si + 1 >= n_steps) ? x1 : std::min<uint16_t>(x1, x0 + (si + 1) * step_px);
++            }
 +            if (ex <= sx) { continue; }
 +
 +            uint_fast16_t xs = sx;
@@ -552,20 +552,21 @@
 +            uint_fast16_t ye = new_data.y + new_data.h - 1;
 +            me->_rotate_pos(xs, ys, xe, ye);
 +
-+            update_data_t strip = new_data;
-+            strip.scroll = false;
-+            strip.scroll_waveform = false;
-+            strip.x = (xs + me->_cfg.offset_x) & ~3u;
-+            strip.w = ((xe + me->_cfg.offset_x) | 3u) - strip.x + 1;
-+            strip.y = ys + me->_cfg.offset_y;
-+            strip.h = ye - ys + 1;
-+            prepare_update(strip);
++            update_data_t win = new_data;
++            win.scroll = false;
++            win.scroll_waveform = false;
++            win.x = (xs + me->_cfg.offset_x) & ~3u;
++            win.w = ((xe + me->_cfg.offset_x) | 3u) - win.x + 1;
++            win.y = ys + me->_cfg.offset_y;
++            win.h = ye - ys + 1;
++            prepare_update(win);
 +            remain = run_cycle();
 +          }
++
 +          active_scroll_stats = nullptr;
 +          if (new_data.scroll_diff_gate) {
-+            printf("[vink3][epd] scroll-diff strips=%u effectSteps=%u bytes=%u changed=%u same=%u oldDarkToLight=%u newDark=%u gray=%u\n",
-+                   (unsigned)strip_count,
++            printf("[vink3][epd] scroll-diff steps=%u effectSteps=%u bytes=%u changed=%u same=%u oldDarkToLight=%u newDark=%u gray=%u\n",
++                   (unsigned)n_steps,
 +                   (unsigned)new_data.scroll_effect_steps,
 +                   (unsigned)scroll_stats.bytes_total,
 +                   (unsigned)scroll_stats.bytes_changed,
@@ -574,7 +575,26 @@
 +                   (unsigned)scroll_stats.px_new_dark,
 +                   (unsigned)scroll_stats.px_gray_transition);
 +          }
-+          while (remain) { remain = run_cycle(); }
++          // Full‑page settle pass — drain remaining text‑LUT phases uniformly,
++          // not directionally like the old per‑strip tail drain.
++          {
++            update_data_t settle = new_data;
++            settle.scroll = false;
++            settle.scroll_waveform = false;
++            {
++              uint_fast16_t xs = settle.x;
++              uint_fast16_t ys = settle.y;
++              uint_fast16_t xe = settle.x + settle.w - 1;
++              uint_fast16_t ye = settle.y + settle.h - 1;
++              me->_rotate_pos(xs, ys, xe, ye);
++              settle.x = (xs + me->_cfg.offset_x) & ~3u;
++              settle.w = ((xe + me->_cfg.offset_x) | 3u) - settle.x + 1;
++              settle.y = ys + me->_cfg.offset_y;
++              settle.h = ye - ys + 1;
++            }
++            prepare_update(settle);
++            while (remain) { remain = run_cycle(); }
++          }
 +          continue;
 +        }
 +

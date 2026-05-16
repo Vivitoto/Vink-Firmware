@@ -2,17 +2,32 @@
 #include "../display/DisplayService.h"
 #include "../system/SystemLog.h"
 #include "../VinkPaperS3.h"
+#include <driver/gpio.h>
 
 namespace vink3 {
 
 InputService g_inputService;
 
 namespace {
-constexpr uint32_t kPollDelayMs = 10;
-constexpr uint32_t kDebounceMs = 35;
+// GT911 INT pin on PaperS3 = GPIO48 (see VinkPaperS3.h).  The GT911 pulls
+// INT low when touch data is available.  We configure a falling‑edge ISR
+// that gives a binary semaphore so the input task wakes up immediately.
+static SemaphoreHandle_t s_touchSemaphore = nullptr;
+
+static void IRAM_ATTR gt911_isr_handler(void*) {
+    BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+    if (s_touchSemaphore) {
+        xSemaphoreGiveFromISR(s_touchSemaphore, &xHigherPriorityTaskWoken);
+    }
+    if (xHigherPriorityTaskWoken == pdTRUE) {
+        portYIELD_FROM_ISR();
+    }
+}
+constexpr uint32_t kPollDelayMs = 5;    // ~200 Hz touch polling for responsive feel
+constexpr uint32_t kDebounceMs = 25;
 constexpr uint32_t kMoveDiagnosticMs = 100;
 constexpr uint32_t kPowerBootIgnoreMs = 3000;
-constexpr uint32_t kLongPressMs = 700;
+constexpr uint32_t kLongPressMs = 600;
 constexpr int16_t kTapSlopPx = 30;
 constexpr int16_t kLongPressMovePx = 34;
 constexpr int16_t kSwipeThresholdPx = 80;
@@ -54,6 +69,23 @@ bool InputService::begin(StateMachine* stateMachine) {
     // not use GPIO36 or isPressed() as the shutdown source.
     M5.BtnPWR.setDebounceThresh(0);
     M5.BtnPWR.setHoldThresh(0);
+
+    // GT911 hardware interrupt — wakes the input task on touch instead of polling.
+    s_touchSemaphore = xSemaphoreCreateBinary();
+    touchSem_ = s_touchSemaphore;
+    if (s_touchSemaphore) {
+        gpio_config_t io_conf = {};
+        io_conf.intr_type = GPIO_INTR_NEGEDGE;  // GT911 asserts INT low on touch
+        io_conf.mode = GPIO_MODE_INPUT;
+        io_conf.pin_bit_mask = 1ULL << kGt911IntPin;
+        io_conf.pull_up_en = GPIO_PULLUP_ENABLE;
+        gpio_config(&io_conf);
+        gpio_install_isr_service(0);
+        gpio_isr_handler_add(kGt911IntPin, gt911_isr_handler, nullptr);
+        Serial.println("[vink3][input] GT911 INT on GPIO48, interrupt-driven touch");
+    } else {
+        Serial.println("[vink3][input] semaphore alloc failed, falling back to poll");
+    }
     Serial.println("[vink3][input] service started; side power uses AXP2101 BtnPWR events; GPIO36 is ignored");
     return true;
 }
@@ -64,11 +96,16 @@ void InputService::taskThunk(void* arg) {
 
 void InputService::taskLoop() {
     for (;;) {
+        // Wait for GT911 interrupt (or timeout after 20 ms as fallback).
+        if (touchSem_) {
+            xSemaphoreTake(touchSem_, pdMS_TO_TICKS(20));
+        } else {
+            vTaskDelay(pdMS_TO_TICKS(kPollDelayMs));
+        }
         M5.update();
         const uint32_t now = millis();
         pollPowerButton(now);
         pollTouch();
-        vTaskDelay(pdMS_TO_TICKS(kPollDelayMs));
     }
 }
 
@@ -166,15 +203,13 @@ void InputService::pollTouch() {
         if (displayPushing || waitRelease_ || now < suppressUntilMs_) {
             lastPoint_ = currentPoint;
             lastRawPoint_ = rawPoint;
-            if (displayPushing) {
-                // Do not force a release after every EPD push. Rapid reading taps
-                // often land while the previous page is still refreshing; requiring
-                // release here makes the second tap disappear and feels laggy.
-                // Keep edge state clean, then let a still-held press become a normal
-                // down event as soon as the panel is no longer busy.
-                wasPressed_ = false;
-            }
+            // During EPD pushes, accept the down event but defer semantic
+        // processing so rapid reading taps are not swallowed.
+        // Keep edge state clean between pushes without dropping events.
+        if (displayPushing) {
+            if (wasPressed_) { wasPressed_ = false; }
             return;
+        }
         }
 
         if (!wasPressed_) {

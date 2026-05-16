@@ -326,6 +326,25 @@ void ReaderTextRenderer::setDoubleTapUnlock(bool enabled) {
     Serial.printf("[vink3][reader] double-tap lock/unlock -> %s render_opt1=0x%04x\n", doubleTapUnlockLabel(), settings_.renderOpt1);
 }
 
+void ReaderTextRenderer::cycleAutoOffMinutes() {
+    if (settings_.schema == 0) applyLayoutPresetToSettings();
+    const uint8_t cur = autoOffMinutesIndex();
+    const uint8_t next = (cur + 1) & 0x03;
+    ReaderSettings::setSlot(settings_.renderOpt1, 7, next);
+    saveLocalSettings();
+    Serial.printf("[vink3][reader] auto-off -> %s render_opt1=0x%04x\n", autoOffMinutesLabel(), settings_.renderOpt1);
+}
+
+const char* ReaderTextRenderer::autoOffMinutesLabel() const {
+    static const char* kLabels[] = {"关闭", "5 分钟", "15 分钟", "30 分钟"};
+    return kLabels[autoOffMinutesIndex() & 0x03];
+}
+
+uint16_t ReaderTextRenderer::autoOffValueFromIndex(uint8_t idx) {
+    static const uint16_t kValues[] = {0, 5, 15, 30};
+    return kValues[idx & 0x03];
+}
+
 void ReaderTextRenderer::cyclePageMargin() {
     if (settings_.schema == 0) applyLayoutPresetToSettings();
     const uint8_t next = (max(settings_.topBottomLevel(), settings_.leftRightLevel()) + 1) & 0x03;

@@ -21,6 +21,7 @@ private:
 
     StateMachine* stateMachine_ = nullptr;
     TaskHandle_t task_ = nullptr;
+    SemaphoreHandle_t touchSem_ = nullptr;
     bool wasPressed_ = false;
     TouchPoint pressPoint_{};
     TouchPoint lastPoint_{};

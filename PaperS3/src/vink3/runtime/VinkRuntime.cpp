@@ -343,6 +343,11 @@ void VinkRuntime::drawBoot() {
     bootDone.type = MessageType::BootComplete;
     bootDone.timestampMs = millis();
     g_stateMachine.post(bootDone, 100);
+
+    // Lower CPU frequency after boot to reduce power consumption.
+    // Page-turn animation temporarily boosts back to 240 MHz.
+    setCpuFrequencyMhz(80);
+    Serial.printf("[vink3][runtime] CPU clock set to %lu MHz\n", getCpuFrequencyMhz());
 }
 
 void VinkRuntime::loop() {

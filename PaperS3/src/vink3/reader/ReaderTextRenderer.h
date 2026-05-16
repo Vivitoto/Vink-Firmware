@@ -58,6 +58,7 @@ struct ReaderSettings {
     bool textShadowEnabled() const { return getSlot(renderOpt1, 4) != 0; }
     uint8_t antialiasProfile() const { return getSlot(renderOpt1, 5); }
     bool doubleTapUnlockEnabled() const { return getSlot(renderOpt1, 6) != 0; }
+    uint8_t autoOffMinutes() const { return getSlot(renderOpt1, 7); }  // 0=off 1=5min 2=15min 3=30min
 
     uint8_t topBottomLevel() const { return getSlot(spacing, 0); }
     uint8_t leftRightLevel() const { return getSlot(spacing, 1); }
@@ -131,6 +132,12 @@ public:
     void setDoubleTapUnlock(bool enabled);
     void toggleDoubleTapUnlock();
     const char* doubleTapUnlockLabel() const { return doubleTapUnlockEnabled() ? "开启" : "关闭"; }
+
+    // ── Auto-off ──
+    uint8_t autoOffMinutesIndex() const { return settings_.autoOffMinutes(); }
+    void cycleAutoOffMinutes();
+    const char* autoOffMinutesLabel() const;
+    static uint16_t autoOffValueFromIndex(uint8_t idx);
     void cyclePageMargin();
     void setPageMarginLevel(uint8_t level);
     uint8_t pageMarginLevel() const { return max(settings_.topBottomLevel(), settings_.leftRightLevel()); }

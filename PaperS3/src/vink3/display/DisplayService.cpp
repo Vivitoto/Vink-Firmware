@@ -465,8 +465,12 @@ void DisplayService::M5DisplayStripSweep(M5Canvas* canvas, DisplayEffect effect,
     const uint8_t compensation = 0;  // disabled while using the stable standard-LUT path
     Serial.printf("[vink3][display] page-turn scroll profile=%s ghost=disabled-standard-lut strip=%u effectSteps=%u comp=%u\n",
                   readerPageTurnProfileLabel(), stripWidth, effectSteps, compensation);
+    // Boost CPU during page-turn animation for smoother sweep; restore after.
+    const uint32_t prevFreq = getCpuFrequencyMhz();
+    if (prevFreq < 240) setCpuFrequencyMhz(240);
     panel->displayScroll(0, 0, kPaperS3Width, kPaperS3Height, stripWidth, rtl, compensation, effectSteps);
     M5.Display.waitDisplay();
+    if (prevFreq < 240) setCpuFrequencyMhz(prevFreq);
 }
 
 epd_mode_t DisplayService::chooseReaderRefreshMode(const DisplayRequest& request) {

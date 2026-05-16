@@ -5,6 +5,21 @@
   "description": "面向 M5Stack PaperS3 的 Vink 电子书阅读固件。",
   "releases": [
     {
+      "version": "v0.4.36-rc",
+      "name": "Vink-PaperS3 v0.4.36-rc",
+      "date": "2026-05-16",
+      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.36-rc",
+      "changelog": "## Vink-PaperS3 v0.4.36-rc\n\n### 翻页动画重构\n- 固定 strip 分段改为扩展窗口连续推进，翻页波前从硬边条带变为连续过渡，不再像板刷。\n- 翻页完成后全页均匀 settle，不再沿翻页方向出现后闪。\n- 翻页档位（快速/均衡/清晰）映射为更细粒度的推进步数：12/24/48 步。\n\n### 触屏响应升级\n- 接入 GT911 硬件中断（GPIO48），触屏检测从 5ms 轮询改为 <1ms 中断驱动，跟手度与 EDCBook 看齐。\n- 抑制窗口大幅缩短：默认 60ms→20ms，页面切换 300-500ms→150-200ms。\n- debounce 35ms→25ms，长按 700ms→600ms。\n\n### 省电管理\n- 新增自动关机：系统设置可选关闭/5/15/30 分钟，无操作超时后自动 deep sleep。\n- CPU 变频：启动完成后降到 80MHz，翻页动画时临时提到 240MHz，动画结束恢复 80MHz。\n\n### 锁屏/解锁优化\n- 双击锁屏始终开启，双击解锁可在系统设置中独立开关。\n- 双击区域从右下角移到屏幕顶部居中（页眉高度）。\n- 锁屏页不再显示解锁区提示框。\n",
+      "assets": {
+        "full": {
+          "name": "Vink-PaperS3-v0.4.36-rc-full-16MB.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.36-rc/Vink-PaperS3-v0.4.36-rc-full-16MB.bin",
+          "size": 16777216,
+          "flashOffset": 0
+        }
+      }
+    },
+    {
       "version": "v0.4.35-rc",
       "name": "Vink-PaperS3 v0.4.35-rc",
       "date": "2026-05-15",
@@ -76,22 +91,6 @@
           "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.31-rc/Vink-PaperS3-v0.4.31-rc-pageturn-lut-full-16MB.bin",
           "size": 16777216,
           "flashOffset": 0
-        }
-      }
-    },
-    {
-      "version": "v0.4.30-rc",
-      "name": "Vink-PaperS3 v0.4.30-rc",
-      "date": "2026-05-14",
-      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.30-rc",
-      "changelog": "## Vink-PaperS3 v0.4.30-rc\n\n> SHA256: `4103e51fbc5e37688d50d16f1870bcbffbe5433a23f8b0840d74d465b1e64589`\n\n### 翻页动画与全刷频率解耦\n- 废弃不可用的高速 DU-like 翻页动画；翻页动画开关只控制是否启用动画，全刷频率单独设为低/中/高。\n- 翻页动画统一使用 text/GL16-like 清残影 waveform，保留条带内 eraser/target 清理，不再走高速模式。\n- 条带宽度从 72-90px 大块推进进一步收窄到 16px 线状波前，减少“黑板擦一块擦过去”的视觉块感，更接近 EDCBook。\n- 全刷频率固定为：低=20页，中=10页，高=5页；移除 WebUI 里难理解的“中间清影页数 / 全屏清影页数”。\n- 到达对应全刷频率时，本次翻页条带直接使用 quality waveform，不在动画结束后追加补闪。\n",
-      "assets": {
-        "full": {
-          "name": "Vink-PaperS3-v0.4.30-rc-linewave-decoupled-full-16MB.bin",
-          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.30-rc/Vink-PaperS3-v0.4.30-rc-linewave-decoupled-full-16MB.bin",
-          "size": 16777216,
-          "flashOffset": 0,
-          "sha256": "4103e51fbc5e37688d50d16f1870bcbffbe5433a23f8b0840d74d465b1e64589"
         }
       }
     }

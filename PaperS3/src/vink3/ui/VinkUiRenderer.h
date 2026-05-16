@@ -45,6 +45,7 @@ enum class UiAction : uint8_t {
     BackToSettings,
     OpenSystemSettings,
     ToggleDoubleTapUnlock,
+    CycleAutoOffMinutes,
 };
 
 class VinkUiRenderer {

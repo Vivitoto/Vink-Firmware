@@ -110,3 +110,32 @@
 
 - 稳定路径先使用标准文本/quality LUT，目标是 AA 关闭时翻页后墨迹均匀。
 - 补偿实验必须重新设计为标准 LUT 基础上的 old/new-aware eraser/补偿，或单独实验模式；有效前不要在 UI 中暴露“残影补偿”档位。
+
+### 12. 只把 EDCBook offset table 映射成多段标准 text LUT strip 刷新
+
+**结论：改善了字体清晰基础，但没有达到 EDCBook 式翻页观感。**
+
+2026-05-15 真机反馈，版本：`v0.4.35-rc` / `Vink-PaperS3-v0.4.35-rc-edc-offset-diff-full-16MB.bin`。
+
+正向结果：
+
+- `AA 均衡`效果不错。
+- 翻页之后字体也相对清晰，说明 AA policy 与标准 text LUT baseline 没有再明显破坏字形。
+
+问题：
+
+- 快速 / 均衡 / 清晰所有翻页档位都像“一块板刷刷过去”。
+- 整页刷完后，还会沿翻页方向再整页闪动一下。
+
+初步判断：
+
+- 当前 `effectSteps -> offsets[]` 只是改变 strip 分段数量；每段仍是一次完整标准 text LUT 区域刷新，所以视觉上仍像板刷，而不是 EDCBook 的 phase/progression 级滚动。
+- 后闪可能来自 scroll 分支最后的 `while (remain) { remain = run_cycle(); }`、标准 text LUT 收尾相位，或某个过大的 update rect 在 strip 循环后被排队执行。
+- 不能把“offset table 分段”误认为已经复刻 EDCBook 的 `epd_draw_base_scroll`。EDCBook 证据更像是在 render/waveform pipeline 内使用 offsets/progression，而不是上层/中层对区域逐段跑完整 waveform。
+
+后续恢复时优先排查：
+
+- `Panel_EPD::task_update()` scroll 分支每个 strip 与最终 remain drain 的实际 update rect。
+- `prepare_update(strip)` 里 `raw0/raw1/d0..d3` 是否只限 strip，是否在尾段扩大到整页。
+- 是否需要记录每次 `run_cycle()` 的 `upd.x/w`、phase/step、mode，确认后闪来源。
+- 如果继续追 EDCBook，应考虑 phase/progression 层级，而不是继续只调 strip 数量。
