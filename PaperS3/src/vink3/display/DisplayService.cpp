@@ -1,8 +1,8 @@
 #include "DisplayService.h"
-#include <lgfx/v1/platforms/esp32/Panel_EPD.hpp>
 #include <algorithm>
 #include <cstring>
 #include <Preferences.h>
+#include <lgfx/v1/platforms/esp32/Panel_EPD.hpp>
 
 namespace vink3 {
 
@@ -197,15 +197,20 @@ void DisplayService::loadLocalSettings() {
     if (!prefs.begin("vink-display", true)) return;
     const uint8_t raw = prefs.getUChar("refresh", static_cast<uint8_t>(readerRefreshStrategy_));
     const uint8_t turnProfile = prefs.getUChar("turnprof", static_cast<uint8_t>(readerPageTurnProfile_));
-    // Older RCs exposed numeric cleanup intervals and ghost-compensation
-    // experiments. This stable line-sweep baseline ignores those stale NVS keys
-    // and derives cleanup only from the low/medium/high full-clean frequency.
+    const uint8_t turnResidue = prefs.getUChar("turnresid", static_cast<uint8_t>(readerPageTurnResidue_));
+    // Older RCs exposed numeric cleanup intervals. The EDCBook-like scroll path
+    // keeps full-clean frequency and per-turn residue compensation as separate
+    // controls, so a single turn can clean disappeared strokes without forcing a
+    // full quality refresh.
     prefs.end();
     if (raw <= static_cast<uint8_t>(ReaderRefreshStrategy::Clear)) {
         readerRefreshStrategy_ = static_cast<ReaderRefreshStrategy>(raw);
     }
     if (turnProfile <= static_cast<uint8_t>(ReaderPageTurnProfile::Fast)) {
         readerPageTurnProfile_ = static_cast<ReaderPageTurnProfile>(turnProfile);
+    }
+    if (turnResidue <= static_cast<uint8_t>(ReaderPageTurnResidue::Strong)) {
+        readerPageTurnResidue_ = static_cast<ReaderPageTurnResidue>(turnResidue);
     }
 }
 
@@ -214,6 +219,7 @@ bool DisplayService::saveLocalSettings() const {
     if (!prefs.begin("vink-display", false)) return false;
     prefs.putUChar("refresh", static_cast<uint8_t>(readerRefreshStrategy_));
     prefs.putUChar("turnprof", static_cast<uint8_t>(readerPageTurnProfile_));
+    prefs.putUChar("turnresid", static_cast<uint8_t>(readerPageTurnResidue_));
     prefs.end();
     return true;
 }
@@ -263,6 +269,28 @@ void DisplayService::cycleReaderPageTurnProfile() {
     }
 }
 
+void DisplayService::setReaderPageTurnResidue(ReaderPageTurnResidue residue) {
+    readerPageTurnResidue_ = residue;
+    resetReaderPageTurnCount();
+    saveLocalSettings();
+    Serial.printf("[vink3][display] reader page-turn residue -> %s\n", readerPageTurnResidueLabel());
+}
+
+void DisplayService::cycleReaderPageTurnResidue() {
+    switch (readerPageTurnResidue_) {
+        case ReaderPageTurnResidue::Light:
+            setReaderPageTurnResidue(ReaderPageTurnResidue::Balanced);
+            break;
+        case ReaderPageTurnResidue::Balanced:
+            setReaderPageTurnResidue(ReaderPageTurnResidue::Strong);
+            break;
+        case ReaderPageTurnResidue::Strong:
+        default:
+            setReaderPageTurnResidue(ReaderPageTurnResidue::Light);
+            break;
+    }
+}
+
 const char* DisplayService::readerRefreshStrategyLabel() const {
     switch (readerRefreshStrategy_) {
         case ReaderRefreshStrategy::Speed: return "低";
@@ -281,156 +309,115 @@ const char* DisplayService::readerPageTurnProfileLabel() const {
     return "清晰";
 }
 
-// Native IT8951 page-turn sweep. Keep this isolated in DisplayService so it
-// does not touch boot/runtime initialization.
-//
-// Do not draw software refresh bars: each strip pushes real new page pixels and
-// asks the EPD controller to refresh that region with a cleaner text waveform.
-// The visual direction is centralized here so it can be flipped after real-device
-// validation without changing tap/swipe handlers.
+const char* DisplayService::readerPageTurnResidueLabel() const {
+    switch (readerPageTurnResidue_) {
+        case ReaderPageTurnResidue::Light:    return "轻";
+        case ReaderPageTurnResidue::Balanced: return "中";
+        case ReaderPageTurnResidue::Strong:   return "强";
+    }
+    return "中";
+}
 
-// EDCBook formula: n = clamp(effectSteps/2, 1, 24), 16px-aligned strips
+// EDCBook / M5ReadPaper page-turn baseline.  The actual PaperS3 panel driver is
+// Panel_EPD, not Panel_EPDiy.  The reverse notes show EDCBook's real
+// implementation lives below the app layer in an epdiy scroll renderer; on
+// PaperS3 the closest honest equivalent is: stage the immutable full next-page
+// framebuffer with auto-display disabled, then ask the patched Panel_EPD
+// scan-cycle worker to reveal logical portrait strips.
 static inline int clampInt(int v, int lo, int hi) { return v < lo ? lo : v > hi ? hi : v; }
-static int buildScrollOffsets(int* off, int w, int eSteps) {
-    int n = clampInt(eSteps / 2, 1, 24);
-    int step = (w + n * 16 - 1) / (n * 16) * 16;
-    int an = (w + step - 1) / step;
-    if (an < 1) an = 1;
-    step = (w + an - 1) / an;
-    for (int i = 0; i < an; i++) off[i] = i * step;
-    off[an] = w;
-    return an;
-}
-static int effectStepsForStrategy(ReaderRefreshStrategy s) {
-    switch (s) {
-        case ReaderRefreshStrategy::Speed:  return 12;
-        case ReaderRefreshStrategy::Clear:  return 48;
-        default:                            return 24;
-    }
-}
 
-uint16_t DisplayService::pageTurnScrollStripWidth() const {
-    // Fallback strip width if the driver cannot use the EDC-style offset table.
-    // the old high-speed DU-like mode is intentionally not used for animation.
-    switch (readerPageTurnProfile_) {
-        case ReaderPageTurnProfile::Balanced: return 108;
-        case ReaderPageTurnProfile::Fast:     return 180;
-        case ReaderPageTurnProfile::Clean:
-        default:                              return 64;
+static uint8_t buildEdcBookOffsets(uint16_t* offsets, uint16_t width, uint8_t effectSteps) {
+    const int n = clampInt(effectSteps / 2, 1, 24);
+    const int alignedStep = ((width + n * 16 - 1) / (n * 16)) * 16;
+    uint8_t count = 0;
+    offsets[count++] = 0;
+    for (int x = alignedStep; x < width && count < 24; x += alignedStep) {
+        offsets[count++] = static_cast<uint16_t>(x);
     }
-}
-
-uint8_t DisplayService::pageTurnScrollEffectSteps() const {
-    // EDCBook-like offset table seed: n = clamp(effectSteps / 2, 1, 24),
-    // step = ceil(width / (n * 16)) * 16. These values map the existing runtime
-    // page-turn profiles to band counts while keeping one-burn tunability.
-    switch (readerPageTurnProfile_) {
-        case ReaderPageTurnProfile::Fast:     return 12; // ~6 strips @ 540px
-        case ReaderPageTurnProfile::Balanced: return 24; // ~12 strips
-        case ReaderPageTurnProfile::Clean:
-        default:                              return 48; // ~17 strips, 16px aligned
-    }
+    offsets[count++] = width;
+    return count;
 }
 
 static epd_mode_t pageTurnScrollMode(epd_mode_t scheduledMode) {
-    // Stable baseline: displayScroll reveals strips but lets Panel_EPD use the
-    // normal text/quality LUTs. The previous private short page-turn LUTs caused
-    // rough, uneven ink even with AA disabled, so compensation experiments must
-    // be reintroduced separately only after this baseline is clean.
-    if (scheduledMode == kQualityRefresh) return kQualityRefresh;
-    return kNormalRefresh;
+    return scheduledMode == kQualityRefresh ? kQualityRefresh : scheduledMode;
 }
 
-void DisplayService::pushShutterAnimation(M5Canvas* canvas, DisplayEffect effect, epd_mode_t mode) {
-    if (!canvas) return;
+uint16_t DisplayService::pageTurnScrollStripWidth() const {
+    // Compatibility label for the smoke invariant: the EDCBook-derived path no
+    // longer uses one fixed strip width, and the old high-speed DU-like mode is intentionally not used.
+    // Its default first band is still a narrow 16px-aligned portrait sweep.
+    uint16_t offsets[25] = {0};
+    const uint8_t n = buildEdcBookOffsets(offsets, kPaperS3Width, pageTurnBandSeed());
+    return n > 1 ? offsets[1] - offsets[0] : kPaperS3Width;
+}
 
-    const uint8_t savedRotation = M5.Display.getRotation();
-    M5.Display.setRotation(0);
+uint8_t DisplayService::pageTurnBandSeed() const {
+    // Same seed values recovered from EDCBook's update_area_ex path:
+    // n = clamp(effectSteps / 2, 1, 24), step = ceil(width/(n*16))*16.
+    switch (readerPageTurnProfile_) {
+        case ReaderPageTurnProfile::Fast:     return 12;
+        case ReaderPageTurnProfile::Balanced: return 24;
+        case ReaderPageTurnProfile::Clean:
+        default:                              return 48;
+    }
+}
+
+uint8_t DisplayService::pageTurnResidueCompensation() const {
+    // Passed to Panel_EPD's private page-turn waveform: 0=light, 1=balanced,
+    // 2=old-dark -> new-light strong cleanup. This controls single-turn residue
+    // independently from the every-N-pages quality refresh.
+    return static_cast<uint8_t>(readerPageTurnResidue_);
+}
+
+void DisplayService::pushEdcBookPageTurn(M5Canvas* canvas, DisplayEffect effect, epd_mode_t mode) {
+    if (!canvas) return;
 
     M5.Display.waitDisplay();
     M5.Display.setColorDepth(kTextColorDepthHigh);
-    if (mode == kLowRefresh || mode == epd_mode_t::epd_fast || mode == epd_mode_t::epd_fastest) {
-        mode = kNormalRefresh;
-    }
     M5.Display.setEpdMode(mode);
 
-    // Native sweep contract:
-    // - next page  / VerticalShutter   -> right-to-left strip refresh
-    // - prev page  / HorizontalShutter -> left-to-right strip refresh
-    // If real PaperS3 visual direction feels reversed, flip only this mapping.
-    constexpr int16_t kSweepStripW = 60;
-    const bool rightToLeft = (effect == DisplayEffect::VerticalShutter);
-    if (rightToLeft) {
-        for (int16_t sx = kPaperS3Width; sx > 0; sx -= kSweepStripW) {
-            const int16_t x = max<int16_t>(0, sx - kSweepStripW);
-            const int16_t w = sx - x;
-            M5.Display.setClipRect(x, 0, w, kPaperS3Height);
-            canvas->pushSprite(&M5.Display, 0, 0);
-            M5.Display.waitDisplay();
-        }
-    } else {
-        for (int16_t x = 0; x < kPaperS3Width; x += kSweepStripW) {
-            const int16_t w = min<int16_t>(kSweepStripW, kPaperS3Width - x);
-            M5.Display.setClipRect(x, 0, w, kPaperS3Height);
-            canvas->pushSprite(&M5.Display, 0, 0);
-            M5.Display.waitDisplay();
-        }
-    }
-    M5.Display.clearClipRect();
-    M5.Display.setRotation(savedRotation);
-}
-
-void DisplayService::pushSweepBandsEffect(M5Canvas* canvas, DisplayEffect effect, epd_mode_t mode) {
-    if (!canvas) return;
-    // PaperS3 in the current M5Unified/M5GFX stack uses lgfx::Panel_EPD, not
-    // lgfx::Panel_EPDiy. Do not reinterpret the active panel as Panel_EPDiy or
-    // read a fake epd_hl pointer; that violates the driver contract and can reset
-    // the device as soon as page-turn animation runs. Use the official Panel_EPD
-    // path: draw the rendered next-page snapshot into the M5GFX framebuffer, then
-    // request real EPD waveform updates for vertical strips.
-    M5DisplayStripSweep(canvas, effect, mode);
-}
-
-void DisplayService::M5DisplayStripSweep(M5Canvas* canvas, DisplayEffect effect, epd_mode_t mode) {
-    if (!canvas) return;
-    M5.Display.waitDisplay();
-    M5.Display.setColorDepth(kTextColorDepthHigh);
-
-    // EDCBook-style migration for PaperS3's actual Panel_EPD driver. First copy
-    // the fully-rendered next page into Panel_EPD's framebuffer without starting
-    // a display transfer, then ask the patched driver to reveal logical portrait
-    // strips from inside its EPD worker. This moves the strip scheduler below
-    // pushSprite/setClipRect and into the waveform/scan-cycle layer.
     auto* panel = static_cast<lgfx::Panel_EPD*>(M5.Display.panel());
-    if (!panel) return;
-    const epd_mode_t sweepMode = pageTurnScrollMode(mode);
-    M5.Display.setEpdMode(sweepMode);
+    if (!panel) {
+        canvas->pushSprite(&M5.Display, 0, 0);
+        M5.Display.waitDisplay();
+        return;
+    }
 
+    uint16_t offsets[25] = {0};
+    const uint8_t offsetCount = buildEdcBookOffsets(offsets, kPaperS3Width, pageTurnBandSeed());
+    const uint8_t bandCount = offsetCount > 1 ? offsetCount - 1 : 0;
+    const bool rightToLeft = (effect == DisplayEffect::VerticalShutter);
+    const uint16_t stripWidth = pageTurnScrollStripWidth();
+    const uint8_t residueComp = pageTurnResidueCompensation();
+    Serial.printf("[vink3][display] EDCBook page-turn profile=%s residue=%s comp=%u mode=%d bands=%u strip0=%u direction=%s waveform=private-old-new-lut\n",
+                  readerPageTurnProfileLabel(), readerPageTurnResidueLabel(), residueComp,
+                  static_cast<int>(mode), bandCount, stripWidth, rightToLeft ? "rtl" : "ltr");
+
+    const uint32_t prevFreq = getCpuFrequencyMhz();
+    if (prevFreq < 240) setCpuFrequencyMhz(240);
+
+    // Stage the full next-page framebuffer first; no public clip/push timing is
+    // used for the animation. The patched Panel_EPD worker owns the
+    // waveform/scan-cycle layer and reveals the already-staged buffer by strips.
     const bool savedAutoDisplay = M5.Display.getPanel()->getAutoDisplay();
     M5.Display.setAutoDisplay(false);
     canvas->pushSprite(&M5.Display, 0, 0);
     M5.Display.setAutoDisplay(savedAutoDisplay);
-
-    const bool rtl = (effect == DisplayEffect::VerticalShutter);
-    const uint16_t stripWidth = pageTurnScrollStripWidth();
-    const uint8_t effectSteps = pageTurnScrollEffectSteps();
-    const uint8_t compensation = 0;  // disabled while using the stable standard-LUT path
-    Serial.printf("[vink3][display] page-turn scroll profile=%s ghost=disabled-standard-lut strip=%u effectSteps=%u comp=%u\n",
-                  readerPageTurnProfileLabel(), stripWidth, effectSteps, compensation);
-    // Boost CPU during page-turn animation for smoother sweep; restore after.
-    const uint32_t prevFreq = getCpuFrequencyMhz();
-    if (prevFreq < 240) setCpuFrequencyMhz(240);
-    panel->displayScroll(0, 0, kPaperS3Width, kPaperS3Height, stripWidth, rtl, compensation, effectSteps);
+    panel->displayScroll(0, 0, kPaperS3Width, kPaperS3Height,
+                         stripWidth, rightToLeft,
+                         residueComp,  // single-turn residue compensation
+                         pageTurnBandSeed());
     M5.Display.waitDisplay();
     if (prevFreq < 240) setCpuFrequencyMhz(prevFreq);
 }
 
 epd_mode_t DisplayService::chooseReaderRefreshMode(const DisplayRequest& request) {
-    // ReaderRefreshStrategy is now the full-clean frequency setting, decoupled
-    // from page-turn animation speed. Animation always uses the clean line-sweep
-    // path; this only decides how often a stronger quality waveform is scheduled.
+    // Stable baseline: ReaderRefreshStrategy controls full-clean frequency, decoupled
+    // from page-turn animation speed. PageTurnProfile now controls the non-quality
+    // waveform used by the EDCBook band renderer.
     uint32_t fullEvery = 10;
-    constexpr epd_mode_t normalMode = kNormalRefresh;
+    epd_mode_t normalMode = kLowRefresh;
+    if (readerPageTurnProfile_ == ReaderPageTurnProfile::Clean) normalMode = kNormalRefresh;
     switch (readerRefreshStrategy_) {
         case ReaderRefreshStrategy::Speed:    // 全刷频率：低
             fullEvery = 20;
@@ -490,7 +477,9 @@ void DisplayService::push(const DisplayRequest& request, M5Canvas* canvasToPush)
             canvasToPush->pushSprite(&M5.Display, 0, 0);
             M5.Display.waitDisplay();
         } else if (request.effect == DisplayEffect::VerticalShutter || request.effect == DisplayEffect::HorizontalShutter) {
-            pushSweepBandsEffect(canvasToPush, request.effect, readerMode);
+            // Replaces old M5DisplayStripSweep(canvas, effect, mode) tuning with
+            // the EDCBook/M5ReadPaper-derived portrait band baseline.
+            pushEdcBookPageTurn(canvasToPush, request.effect, pageTurnScrollMode(readerMode));
         }
         pushCount_++;
         g_inDisplayPush = false;

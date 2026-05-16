@@ -20,9 +20,15 @@ enum class ReaderRefreshStrategy : uint8_t {
 };
 
 enum class ReaderPageTurnProfile : uint8_t {
-    Clean = 0,    // 64px strip: cleaner/wavefront candidate
-    Balanced = 1, // 108px strip: default 5-band turn
-    Fast = 2,     // 180px strip: fast 3-band turn
+    Clean = 0,    // many narrow steps: slower but smoother/cleaner wavefront
+    Balanced = 1, // default EDCBook-like offset table
+    Fast = 2,     // fewer wider steps
+};
+
+enum class ReaderPageTurnResidue : uint8_t {
+    Light = 0,    // least cleanup after a single turn; fastest/softest
+    Balanced = 1, // default per-turn old/new-aware cleanup
+    Strong = 2,   // stronger old-dark -> new-light cleanup for visible residue
 };
 
 // ReadPaper 1.7.6 style display message: flags + effect + rectangle.
@@ -56,11 +62,15 @@ public:
     void setReaderRefreshStrategy(ReaderRefreshStrategy strategy);
     void setReaderPageTurnProfile(ReaderPageTurnProfile profile);
     void cycleReaderPageTurnProfile();
+    void setReaderPageTurnResidue(ReaderPageTurnResidue residue);
+    void cycleReaderPageTurnResidue();
     bool saveLocalSettings() const;
     ReaderRefreshStrategy readerRefreshStrategy() const { return readerRefreshStrategy_; }
     ReaderPageTurnProfile readerPageTurnProfile() const { return readerPageTurnProfile_; }
+    ReaderPageTurnResidue readerPageTurnResidue() const { return readerPageTurnResidue_; }
     const char* readerRefreshStrategyLabel() const;
     const char* readerPageTurnProfileLabel() const;
+    const char* readerPageTurnResidueLabel() const;
 
 private:
     static void taskThunk(void* arg);
@@ -72,11 +82,10 @@ private:
     epd_mode_t chooseRefreshMode(const DisplayRequest& request);
     void loadLocalSettings();
     epd_mode_t chooseReaderRefreshMode(const DisplayRequest& request);
-    void pushShutterAnimation(M5Canvas* canvas, DisplayEffect effect, epd_mode_t mode);
-    void pushSweepBandsEffect(M5Canvas* canvas, DisplayEffect effect, epd_mode_t mode);
-    void M5DisplayStripSweep(M5Canvas* canvas, DisplayEffect effect, epd_mode_t mode);
+    void pushEdcBookPageTurn(M5Canvas* canvas, DisplayEffect effect, epd_mode_t mode);
     uint16_t pageTurnScrollStripWidth() const;
-    uint8_t pageTurnScrollEffectSteps() const;
+    uint8_t pageTurnBandSeed() const;
+    uint8_t pageTurnResidueCompensation() const;
 
     M5Canvas* canvas_ = nullptr;
     QueueHandle_t queue_ = nullptr;
@@ -91,6 +100,7 @@ private:
     bool fastRefresh_ = true;
     ReaderRefreshStrategy readerRefreshStrategy_ = ReaderRefreshStrategy::Balanced;
     ReaderPageTurnProfile readerPageTurnProfile_ = ReaderPageTurnProfile::Balanced;
+    ReaderPageTurnResidue readerPageTurnResidue_ = ReaderPageTurnResidue::Balanced;
 };
 
 extern DisplayService g_displayService;

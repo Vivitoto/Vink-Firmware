@@ -5,6 +5,21 @@
   "description": "面向 M5Stack PaperS3 的 Vink 电子书阅读固件。",
   "releases": [
     {
+      "version": "v0.4.38-rc",
+      "name": "Vink-PaperS3 v0.4.38-rc",
+      "date": "2026-05-16",
+      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.38-rc",
+      "changelog": "## Vink-PaperS3 v0.4.38-rc\n\n### M5GFX EDCBook-style 翻页备份版\n- 在当前 M5GFX `Panel_EPD` 架构内保留一版 clean-room EDCBook-style 过渡渲染，作为后续 epdiy 架构级复刻前的可烧录备份。\n- 翻页 worker 接入 transition=(new<<4)|old 的 1ppB difference buffer、dirty lines/columns、line mask、conversion LUT 与 crop/diff rect，减少无变化区域的 panel pulse。\n- Scroll offset 先转换到物理坐标再生成，DMA 行缓冲按物理 x 偏移写入，避免 logical/physical 混用。\n- 加入 EDCBook `row_offset_table` 思路的逐行 wavefront phase offset，翻页不再只是刚性竖条推进。\n- 保留每次翻页残影补偿档位：轻/中/强，独立于周期全刷频率，用于真机比较旧字消失区域清影强度。\n\n### 输入与阅读翻页基线\n- 触控回到 EDCBook/M5ReadPaper 风格固定 10ms `M5.update()` 轮询，避免 GT911 INT 边沿在 EPD busy 时丢失导致的点击不稳定。\n- 正文左右区域采用 press-down 快速翻页，刷新期间最多缓存一次翻页意图，降低快速阅读时点按被吞的概率。\n- 继续保持 Header/目录/设置等区域不走 eager 翻页，降低误触风险。\n\n### UI / WebUI\n- 阅读设置与 WebUI 暴露“翻页残影补偿”档位，方便单包真机对比。\n- 日志增加 EDCBook page-turn profile/residue/band 信息，方便根据真机反馈定位参数。\n\n### 说明\n- 本版是 M5GFX 架构内的备份/对照版本，不声称等同 EDCBook 原生 epdiy pipeline；后续将继续做架构级 epdiy backend 版本。\n\n### 验证\n- python3 tests/local_firmware_smoke.py 通过。\n- PlatformIO build 通过。\n- full 16MB 固件包重新生成。\n",
+      "assets": {
+        "full": {
+          "name": "Vink-PaperS3-v0.4.38-rc-full-16MB.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.38-rc/Vink-PaperS3-v0.4.38-rc-full-16MB.bin",
+          "size": 16777216,
+          "flashOffset": 0
+        }
+      }
+    },
+    {
       "version": "v0.4.37-rc",
       "name": "Vink-PaperS3 v0.4.37-rc",
       "date": "2026-05-16",
@@ -74,21 +89,6 @@
         "full": {
           "name": "Vink-PaperS3-v0.4.33-rc-aa-preserve-full-16MB.bin",
           "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.33-rc/Vink-PaperS3-v0.4.33-rc-aa-preserve-full-16MB.bin",
-          "size": 16777216,
-          "flashOffset": 0
-        }
-      }
-    },
-    {
-      "version": "v0.4.32-rc",
-      "name": "Vink-PaperS3 v0.4.32-rc",
-      "date": "2026-05-15",
-      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.32-rc",
-      "changelog": "## Vink-PaperS3 v0.4.32-rc\n\n> SHA256: `dee017a4505a94d9585c9652b5aae07328d5427ebdff044512d46799c9018db7`\n\n### 单波前 page-turn LUT 修正\n- 不回退翻页动画底层方案，继续使用 `Panel_EPD::displayScroll()` 私有 page-turn LUT。\n- 修复 v0.4.31-rc 真机反馈：残影极重、新文字发淡、翻页出现两条线。\n- 移除可见反向预补偿；新的 `lut_page_turn` 改为单波前 target-driven：目标黑像素只向黑驱动，目标白像素只向白驱动；尾段只对白底/近白目标追加轻量清旧影，不再作用于黑字。\n- 增强黑向驱动，让新页文字先压实，不再先白化再拉黑。\n- 条带宽度调整为 8px，抵消 5 个目标驱动相位 + 2 个浅底尾段清影相位带来的视觉宽度，尽量避免分裂成第二条线。\n- 正文阅读页页眉/页脚/分隔线改用与正文一致的墨色，减少页面目标灰阶，降低 page-turn LUT 同时处理纯黑正文和灰色 chrome 的复杂度。\n- 设备端“设置 → 阅读设置”新增“翻页档位”，并在 WebUI 同步提供：清晰=8px、均衡=12px、快速=16px；阅读菜单只保留翻页动画开关，避免中间逻辑混淆。\n- 保留 v0.4.31 的稳定性补强：队列发送失败清 busy，scroll 条带 4px 对齐。\n",
-      "assets": {
-        "full": {
-          "name": "Vink-PaperS3-v0.4.32-rc-singlefront-lut-full-16MB.bin",
-          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.32-rc/Vink-PaperS3-v0.4.32-rc-singlefront-lut-full-16MB.bin",
           "size": 16777216,
           "flashOffset": 0
         }

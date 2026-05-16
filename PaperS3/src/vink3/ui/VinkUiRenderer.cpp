@@ -1175,6 +1175,7 @@ void VinkUiRenderer::renderReaderSettings() {
     const char* refreshVal = g_displayService.readerRefreshStrategyLabel();
     const char* pageTurnVal = g_readerText.pageTurnEffectLabel();
     const char* pageTurnProfileVal = g_displayService.readerPageTurnProfileLabel();
+    const char* pageTurnResidueVal = g_displayService.readerPageTurnResidueLabel();
     const char* underlineVal = g_readerText.underlineEnabled() ? "开启" : "关闭";
 
     const int16_t kCardX = kMarginX;
@@ -1242,9 +1243,9 @@ void VinkUiRenderer::renderReaderSettings() {
         gy += cardH + kSettingsGap;
     }
 
-    // ══════ 阅读 / 显示：title + 7 rows ══════
+    // ══════ 阅读 / 显示：title + 8 rows ══════
     {
-        const int16_t cardH = 8 * kRowH;
+        const int16_t cardH = 9 * kRowH;
         drawSurfacePanel(canvas_, kCardX, gy, kCardW, cardH);
         titleRow(gy, "阅读 / 显示");
         int16_t ry = gy + kRowH;
@@ -1261,6 +1262,8 @@ void VinkUiRenderer::renderReaderSettings() {
         cardRow(ry, "翻页动画", pageTurnVal);
         ry += kRowH; cardDiv(ry);
         cardRow(ry, "翻页档位", pageTurnProfileVal);
+        ry += kRowH; cardDiv(ry);
+        cardRow(ry, "单页残影", pageTurnResidueVal);
         readerSettingsContentH_ = (gy + cardH + readerSettingsScrollY_) - kContentY;
     }
     canvas_->clearClipRect();
@@ -1598,7 +1601,7 @@ UiAction VinkUiRenderer::hitTest(SystemState state, int16_t x, int16_t y) const 
                     if (inRect(x, yy, kMarginX + 22, ry, kContentW - 44, kRowH)) return UiAction::CycleReaderLineSpacing;
                 }
                 {
-                    // 阅读 / 显示 table: title + seven setting rows
+                    // 阅读 / 显示 table: title + eight setting rows
                     const int16_t g1 = g0 + 5 * kRowH + kSettingsGap;
                     int16_t ry = g1 + kRowH;
                     if (inRect(x, yy, kMarginX + 22, ry, kContentW - 44, kRowH)) return UiAction::CycleReaderLayoutPreset;
@@ -1614,6 +1617,8 @@ UiAction VinkUiRenderer::hitTest(SystemState state, int16_t x, int16_t y) const 
                     if (inRect(x, yy, kMarginX + 22, ry, kContentW - 44, kRowH)) return UiAction::ToggleReaderPageTurnEffect;
                     ry += kRowH;
                     if (inRect(x, yy, kMarginX + 22, ry, kContentW - 44, kRowH)) return UiAction::CycleReaderPageTurnProfile;
+                    ry += kRowH;
+                    if (inRect(x, yy, kMarginX + 22, ry, kContentW - 44, kRowH)) return UiAction::CycleReaderPageTurnResidue;
                 }
                 break;
             }

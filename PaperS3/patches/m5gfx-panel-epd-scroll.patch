@@ -2,12 +2,12 @@
 +++ .pio/libdeps/m5papers3/M5GFX/src/lgfx/v1/platforms/esp32/Panel_EPD.hpp
 @@ -74,6 +74,9 @@
      void setPowerSave(bool flg) override;
-
+ 
      void display(uint_fast16_t x, uint_fast16_t y, uint_fast16_t w, uint_fast16_t h) override;
 +    void displayScroll(uint_fast16_t x, uint_fast16_t y, uint_fast16_t w, uint_fast16_t h,
 +                       uint_fast16_t strip_width, bool reverse, uint8_t compensation = 1,
 +                       uint8_t effect_steps = 0);
-
+ 
      void writeFillRectPreclipped(uint_fast16_t x, uint_fast16_t y, uint_fast16_t w, uint_fast16_t h, uint32_t rawcolor) override;
      void writeImage(uint_fast16_t x, uint_fast16_t y, uint_fast16_t w, uint_fast16_t h, pixelcopy_t* param, bool use_dma) override;
 @@ -102,8 +105,21 @@
@@ -33,53 +33,58 @@
        }
        bool constexpr operator!=(const update_data_t& other) const {
          return !(*this == other);
+@@ -120,8 +136,8 @@
+     uint16_t* _step_table = nullptr;
+     uint8_t* _lut_2pixel = nullptr;
+   
+-    uint8_t _lut_offset_table[6] = { 0, };
+-    uint8_t _lut_remain_table[6] = { 0, };
++    uint8_t _lut_offset_table[8] = { 0, };
++    uint8_t _lut_remain_table[8] = { 0, };
+     volatile bool _display_busy = false;
+   };
+ 
 --- .pio/libdeps/m5papers3/M5GFX/src/lgfx/v1/platforms/esp32/Panel_EPD.cpp
 +++ .pio/libdeps/m5papers3/M5GFX/src/lgfx/v1/platforms/esp32/Panel_EPD.cpp
-@@ -146,6 +146,42 @@
+@@ -146,6 +146,36 @@
      0u,
    };
-
-+  // Clean-room page-turn LUT for the private scroll worker. v0.4.32 drove
-+  // most AA gray targets as black, which made glyph edges hard and caused dark
-+  // residue to grow around strokes. The scroll worker scans the whole EPD per
-+  // strip phase, so speed is controlled by both fewer phases and fewer strips.
-+  // This LUT keeps only three visible rows and makes cleanup truly tail-heavy:
-+  // phase 1 compresses black glyph cores only; phases 2-3 add near-white
-+  // background cleanup and preserves anti-aliased mid-gray edge pixels. This
-+  // avoids an early white erase-front and avoids washing AA gray edges pale.
+ 
++  // Clean-room page-turn LUT for the private scroll worker.
++  // EDCBook's binary shows that PageTurnEffect is not a long public
++  // text/quality waveform: it is a short old/new-diff driven scroll render path.
++  // Keep the active phases short and never add late black pulses.  The first
++  // phase drives the target edge immediately (dark targets black, light targets
++  // white) and preserves anti-aliased gray edges with a no-op middle band;
++  // later phases are white-side cleanup only.  A zero terminator follows
++  // directly so the tail drain completes without a visible whole-page flash.
 +  static constexpr const uint32_t lut_page_turn_light[] = {
-+    LUT_MAKE(1, 1, 1, 1, 1, 1, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3),
-+    LUT_MAKE(1, 1, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 2, 2, 2, 2),
-+    ~0u,
++    LUT_MAKE(1, 1, 1, 1, 1, 1, 3, 3, 3, 3, 2, 2, 2, 2, 2, 2),
 +    0u,
 +  };
 +
 +  static constexpr const uint32_t lut_page_turn[] = {
-+    LUT_MAKE(1, 1, 1, 1, 1, 1, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3),
-+    LUT_MAKE(1, 1, 1, 1, 3, 3, 3, 3, 3, 3, 3, 3, 2, 2, 2, 2),
-+    LUT_MAKE(1, 1, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 2, 2, 2, 2),
-+    ~0u,
++    LUT_MAKE(1, 1, 1, 1, 1, 1, 3, 3, 3, 3, 2, 2, 2, 2, 2, 2),
++    LUT_MAKE(3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 2, 2, 2, 2, 2, 2),
 +    0u,
 +  };
 +
-+  // Strong variant for one-burn ghosting experiments. It is selected only for
-+  // old-dark -> new-white/near-white transitions, so black glyph targets do not
-+  // get washed out. It adds one extra tail-heavy cleanup row for disappeared
-+  // strokes and gray chrome without becoming a full-screen quality flash.
++  // Strong variant for one-turn residue control. It is selected only for
++  // old-dark -> new-white/near-white transitions and adds one extra white
++  // cleanup row. It deliberately never adds late black pulses, so increasing
++  // residue control should not recreate white-area black-floating artifacts.
 +  static constexpr const uint32_t lut_page_turn_strong[] = {
-+    LUT_MAKE(1, 1, 1, 1, 1, 1, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3),
-+    LUT_MAKE(1, 1, 1, 1, 3, 3, 3, 3, 3, 3, 3, 3, 2, 2, 2, 2),
-+    LUT_MAKE(1, 1, 3, 3, 3, 3, 3, 3, 3, 3, 2, 2, 2, 2, 2, 2),
-+    LUT_MAKE(1, 3, 3, 3, 3, 3, 3, 3, 3, 3, 2, 2, 2, 2, 2, 2),
-+    ~0u,
++    LUT_MAKE(1, 1, 1, 1, 1, 1, 3, 3, 3, 3, 2, 2, 2, 2, 2, 2),
++    LUT_MAKE(3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 2, 2, 2, 2, 2, 2),
++    LUT_MAKE(3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 2, 2, 2, 2, 2, 2),
 +    0u,
 +  };
 +
    // 消去用LUT 。現在の階調から中間階調付近にシフトさせる。
    // このLUTは単独では使用せず、この後に本来の描画を行う。
    static constexpr const uint32_t lut_eraser[] = {
-@@ -157,6 +193,12 @@
-
+@@ -157,6 +187,12 @@
+ 
  #undef LUT_MAKE
    static constexpr const size_t lut_eraser_step = sizeof(lut_eraser) / sizeof(uint32_t);
 +  static constexpr const size_t lut_page_turn_light_step = sizeof(lut_page_turn_light) / sizeof(uint32_t);
@@ -88,20 +93,20 @@
 +  static constexpr const uint8_t kPrivatePageTurnLightMode = 5;
 +  static constexpr const uint8_t kPrivatePageTurnMode = 6;
 +  static constexpr const uint8_t kPrivatePageTurnStrongMode = 7;
-
+ 
    Panel_EPD::Panel_EPD(void)
    {
-@@ -223,6 +265,9 @@
+@@ -223,6 +259,9 @@
      lut_total_step += _config_detail.lut_text_step;
      lut_total_step += _config_detail.lut_fast_step;
      lut_total_step += _config_detail.lut_fastest_step;
 +    lut_total_step += lut_page_turn_light_step;
 +    lut_total_step += lut_page_turn_step;
 +    lut_total_step += lut_page_turn_strong_step;
-
+ 
      // EPD制御用LUT (2ピクセルセット)
      _lut_2pixel = (uint8_t *)heap_caps_malloc(lut_total_step * 256 * sizeof(uint16_t), MALLOC_CAP_DMA);
-@@ -258,7 +303,7 @@
+@@ -258,7 +297,7 @@
      auto dst = _lut_2pixel;
      memset(dst, 0x0F, 256);
      size_t lindex = 0;
@@ -110,7 +115,7 @@
        const uint32_t* lut_src = nullptr;
        size_t lut_step = 0;
        switch (epd_mode) {
-@@ -267,6 +312,9 @@
+@@ -267,6 +306,9 @@
          case epd_mode_t::epd_text:    lut_src = _config_detail.lut_text;    lut_step = _config_detail.lut_text_step;    break;
          case epd_mode_t::epd_fast:    lut_src = _config_detail.lut_fast;    lut_step = _config_detail.lut_fast_step;    break;
          case epd_mode_t::epd_fastest: lut_src = _config_detail.lut_fastest; lut_step = _config_detail.lut_fastest_step; break;
@@ -120,7 +125,7 @@
        }
        if (lut_src == nullptr) { continue; }
        _lut_offset_table[epd_mode] = lindex >> 8;
-@@ -586,6 +634,55 @@
+@@ -586,6 +628,58 @@
        _range_mod.right  = 0;
        _range_mod.bottom = 0;
      }
@@ -148,6 +153,9 @@
 +    upd.mode = _epd_mode;
 +    upd.scroll = true;
 +    upd.scroll_reverse = reverse;
++    // EDCBook-like path: use the private old/new-aware page-turn waveform for
++    // every scroll request; compensation controls single-turn residue cleanup.
++    upd.scroll_waveform = true;
 +    upd.scroll_diff_gate = true;
 +    upd.scroll_compensation = std::min<uint8_t>(2, compensation);
 +    upd.scroll_effect_steps = std::min<uint8_t>(48, effect_steps);
@@ -174,12 +182,12 @@
 +      _display_busy = false;
 +    }
    }
-
+ 
  #if defined( __XTENSA__ )
-@@ -899,165 +996,311 @@
-
+@@ -899,165 +993,690 @@
+ 
      auto bus = me->getBusEPD();
-
+ 
 -    bool remain = false;
 -
 -    for (;;) {
@@ -314,7 +322,21 @@
 -                }
 -                s += 2;
 -                d += 4;
--              }
++              s0 += lut_offset;
++              s1 += lut_offset;
++              if (d1 != s0) { d[1] = s0; d[0] = s0 - 0x8000; }
++              if (d3 != s1) { d[3] = s1; d[2] = s1 - 0x8000; }
++            } else {
++              const uint8_t old0 = d1 & 0xFF;
++              const uint8_t old1 = d3 & 0xFF;
++              const uint8_t new0 = s0 & 0xFF;
++              const uint8_t new1 = s1 & 0xFF;
++              if (upd.scroll_diff_gate) { note_scroll_diff_byte(old0, new0); }
++              if (old0 != new0) {
++                uint_fast16_t p0 = s0 + page_turn_lut_offset(s0, d1);
++                d[1] = p0;
++                d[0] = p0;
+               }
 -            } else
 -            if (new_data.mode == epd_mode_t::epd_text) {
 -              uint_fast16_t white = lut_offset | 0x00FF;
@@ -325,15 +347,12 @@
 -                uint_fast16_t d3 = d[3];
 -                s0 += lut_offset;
 -                s1 += lut_offset;
-+              s0 += lut_offset;
-+              s1 += lut_offset;
-+              if (d1 != s0) { d[1] = s0; d[0] = s0 - 0x8000; }
-+              if (d3 != s1) { d[3] = s1; d[2] = s1 - 0x8000; }
-+            } else {
-+              s0 += page_turn_lut_offset(s0, d1);
-+              s1 += page_turn_lut_offset(s1, d3);
-+              if (d1 != s0) { d[1] = s0; d[0] = s0; }
-+              if (d3 != s1) { d[3] = s1; d[2] = s1; }
++              if (upd.scroll_diff_gate) { note_scroll_diff_byte(old1, new1); }
++              if (old1 != new1) {
++                uint_fast16_t p1 = s1 + page_turn_lut_offset(s1, d3);
++                d[3] = p1;
++                d[2] = p1;
++              }
 +            }
 +            s += 2;
 +            d += 4;
@@ -380,39 +399,7 @@
                  }
 -
 -                // 白以外またはリクエスト済みの内容と相違がある場合に更新
--                if (white != d3 || d3 != s1) {
--                  uint_fast16_t d2 = d[2];
--                  d[3] = s1;
--                  if (d2 >= (lut_eraser_step << 8)) {
--                    // 消去処理を挟んで更新指示する。(元の値の下位8bitのみを使用するとlut_eraser扱いになる)
--                    d[2] = (uint8_t)d2;
--                  }
--                }
--                s += 2;
--                d += 4;
-               }
--            } else {
--              for (int i = 0; i < w; i += 2) {
--                uint_fast16_t s0 = s[0];
--                uint_fast16_t s1 = s[1];
--                uint_fast16_t d1 = d[1];
--                uint_fast16_t d3 = d[3];
--                s0 += lut_offset;
--                s1 += lut_offset;
--
--                // 既にリクエスト済みの内容と相違がある場合のみ更新
--                if (d1 != s0) {
--                  uint_fast16_t d0 = d[0];
--                  d[1] = s0;
--                  // 消去処理を挟んで更新指示する。(元の値の下位8bitのみを使用するとlut_eraser扱いになる)
--                  // 既に消去処理動作中の場合は変更しない
--                  if (d0 >= (lut_eraser_step << 8)) {
--                    d[0] = (uint8_t)d0;
--                  }
--                }
--
--                // 既にリクエスト済みの内容と相違がある場合のみ更新
--                if (d3 != s1) {
++              }
 +            }
 +            if (scroll_diff) { note_scroll_diff_byte(old1, new1); }
 +            if (!scroll_diff || old1 != new1) {
@@ -426,7 +413,7 @@
 +                d[2] = s1;
 +              } else {
 +                d3 &= 0x7FFF;
-+                if (white != d3 || d3 != s1) {
+                 if (white != d3 || d3 != s1) {
                    uint_fast16_t d2 = d[2];
                    d[3] = s1;
 -                  if (d2 >= (lut_eraser_step << 8)) {
@@ -438,19 +425,18 @@
 -                s += 2;
 -                d += 4;
                }
-             }
--          } while (--h);
--
--          if (lgfx::micros() - usec >= 2048) {
--            break;
+-            } else {
+-              for (int i = 0; i < w; i += 2) {
+-                uint_fast16_t s0 = s[0];
+-                uint_fast16_t s1 = s[1];
+-                uint_fast16_t d1 = d[1];
+-                uint_fast16_t d3 = d[3];
+-                s0 += lut_offset;
+-                s1 += lut_offset;
++            }
 +            s += 2;
 +            d += 4;
-           }
--
--          const update_data_t prev_data = new_data;
--          bool result;
--          while (true == (result = xQueueReceive(me->_update_queue_handle, &new_data, 0))) {
--            if (prev_data != new_data) { break; }
++          }
 +        } else {
 +          for (int i = 0; i < w; i += 2) {
 +            uint_fast16_t s0 = s[0];
@@ -471,24 +457,420 @@
 +            }
 +            s += 2;
 +            d += 4;
++          }
++        }
++      } while (--h);
++    };
+ 
+-                // 既にリクエスト済みの内容と相違がある場合のみ更新
+-                if (d1 != s0) {
+-                  uint_fast16_t d0 = d[0];
+-                  d[1] = s0;
+-                  // 消去処理を挟んで更新指示する。(元の値の下位8bitのみを使用するとlut_eraser扱いになる)
+-                  // 既に消去処理動作中の場合は変更しない
+-                  if (d0 >= (lut_eraser_step << 8)) {
+-                    d[0] = (uint8_t)d0;
+-                  }
+-                }
++    auto run_cycle = [&]() -> bool {
++      bus->powerControl(true);
++      int w = (memory_w + 15) >> 4;
++      bool cycle_remain = false;
++      for (uint_fast16_t y = 0; y < mh; y++) {
++        auto dma_buf = (uint32_t*)(me->_dma_bufs[y & 1]);
++        if (blit_dmabuf(dma_buf, &me->_step_framebuf[(y * memory_w >> 1) * 2], me->_lut_2pixel, w)) {
++          cycle_remain = true;
++        }
++        for (int m = 0; m < magni_h; ++m) {
++          if (y == 0 && m == 0) { bus->beginTransaction(); }
++          else { bus->scanlineDone(); }
++          bus->writeScanLine((const uint8_t*)dma_buf, write_len);
++        }
++      }
++      vTaskDelay(1);
++      bus->scanlineDone();
++      bus->endTransaction();
++      if (cycle_remain == false) { bus->powerControl(false); }
++      return cycle_remain;
++    };
++
++    auto complete_targets_silently = [&](const update_data_t& upd) {
++      if (upd.w == 0 || upd.h == 0) { return; }
++      size_t memory_idx = ((upd.x + upd.y * memory_w) >> 1);
++      auto dst = &me->_step_framebuf[memory_idx * 2];
++      size_t h = upd.h;
++      do {
++        size_t w = upd.w >> 1;
++        auto d = dst;
++        dst += (memory_w >> 1) * 2;
++        for (int i = 0; i < w; i += 2) {
++          const uint16_t t0 = d[1] & 0x00FF;
++          const uint16_t t1 = d[3] & 0x00FF;
++          d[0] = t0;
++          d[1] = t0 | 0x8000;
++          d[2] = t1;
++          d[3] = t1 | 0x8000;
++          d += 4;
++        }
++      } while (--h);
++    };
+ 
+-                // 既にリクエスト済みの内容と相違がある場合のみ更新
+-                if (d3 != s1) {
+-                  uint_fast16_t d2 = d[2];
+-                  d[3] = s1;
+-                  if (d2 >= (lut_eraser_step << 8)) {
+-                    // 消去処理を挟んで更新指示する。(元の値の下位8bitのみを使用するとlut_eraser扱いになる)
+-                    d[2] = (uint8_t)d2;
+-                  }
+-                }
+-                s += 2;
+-                d += 4;
+-              }
+-            }
+-          } while (--h);
++    auto commit_targets_from_panel_buffer = [&](const update_data_t& upd) {
++      if (upd.w == 0 || upd.h == 0) { return; }
++      size_t panel_idx = ((upd.x + upd.y * panel_w) >> 1);
++      size_t memory_idx = ((upd.x + upd.y * memory_w) >> 1);
++      auto src = &me->_buf[panel_idx];
++      auto dst = &me->_step_framebuf[memory_idx * 2];
++      size_t h = upd.h;
++      do {
++        size_t w = upd.w >> 1;
++        auto s = src;
++        auto d = dst;
++        src += panel_w >> 1;
++        dst += (memory_w >> 1) * 2;
++        for (int i = 0; i < w; i += 2) {
++          const uint16_t t0 = s[0];
++          const uint16_t t1 = s[1];
++          d[0] = t0;
++          d[1] = t0 | 0x8000;
++          d[2] = t1;
++          d[3] = t1 | 0x8000;
++          s += 2;
++          d += 4;
++        }
++      } while (--h);
++    };
+ 
+-          if (lgfx::micros() - usec >= 2048) {
+-            break;
++    struct transition_frame_t {
++      uint16_t w = 0;
++      uint16_t h = 0;
++      uint16_t col_bytes = 0;
++      uint16_t mask_bytes = 0;
++      uint16_t scroll_line_mask_blocks = 0;
++      uint16_t dirty_x0 = 0;
++      uint16_t dirty_y0 = 0;
++      uint16_t dirty_x1 = 0;
++      uint16_t dirty_y1 = 0;
++      uint16_t render_x0 = 0;
++      uint16_t render_y0 = 0;
++      uint16_t render_x1 = 0;
++      uint16_t render_y1 = 0;
++      bool any_dirty = false;
++      uint8_t cache_lead = 0;
++      uint8_t cache_len = 0;
++      // EDCBook-style 1ppB difference buffer: transition=(new<<4)|old.
++      uint8_t* transition_1ppb = nullptr;
++      uint8_t* dirty_lines = nullptr;
++      uint8_t* dirty_columns = nullptr;
++      uint8_t* line_mask = nullptr;
++      int16_t* row_offset_table = nullptr;
++      int8_t* scroll_bucket_cache = nullptr;
++      uint8_t* conversion_lut_slots = nullptr;
++      uint16_t lut_slot_count = 0;
++    };
++
++    auto free_transition_frame = [](transition_frame_t& tf) {
++      if (tf.transition_1ppb) { heap_caps_free(tf.transition_1ppb); tf.transition_1ppb = nullptr; }
++      if (tf.dirty_lines) { heap_caps_free(tf.dirty_lines); tf.dirty_lines = nullptr; }
++      if (tf.dirty_columns) { heap_caps_free(tf.dirty_columns); tf.dirty_columns = nullptr; }
++      if (tf.line_mask) { heap_caps_free(tf.line_mask); tf.line_mask = nullptr; }
++      if (tf.row_offset_table) { heap_caps_free(tf.row_offset_table); tf.row_offset_table = nullptr; }
++      if (tf.scroll_bucket_cache) { heap_caps_free(tf.scroll_bucket_cache); tf.scroll_bucket_cache = nullptr; }
++      if (tf.conversion_lut_slots) { heap_caps_free(tf.conversion_lut_slots); tf.conversion_lut_slots = nullptr; }
++    };
++
++    auto build_transition_frame = [&](const update_data_t& upd, transition_frame_t& tf) -> bool {
++      tf.w = upd.w;
++      tf.h = upd.h;
++      tf.col_bytes = (upd.w + 1) >> 1;
++      tf.mask_bytes = (upd.w + 3) >> 2;
++      tf.dirty_x0 = tf.w;
++      tf.dirty_y0 = tf.h;
++      tf.dirty_x1 = 0;
++      tf.dirty_y1 = 0;
++      tf.render_x0 = 0;
++      tf.render_y0 = 0;
++      tf.render_x1 = tf.w;
++      tf.render_y1 = tf.h;
++      tf.any_dirty = false;
++      tf.transition_1ppb = (uint8_t*)heap_caps_malloc((size_t)tf.w * tf.h, MALLOC_CAP_SPIRAM);
++      tf.dirty_lines = (uint8_t*)heap_caps_calloc(tf.h, 1, MALLOC_CAP_SPIRAM);
++      tf.dirty_columns = (uint8_t*)heap_caps_calloc((size_t)tf.col_bytes * tf.h, 1, MALLOC_CAP_SPIRAM);
++      tf.line_mask = (uint8_t*)heap_caps_malloc(tf.mask_bytes, MALLOC_CAP_DMA);
++      tf.row_offset_table = (int16_t*)heap_caps_malloc((size_t)tf.h * sizeof(int16_t), MALLOC_CAP_SPIRAM);
++      if (!tf.transition_1ppb || !tf.dirty_lines || !tf.dirty_columns || !tf.line_mask || !tf.row_offset_table) {
++        free_transition_frame(tf);
++        return false;
++      }
++
++      const size_t panel_idx = ((upd.x + upd.y * panel_w) >> 1);
++      const size_t memory_idx = ((upd.x + upd.y * memory_w) >> 1);
++      auto src = &me->_buf[panel_idx];
++      auto dst = &me->_step_framebuf[memory_idx * 2];
++      for (uint16_t yy = 0; yy < tf.h; ++yy) {
++        auto s = src;
++        auto d = dst;
++        uint8_t line_dirty = 0;
++        for (uint16_t pi = 0; pi < tf.col_bytes; ++pi) {
++          const uint8_t old_pair = d[(pi << 1) + 1] & 0xFF;
++          const uint8_t new_pair = s[pi];
++          const uint8_t old_even = (old_pair >> 4) & 0x0F;
++          const uint8_t new_even = (new_pair >> 4) & 0x0F;
++          const uint8_t old_odd = old_pair & 0x0F;
++          const uint8_t new_odd = new_pair & 0x0F;
++          const uint16_t tx = pi << 1;
++          tf.transition_1ppb[(size_t)yy * tf.w + tx] = (new_even << 4) | old_even;
++          if (tx + 1 < tf.w) { tf.transition_1ppb[(size_t)yy * tf.w + tx + 1] = (new_odd << 4) | old_odd; }
++          const uint8_t dirty_even = new_even ^ old_even;
++          const uint8_t dirty_odd = new_odd ^ old_odd;
++          tf.dirty_columns[(size_t)yy * tf.col_bytes + pi] = dirty_even | (dirty_odd << 4);
++          if (dirty_even) {
++            tf.any_dirty = true;
++            if (tx < tf.dirty_x0) { tf.dirty_x0 = tx; }
++            if (tx + 1 > tf.dirty_x1) { tf.dirty_x1 = tx + 1; }
++            if (yy < tf.dirty_y0) { tf.dirty_y0 = yy; }
++            if (yy + 1 > tf.dirty_y1) { tf.dirty_y1 = yy + 1; }
+           }
++          if (dirty_odd && tx + 1 < tf.w) {
++            tf.any_dirty = true;
++            if (tx + 1 < tf.dirty_x0) { tf.dirty_x0 = tx + 1; }
++            if (tx + 2 > tf.dirty_x1) { tf.dirty_x1 = tx + 2; }
++            if (yy < tf.dirty_y0) { tf.dirty_y0 = yy; }
++            if (yy + 1 > tf.dirty_y1) { tf.dirty_y1 = yy + 1; }
++          }
++          line_dirty |= dirty_even | dirty_odd;
++          if (active_scroll_stats) { note_scroll_diff_byte(old_pair, new_pair); }
++        }
++        tf.dirty_lines[yy] = line_dirty ? 1 : 0;
++        src += panel_w >> 1;
++        dst += (memory_w >> 1) * 2;
++      }
++      if (tf.any_dirty) {
++        // EDCBook first computes a diff rect and then renders with an output
++        // crop while preserving the full difference source.  Keep the full
++        // transition buffer here, but crop physical scan output to the dirty
++        // range, horizontally widened to 16px scroll blocks.
++        tf.render_x0 = tf.dirty_x0 & ~15u;
++        tf.render_x1 = std::min<uint16_t>(tf.w, (tf.dirty_x1 + 15u) & ~15u);
++        tf.render_y0 = tf.dirty_y0;
++        tf.render_y1 = tf.dirty_y1;
++      }
++      return true;
++    };
+ 
+-          const update_data_t prev_data = new_data;
+-          bool result;
+-          while (true == (result = xQueueReceive(me->_update_queue_handle, &new_data, 0))) {
+-            if (prev_data != new_data) { break; }
++    auto edcbook_phase_action = [](uint8_t old_px, uint8_t new_px, uint8_t phase, uint8_t comp) -> uint8_t {
++      if (old_px == new_px) { return 0; }
++      if (phase == 0) { return (new_px < old_px) ? 1 : 2; }
++      // EDCBook's 1ppB path gets the final action from phases->luts.  This
++      // clean-room phase table intentionally keeps late frames white-side only
++      // so unchanged/new-white areas are protected by dirty masks and never get
++      // late black pulses.
++      if (new_px > old_px) {
++        if (phase == 1 && comp >= 1) { return 2; }
++        if (phase == 2 && comp >= 2 && old_px <= 6 && new_px >= 10) { return 2; }
++      }
++      return 0;
++    };
++
++    auto build_edcbook_phase_luts = [&](uint8_t* phase_luts, uint8_t active_frames, uint8_t comp) {
++      // Mirrors EDCBook build_1ppB_lut_S3_1k input layout: every waveform frame
++      // is 64 bytes = 16 target-gray rows * 4 packed old-gray groups.
++      memset(phase_luts, 0, (size_t)active_frames * 64);
++      for (uint8_t phase = 0; phase < active_frames; ++phase) {
++        uint8_t* p = phase_luts + (size_t)phase * 64;
++        for (uint8_t to = 0; to < 16; ++to) {
++          for (uint8_t from_group = 0; from_group < 4; ++from_group) {
++            const uint8_t from0 = from_group * 4;
++            const uint8_t a0 = edcbook_phase_action(from0 + 0, to, phase, comp) & 0x03;
++            const uint8_t a1 = edcbook_phase_action(from0 + 1, to, phase, comp) & 0x03;
++            const uint8_t a2 = edcbook_phase_action(from0 + 2, to, phase, comp) & 0x03;
++            const uint8_t a3 = edcbook_phase_action(from0 + 3, to, phase, comp) & 0x03;
++            *p++ = (a0 << 6) | (a1 << 4) | (a2 << 2) | a3;
            }
 -          if (result == false) { break; }
          }
--      }
-+      } while (--h);
+       }
 +    };
-
-+    auto run_cycle = [&]() -> bool {
-       bus->powerControl(true);
--
-       int w = (memory_w + 15) >> 4;
+ 
+-      bus->powerControl(true);
++    auto build_conversion_lut = [](uint8_t* lut, const uint8_t* phase_luts, uint8_t phase) {
++      // Clean-room equivalent of EDCBook build_1ppB_lut_S3_1k: LUT index is
++      // transition=(to/new<<4)|from/old, and each entry returns a two-bit EPD action.
++      memset(lut, 0, 256);
++      const uint8_t* p = phase_luts + (size_t)phase * 64;
++      for (uint8_t to = 0; to < 16; ++to) {
++        for (uint8_t from_group = 0; from_group < 4; ++from_group) {
++          const uint8_t packed = *p++;
++          const uint8_t index = (to << 4) | (from_group * 4);
++          lut[index + 0] = (packed >> 6) & 0x03;
++          lut[index + 1] = (packed >> 4) & 0x03;
++          lut[index + 2] = (packed >> 2) & 0x03;
++          lut[index + 3] = packed & 0x03;
++        }
++      }
++    };
+ 
+-      int w = (memory_w + 15) >> 4;
 -      remain = false;
-+      bool cycle_remain = false;
++    auto populate_line_mask = [](uint8_t* line_mask, const uint8_t* dirty_columns, uint16_t col_bytes, uint16_t mask_bytes) {
++      for (uint16_t mi = 0; mi < mask_bytes; ++mi) {
++        const uint16_t ci0 = mi * 2;
++        const uint16_t ci1 = ci0 + 1;
++        const uint8_t d0 = ci0 < col_bytes ? dirty_columns[ci0] : 0;
++        const uint8_t d1 = ci1 < col_bytes ? dirty_columns[ci1] : 0;
++        uint8_t mask = 0;
++        // Adapted from EDCBook epd_populate_line_mask. Panel_EPD's local action
++        // order is pair-even in bits 3:2 and pair-odd in bits 1:0.
++        if (d0 & 0x0F) { mask |= 0x0C; } // pixel 0 / even high-nibble source
++        if (d0 & 0xF0) { mask |= 0x03; } // pixel 1 / odd low-nibble source
++        if (d1 & 0x0F) { mask |= 0xC0; } // pixel 2
++        if (d1 & 0xF0) { mask |= 0x30; } // pixel 3
++        line_mask[mi] = mask;
++      }
++    };
++
++    auto build_edcbook_row_offset = [](uint16_t local_y, uint16_t height, uint16_t width,
++                                       uint8_t n_steps, uint8_t lead, bool reverse) -> int16_t {
++      if (height <= 1 || n_steps <= 1) { return 0; }
++      // Clean-room adaptation of EDCBook prepare_context_for_scroll_frame:
++      // ctx+0x1b4 is a per-output-line row_offset_table, ctx+0x1a8 is the
++      // scroll_line_mask_blocks width, and the scroll render path applies
++      // rowOffset*stride before the output/blit call.  In this M5GFX port the
++      // stride is represented by scroll-bucket/LUT slots rather than app-level
++      // strip updates, so row offsets remap the per-line bucket source.
++      const int block_count = std::max<int>(1, ((int)width + (int)n_steps * 16 - 1) / ((int)n_steps * 16));
++      const int px_block = block_count * 16;
++      const int span = std::max<int>(1, ((int)width + px_block - 1) / px_block);
++      const int min_off = -(int)lead;
++      const int max_off = std::min<int>((int)n_steps + (int)lead - span, (int)lead);
++      const int signed_span = reverse ? -span : span;
++      const float ratio = (float)local_y / (float)height;
++      int off = (int)((ratio - 0.5f) * (float)signed_span);
++      if (off < min_off) { off = min_off; }
++      if (off > max_off) { off = max_off; }
++      return (int16_t)off;
++    };
++
++    auto prepare_edcbook_scroll_context_frame = [&](transition_frame_t& tf, const update_data_t& upd,
++                                                   const uint8_t* phase_luts,
++                                                   uint8_t visual_frame, uint8_t active_frames,
++                                                   uint16_t n_steps) -> bool {
++      tf.cache_lead = std::min<uint8_t>(5, std::max<uint8_t>(1, active_frames));
++      const uint16_t cache_len = n_steps + (uint16_t)tf.cache_lead * 2;
++      if (cache_len > 255) { return false; }
++      if (!tf.scroll_bucket_cache || tf.cache_len != cache_len) {
++        if (tf.scroll_bucket_cache) { heap_caps_free(tf.scroll_bucket_cache); tf.scroll_bucket_cache = nullptr; }
++        tf.scroll_bucket_cache = (int8_t*)heap_caps_malloc(cache_len, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
++        if (!tf.scroll_bucket_cache) { return false; }
++        tf.cache_len = (uint8_t)cache_len;
++      }
++      if (!tf.conversion_lut_slots || tf.lut_slot_count != cache_len) {
++        if (tf.conversion_lut_slots) { heap_caps_free(tf.conversion_lut_slots); tf.conversion_lut_slots = nullptr; }
++        tf.conversion_lut_slots = (uint8_t*)heap_caps_malloc((size_t)cache_len * 256, MALLOC_CAP_8BIT);
++        if (!tf.conversion_lut_slots) { return false; }
++        tf.lut_slot_count = cache_len;
++      }
++
++      // Mirrors ctx+0x148.. scroll_bucket_cache: cache per-bucket phase/LUT
++      // selection, including the EDCBook lead range [-lead, n+lead).  Unlike the
++      // earlier approximation, every bucket owns a conversion-LUT slot, so the
++      // row_offset_table remaps the scanline's LUT/source slot just like the
++      // epdiy scroll path's rowOffset*stride source shift.
++      for (int i = -(int)tf.cache_lead; i < (int)n_steps + (int)tf.cache_lead; ++i) {
++        const int reveal_frame = upd.scroll_reverse ? (int)n_steps - 1 - i : i;
++        const int phase_i = (int)visual_frame - reveal_frame;
++        const int cache_index = i + tf.cache_lead;
++        uint8_t* lut_slot = tf.conversion_lut_slots + (size_t)cache_index * 256;
++        if (phase_i >= 0 && phase_i < active_frames) {
++          tf.scroll_bucket_cache[cache_index] = (int8_t)phase_i;
++          build_conversion_lut(lut_slot, phase_luts, (uint8_t)phase_i);
++        } else {
++          tf.scroll_bucket_cache[cache_index] = -1;
++          memset(lut_slot, 0, 256);
++        }
++      }
++
++      tf.scroll_line_mask_blocks = std::max<uint16_t>(1, (tf.w + n_steps * 16 - 1) / (n_steps * 16));
++      for (uint16_t y = 0; y < tf.h; ++y) {
++        tf.row_offset_table[y] = build_edcbook_row_offset(y, tf.h, tf.w, n_steps, tf.cache_lead, upd.scroll_reverse);
++      }
++      return true;
++    };
++
++    auto run_edcbook_transition_frame = [&](const update_data_t& upd, transition_frame_t& tf,
++                                            const uint16_t* offsets, uint8_t offset_count,
++                                            uint8_t visual_frame, uint8_t active_frames) {
++      bus->powerControl(true);
++      const uint8_t comp = std::min<uint8_t>(2, upd.scroll_compensation);
++      const uint16_t n_steps = offset_count > 1 ? offset_count - 1 : 1;
++      uint8_t phase_luts[3 * 64];
++      build_edcbook_phase_luts(phase_luts, active_frames, comp);
++      if (!prepare_edcbook_scroll_context_frame(tf, upd, phase_luts, visual_frame, active_frames, n_steps)) { return false; }
++      bool any_action = false;
        for (uint_fast16_t y = 0; y < mh; y++) {
          auto dma_buf = (uint32_t*)(me->_dma_bufs[y & 1]);
-         if (blit_dmabuf(dma_buf, &me->_step_framebuf[(y * memory_w >> 1) * 2], me->_lut_2pixel, w)) {
+-        if (blit_dmabuf(dma_buf, &me->_step_framebuf[(y * memory_w >> 1) * 2], me->_lut_2pixel, w)) {
 -          remain = true;
-+          cycle_remain = true;
++        memset(dma_buf, 0, write_len);
++        if (y >= upd.y && y < (uint_fast16_t)(upd.y + upd.h)) {
++          const uint16_t local_y = y - upd.y;
++          if (local_y >= tf.render_y0 && local_y < tf.render_y1 && tf.dirty_lines[local_y]) {
++            populate_line_mask(tf.line_mask, &tf.dirty_columns[(size_t)local_y * tf.col_bytes], tf.col_bytes, tf.mask_bytes);
++            const int16_t row_source_off = tf.row_offset_table[local_y];
++            const uint16_t pair_begin = tf.render_x0 >> 1;
++            const uint16_t pair_end = (tf.render_x1 + 1) >> 1;
++            const uint16_t block_px = std::max<uint16_t>(16, tf.scroll_line_mask_blocks * 16);
++            const uint8_t* transition_line = &tf.transition_1ppb[(size_t)local_y * tf.w];
++            for (uint16_t pi = pair_begin; pi < pair_end; ++pi) {
++              const uint16_t local_x = pi << 1;
++              const int output_bucket = std::min<int>((int)n_steps - 1, (int)local_x / (int)block_px);
++              const int source_bucket = output_bucket + (int)row_source_off;
++              const int cache_index = source_bucket + (int)tf.cache_lead;
++              if (cache_index < 0 || cache_index >= tf.cache_len) { continue; }
++              const int phase_i = tf.scroll_bucket_cache[cache_index];
++              if (phase_i < 0) { continue; }
++
++              // EDCBook's scroll branch shifts the input pointer by
++              // rowOffset*stride before blitting.  Recreate that at 16px block
++              // granularity: output position stays at pi, but transition/mask
++              // bytes are read from the remapped source block.
++              const int source_x = source_bucket * (int)block_px + ((int)local_x % (int)block_px);
++              if (source_x < 0 || source_x + 1 >= tf.w) { continue; }
++              const uint16_t source_pair = (uint16_t)source_x >> 1;
++              const uint8_t* lut_slot = tf.conversion_lut_slots + (size_t)cache_index * 256;
++              uint8_t actions = (lut_slot[transition_line[source_pair << 1]] << 2)
++                              | lut_slot[transition_line[(source_pair << 1) + 1]];
++              const uint8_t mask_byte = tf.line_mask[source_pair >> 1];
++              const uint8_t pair_mask = (source_pair & 1) ? (mask_byte >> 4) : (mask_byte & 0x0F);
++              actions &= pair_mask;
++              if (actions == 0) { continue; }
++              any_action = true;
++              const uint16_t abs_pair = (upd.x >> 1) + pi;
++              const uint16_t section = abs_pair & 7;
++              static constexpr uint8_t shifts[8] = {4, 0, 12, 8, 20, 16, 28, 24};
++              dma_buf[abs_pair >> 3] |= (uint32_t)actions << shifts[section];
++            }
++          }
          }
          for (int m = 0; m < magni_h; ++m) {
 -          if (y == 0 && m == 0) {
@@ -505,95 +887,97 @@
        vTaskDelay(1);
        bus->scanlineDone();
        bus->endTransaction();
-+      if (cycle_remain == false) { bus->powerControl(false); }
-+      return cycle_remain;
++      if (!any_action) { bus->powerControl(false); }
++      return any_action;
 +    };
-
++
++    bool remain = false;
+ 
 -      if (remain == false) {
 -        bus->powerControl(false);
-+    bool remain = false;
-+
 +    for (;;) {
 +      me->_display_busy = remain;
 +      TickType_t wait_tick = remain ? 0 : portMAX_DELAY;
 +      if (xQueueReceive(me->_update_queue_handle, &new_data, wait_tick)) {
 +        me->_display_busy = true;
 +        if (new_data.scroll && new_data.scroll_strip_width > 0) {
-+          const uint16_t x0 = new_data.x;
-+          const uint16_t x1 = new_data.x + new_data.w;
-+          const bool reverse = new_data.scroll_reverse;
-+          // ── expanding‑window reveal (not fixed‑strip) ──
-+          // Each step copies a growing region of the new framebuffer into the
-+          // step buffer, then runs one text‑LUT phase.  Previously revealed
-+          // columns go through the same phase cycle together, so the wavefront
-+          // is a soft gradient rather than a hard board‑edge.
-+          uint16_t n_steps = new_data.scroll_effect_steps > 0
-+            ? std::min<uint16_t>(54, std::max<uint16_t>(12, new_data.scroll_effect_steps))
-+            : std::min<uint16_t>(54, std::max<uint16_t>(12, new_data.w / 30));
-+          const uint16_t step_px = std::max<uint16_t>(4u, (new_data.w + n_steps - 1) / n_steps);
++          uint_fast16_t xs = new_data.x;
++          uint_fast16_t ys = new_data.y;
++          uint_fast16_t xe = new_data.x + new_data.w - 1;
++          uint_fast16_t ye = new_data.y + new_data.h - 1;
++          me->_rotate_pos(xs, ys, xe, ye);
 +
-+          scroll_diff_stats_t scroll_stats;
++          update_data_t phys = new_data;
++          phys.scroll = false;
++          phys.x = (xs + me->_cfg.offset_x) & ~3u;
++          phys.w = ((xe + me->_cfg.offset_x) | 3u) - phys.x + 1;
++          phys.y = ys + me->_cfg.offset_y;
++          phys.h = ye - ys + 1;
++
++          // ── EDCBook-like offset-table reveal ──
++          // Build the 16px-aligned progression after rotation, in physical local
++          // coordinates.  The renderer compares local x/source blocks only;
++          // `upd.x` is used solely when packing DMA output into the physical line.
++          uint16_t scroll_offsets[25] = {0};
++          uint8_t offset_count = 0;
++          const uint16_t strip_px = std::max<uint16_t>(4u, new_data.scroll_strip_width);
++          scroll_offsets[offset_count++] = 0;
++          for (uint16_t x = strip_px; x < phys.w && offset_count < 24; x += strip_px) {
++            scroll_offsets[offset_count++] = x;
++          }
++          scroll_offsets[offset_count++] = phys.w;
++          const uint16_t n_steps = offset_count > 1 ? offset_count - 1 : 1;
++
++          // Renderer-level EDCBook model: first materialize the full 1ppB
++          // transition frame plus dirty_lines/dirty_columns/line_mask, then let
++          // a short scroll wavefront release masked transition actions.
++          scroll_diff_stats_t scroll_stats{};
++          transition_frame_t tf;
 +          active_scroll_stats = new_data.scroll_diff_gate ? &scroll_stats : nullptr;
-+
-+          for (uint16_t si = 0; si < n_steps; ++si) {
-+            uint16_t sx, ex;
-+            if (reverse) {
-+              sx = (si + 1 >= n_steps) ? x0 : std::max<uint16_t>(x0, x1 - (si + 1) * step_px);
-+              ex = x1;
-+            } else {
-+              sx = x0;
-+              ex = (si + 1 >= n_steps) ? x1 : std::min<uint16_t>(x1, x0 + (si + 1) * step_px);
-+            }
-+            if (ex <= sx) { continue; }
-+
-+            uint_fast16_t xs = sx;
-+            uint_fast16_t ys = new_data.y;
-+            uint_fast16_t xe = ex - 1;
-+            uint_fast16_t ye = new_data.y + new_data.h - 1;
-+            me->_rotate_pos(xs, ys, xe, ye);
-+
-+            update_data_t win = new_data;
-+            win.scroll = false;
-+            win.scroll_waveform = false;
-+            win.x = (xs + me->_cfg.offset_x) & ~3u;
-+            win.w = ((xe + me->_cfg.offset_x) | 3u) - win.x + 1;
-+            win.y = ys + me->_cfg.offset_y;
-+            win.h = ye - ys + 1;
-+            prepare_update(win);
++          const bool tf_ok = build_transition_frame(phys, tf);
++          active_scroll_stats = nullptr;
++          if (!tf_ok) {
++            printf("[vink3][epd] edcbook-transition allocation failed; falling back to normal update\n");
++            prepare_update(phys);
 +            remain = run_cycle();
++            while (remain) { remain = run_cycle(); }
++            continue;
++          }
++          if (!tf.any_dirty) {
++            // EDCBook's high-level update returns early for an empty diff.  The
++            // front buffer has already been staged, so only make the retained
++            // step framebuffer agree silently; no panel pulses are emitted.
++            commit_targets_from_panel_buffer(phys);
++            free_transition_frame(tf);
++            remain = false;
++            continue;
 +          }
 +
-+          active_scroll_stats = nullptr;
++          const uint8_t active_frames = new_data.scroll_effect_steps >= 24 ? 3 : 2;
++          const uint8_t total_frames = n_steps + active_frames - 1;
++          bool any_action = false;
++          for (uint8_t frame = 0; frame < total_frames; ++frame) {
++            any_action |= run_edcbook_transition_frame(phys, tf, scroll_offsets, offset_count, frame, active_frames);
++          }
++          bus->powerControl(false);
++          commit_targets_from_panel_buffer(phys);
++          free_transition_frame(tf);
++          remain = false;
++
 +          if (new_data.scroll_diff_gate) {
-+            printf("[vink3][epd] scroll-diff steps=%u effectSteps=%u bytes=%u changed=%u same=%u oldDarkToLight=%u newDark=%u gray=%u\n",
++            printf("[vink3][epd] edcbook-transition frames=%u steps=%u effectSteps=%u comp=%u active=%u bytes=%u changed=%u same=%u oldDarkToLight=%u newDark=%u gray=%u action=%u\n",
++                   (unsigned)total_frames,
 +                   (unsigned)n_steps,
 +                   (unsigned)new_data.scroll_effect_steps,
++                   (unsigned)new_data.scroll_compensation,
++                   (unsigned)active_frames,
 +                   (unsigned)scroll_stats.bytes_total,
 +                   (unsigned)scroll_stats.bytes_changed,
 +                   (unsigned)scroll_stats.bytes_unchanged,
 +                   (unsigned)scroll_stats.px_old_dark_to_new_light,
 +                   (unsigned)scroll_stats.px_new_dark,
-+                   (unsigned)scroll_stats.px_gray_transition);
-+          }
-+          // Full‑page settle pass — drain remaining text‑LUT phases uniformly,
-+          // not directionally like the old per‑strip tail drain.
-+          {
-+            update_data_t settle = new_data;
-+            settle.scroll = false;
-+            settle.scroll_waveform = false;
-+            {
-+              uint_fast16_t xs = settle.x;
-+              uint_fast16_t ys = settle.y;
-+              uint_fast16_t xe = settle.x + settle.w - 1;
-+              uint_fast16_t ye = settle.y + settle.h - 1;
-+              me->_rotate_pos(xs, ys, xe, ye);
-+              settle.x = (xs + me->_cfg.offset_x) & ~3u;
-+              settle.w = ((xe + me->_cfg.offset_x) | 3u) - settle.x + 1;
-+              settle.y = ys + me->_cfg.offset_y;
-+              settle.h = ye - ys + 1;
-+            }
-+            prepare_update(settle);
-+            while (remain) { remain = run_cycle(); }
++                   (unsigned)scroll_stats.px_gray_transition,
++                   (unsigned)any_action);
 +          }
 +          continue;
 +        }
@@ -615,4 +999,4 @@
 +      remain = run_cycle();
      }
    }
-
+ 
