@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <lgfx/v1/platforms/esp32/Panel_EPD.hpp>
 
 extern "C" {
 #include <epd_board.h>
@@ -38,6 +39,18 @@ bool EpdiyPaperS3Backend::begin() {
     if (ready_) return true;
 
     Serial.println("[vink3][epdiy] init PaperS3 architecture backend: ED047TC1 + LCD renderer");
+    // M5Unified must run first for PaperS3 board/touch/PMIC setup, but its
+    // Panel_EPD worker owns the same esp_lcd i80 bus/RMT/GDMA path that epdiy
+    // needs.  Stop and release it before epdiy init; otherwise two drivers
+    // fight the ED047TC1 bus and the strict validation build can boot to a
+    // retained/blank screen.
+    if (M5.Display.getBoard() == m5gfx::board_t::board_M5PaperS3) {
+        if (auto* panel = static_cast<lgfx::Panel_EPD*>(M5.Display.panel())) {
+            panel->releaseBusForExternalDriver();
+        }
+    } else {
+        Serial.println("[vink3][epdiy] pure epdiy display owner; M5GFX Panel_EPD was not initialized");
+    }
     epd_init(&epd_board_m5papers3, &ED047TC1, static_cast<EpdInitOptions>(EPD_OPTIONS_DEFAULT | EPD_FEED_QUEUE_32));
     epd_set_rotation(EPD_ROT_LANDSCAPE);
     s_hl = epd_hl_init(nullptr);

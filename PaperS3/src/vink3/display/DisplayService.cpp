@@ -453,12 +453,16 @@ epd_mode_t DisplayService::chooseReaderRefreshMode(const DisplayRequest& request
     const bool useQualityMode = request.quality || (fullEvery > 0 && nextTurn >= fullEvery);
     if (useQualityMode) {
         readerPageTurnCount_ = 0;
+#if !VINK_USE_EPDIY_BACKEND
         M5.Display.setColorDepth(kTextColorDepthHigh);
+#endif
         return kQualityRefresh;
     }
 
     readerPageTurnCount_ = nextTurn;
+#if !VINK_USE_EPDIY_BACKEND
     M5.Display.setColorDepth(kTextColorDepthHigh);
+#endif
     return normalMode;
 }
 
@@ -471,11 +475,15 @@ epd_mode_t DisplayService::chooseRefreshMode(const DisplayRequest& request) {
 
     if (useQualityMode) {
         pushCount_ = 0;
+#if !VINK_USE_EPDIY_BACKEND
         M5.Display.setColorDepth(kTextColorDepthHigh);
+#endif
         return kQualityRefresh;
     }
 
+#if !VINK_USE_EPDIY_BACKEND
     M5.Display.setColorDepth(kTextColorDepthHigh);
+#endif
     return kNormalRefresh;
 }
 
@@ -485,14 +493,7 @@ void DisplayService::push(const DisplayRequest& request, M5Canvas* canvasToPush)
     busy_ = true;
     g_inDisplayPush = true;
 
-#if VINK_USE_EPDIY_BACKEND
-    // Once the epdiy backend has initialized the LCD/RMT/GDMA renderer, avoid
-    // touching M5GFX Panel_EPD wait paths. M5GFX still owns touch/system setup,
-    // but the EPD bus is now owned by epdiy for this validation build.
-    if (!g_epdiyPaperS3Backend.isReady()) {
-        M5.Display.waitDisplay();
-    }
-#else
+#if !VINK_USE_EPDIY_BACKEND
     M5.Display.waitDisplay();
 #endif
 

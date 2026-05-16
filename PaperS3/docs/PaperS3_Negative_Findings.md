@@ -139,3 +139,36 @@
 - `prepare_update(strip)` 里 `raw0/raw1/d0..d3` 是否只限 strip，是否在尾段扩大到整页。
 - 是否需要记录每次 `run_cycle()` 的 `upd.x/w`、phase/step、mode，确认后闪来源。
 - 如果继续追 EDCBook，应考虑 phase/progression 层级，而不是继续只调 strip 数量。
+
+### 13. 在 M5GFX Panel_EPD clean-room scroll 中使用明显 per-row source offset
+
+**结论：当前 M5GFX 实验路径会造成真机可见斜线，不能作为默认路径。**
+
+2026-05-16 真机反馈，版本：`v0.4.38-rc`。现象：翻页不是直的一条，而是斜的；新页模糊，触屏响应也被长刷新窗口拖慢。
+
+原因判断：`build_edcbook_row_offset()` 把每个输出行映射到不同的 source bucket，顶部先行、底部滞后，视觉上自然形成左上到右下的斜线波前。这不是 EDCBook 证据直接证明的安全做法，而是 M5GFX clean-room 近似过度。
+
+处理：恢复/修复时，M5GFX recovery build 先让 `build_edcbook_row_offset()` 返回 `0`，保证波前竖直；未来若继续探索 row offset，必须在 epdiy phase/progression 层级做小幅验证，不能在 M5GFX source-bucket 层直接拉大行偏移。
+
+### 14. epdiy backend 与 M5GFX Panel_EPD 同时持有 ED047TC1 总线
+
+**结论：禁止共存。**
+
+`M5.begin()` 会为 PaperS3 创建 `Panel_EPD`、`Bus_EPD`、esp_lcd i80 bus、Panel_EPD worker task；epdiy backend 再初始化 `epd_lcd_init()` 会再次配置同一组 ED047TC1 GPIO/LCD/RMT/GDMA 资源。两个驱动共持同一总线时，strict epdiy 包很可能表现为开机后无显示/保留旧屏。
+
+后续要求：如果使用 epdiy backend，必须先显式停止 M5GFX Panel_EPD worker、删除 update queue、释放 `esp_lcd_panel_io` 与 `i80_bus`，再调用 `epd_init()`。这不是回退问题，是总线所有权问题。
+
+### 15. EDCBook 不是完全舍弃 M5Unified，而是分离平台初始化与 EPD 所有权
+
+**结论：M5Unified 可以用于平台服务，但 M5GFX 显示输出不能再参与 EPD 刷新。**
+
+2026-05-16 进一步审计 EDCBook v2.0.0：二进制中有 `[Boot] after M5.begin t=%ums`，并且配置字节符合 `clear_display=false, output_power=true, pmic_button=true, internal_imu=true` 的 `M5Unified::config_t` 布局。因此 EDCBook 很可能仍调用 `M5.begin(cfg)` 做板级/I2C/触摸/按钮/电源辅助初始化。
+
+但显示更新证据全部指向 epdiy：`epd_hl_init`、`epd_hl_get_framebuffer`、`epd_hl_update_area_ex`、`epd_lcd_init`、`epd_renderer_init`、`epd_draw_base_scroll`、`/lib/epdiy/src/output_lcd/lcd_driver.c`。没有找到 `Panel_EPD` / `Bus_EPD` 作为活跃刷新路径的证据。
+
+Vink 正确边界：
+
+- 允许 `M5.begin(clear_display=false)` 负责平台服务初始化。
+- epdiy 初始化前必须隔离/释放 M5GFX 的 PaperS3 `Panel_EPD` 总线占用（如果 M5Unified 构造了它）。
+- epdiy ready 后禁止再调用 `M5.Display.*` 物理刷新路径。
+- UI 只生成 framebuffer；EPD 刷新、diff、scroll/page-turn 全部进入 epdiy backend。

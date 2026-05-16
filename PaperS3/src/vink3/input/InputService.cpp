@@ -63,7 +63,7 @@ bool InputService::begin(StateMachine* stateMachine) {
     stateMachine_ = stateMachine;
 
     if (!task_) {
-        BaseType_t ok = xTaskCreatePinnedToCore(taskThunk, "vink3-input", 8192, this, 3, &task_, 1);
+        BaseType_t ok = xTaskCreatePinnedToCore(taskThunk, "vink3-input", 8192, this, 4, &task_, 0);
         if (ok != pdPASS) {
             task_ = nullptr;
             return false;
@@ -216,9 +216,14 @@ void InputService::pollTouch(uint32_t now) {
             pendingReaderTurnNext_ = next;
             pendingReaderTurnPoint_ = currentPoint;
             pendingReaderTurnRawPoint_ = rawPoint;
+            resetTouchGesture();
+            return;
         }
-        resetTouchGesture();
-        return;
+        // Do not globally swallow UI taps while the EPD is refreshing.  v0.4.38
+        // real-device testing showed that a long display-push window made tabs
+        // and buttons feel dead.  Reader body page-turns still use the pending
+        // intent path above; ordinary UI gestures continue through the normal
+        // state-machine queue and will schedule the next display update.
     }
 
     if (waitRelease_ || now < suppressUntilMs_) {
