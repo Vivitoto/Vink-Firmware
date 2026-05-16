@@ -240,7 +240,37 @@ enum EpdDrawError epd_hl_update_area_ex(
         scroll_offsets, scroll_count, scroll_direction
     );
 
-    // Scroll sweep done. Skip back_fb sync so the final quality pushSprite
-    // sees front_fb ≠ back_fb and runs a full proper cleanup refresh.
-    return err;
+    if (err != EPD_DRAW_SUCCESS) {
+        return err;
+    }
+
+    // Keep the high-level front/back model coherent after a successful scroll.
+    // EDCBook's scroll path starts from a front/back diff; leaving back_fb stale
+    // would make the next page turn compare against an older page and overdrive
+    // pixels unrelated to the current transition.
+    const int buf_width = epd_width();
+    for (int l = diff_area.y; l < diff_area.y + diff_area.height; l++) {
+        if (state->dirty_lines[l] > 0) {
+            uint8_t* lfb = state->front_fb + buf_width / 2 * l;
+            uint8_t* lbb = state->back_fb + buf_width / 2 * l;
+
+            int x = diff_area.x;
+            int x_last = diff_area.x + diff_area.width - 1;
+
+            if (x % 2) {
+                *(lbb + x / 2) = (*(lfb + x / 2) & 0xF0) | (*(lbb + x / 2) & 0x0F);
+                x += 1;
+            }
+
+            if (!(x_last % 2)) {
+                *(lbb + x_last / 2) = (*(lfb + x_last / 2) & 0x0F) | (*(lbb + x_last / 2) & 0xF0);
+                x_last -= 1;
+            }
+
+            if (x <= x_last) {
+                memcpy(lbb + (x / 2), lfb + (x / 2), (x_last - x + 1) / 2);
+            }
+        }
+    }
+    return EPD_DRAW_SUCCESS;
 }

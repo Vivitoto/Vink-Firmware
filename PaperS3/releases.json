@@ -5,6 +5,21 @@
   "description": "面向 M5Stack PaperS3 的 Vink 电子书阅读固件。",
   "releases": [
     {
+      "version": "v0.4.39-rc",
+      "name": "Vink-PaperS3 v0.4.39-rc epdiy 架构真机验证包",
+      "date": "2026-05-16",
+      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.39-rc",
+      "changelog": "## Vink-PaperS3 v0.4.39-rc\n\n### epdiy 架构级真机验证包\n- 本版用于验证 PaperS3 是否可以从 M5GFX `Panel_EPD` 切到架构级 epdiy backend。\n- 默认启用 `VINK_USE_EPDIY_BACKEND=1` 编译路径，显示刷新走 `epd_hl_update_area()` / `epd_hl_update_area_ex()`，用于确认后续接入 `epd_draw_base_scroll()` 的硬件基础。\n- 本烧录包同时启用 `VINK_EPDIY_STRICT=1`，如果 epdiy backend 失败不会回退到 M5GFX，避免把 M5GFX 正常显示误判为 epdiy 验证通过。\n- 新增 PaperS3 epdiy board：`epd_board_m5papers3.c`，使用官方/M5GFX 交叉确认的 ED047TC1 8-bit 并口映射：DB0..DB7 = G6/G14/G7/G12/G9/G11/G8/G10。\n- 控制脚按官方文档、原理图与 M5GFX 对齐：XSTL G13、XLE G15、SPV G17、CKV G18、XCL G16、GPIO45 作为 XOE/官方 PWR 网、GPIO46 作为 BST_EN。\n- 先采用 M5GFX PaperS3 已验证的 16MHz LCD pixel clock，而不是直接使用 epdiy ED047TC1 的 20MHz 默认值，降低首次真机黑屏/线噪风险。\n- 保留默认 M5GFX 路径在源码中作为回退，但此 RC 包本身用于烧录验证 epdiy opt-in 路径。\n\n### EDCBook clean-room 对照修正\n- 推送前重新对照 EDCBook 逆向结论：front/back diff、dirty lines/columns、scroll mask、renderer 内部 progression，而不是只做上层 strip。\n- epdiy backend 初始化后避免继续调用 M5GFX `Panel_EPD::waitDisplay()`，降低 LCD/RMT/GDMA 接管后的双驱动冲突风险。\n- `epd_hl_update_area_ex()` 成功后同步 back framebuffer，避免下一次翻页拿更旧页面做 diff。\n- scroll strip mask 与 dirty-column mask 相交，只驱动本次前后帧变化的列，减少无关像素被扫。\n- 修正 dirty crop `max_x` nibble parity 计算，避免奇偶半字节裁剪错误。\n\n### 验证重点\n- 开机是否正常出图，是否黑屏/花屏/方向错误。\n- 首页/设置/阅读页灰阶是否黑白反相或过浅。\n- 全刷、局刷、翻页是否触发，是否卡死或重启。\n- 翻页方向、旧字残影、速度与 M5GFX 备份版差异。\n\n### 本地验证\n- python3 tests/local_firmware_smoke.py 通过。\n- PLATFORMIO_BUILD_FLAGS='-DVINK_USE_EPDIY_BACKEND=1 -DVINK_EPDIY_STRICT=1' pio run -e m5papers3 通过。\n- full 16MB 固件包重新生成。\n",
+      "assets": {
+        "full": {
+          "name": "Vink-PaperS3-v0.4.39-rc-epdiy-arch-full-16MB.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.39-rc/Vink-PaperS3-v0.4.39-rc-epdiy-arch-full-16MB.bin",
+          "size": 16777216,
+          "flashOffset": 0
+        }
+      }
+    },
+    {
       "version": "v0.4.38-rc",
       "name": "Vink-PaperS3 v0.4.38-rc",
       "date": "2026-05-16",
@@ -74,21 +89,6 @@
         "full": {
           "name": "Vink-PaperS3-v0.4.34-rc-oneburn-expsuite-full-16MB.bin",
           "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.34-rc/Vink-PaperS3-v0.4.34-rc-oneburn-expsuite-full-16MB.bin",
-          "size": 16777216,
-          "flashOffset": 0
-        }
-      }
-    },
-    {
-      "version": "v0.4.33-rc",
-      "name": "Vink-PaperS3 v0.4.33-rc",
-      "date": "2026-05-15",
-      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.33-rc",
-      "changelog": "## Vink-PaperS3 v0.4.33-rc\n\n> SHA256: `0450ab93e7df8c8c4f793281f4e4a2cf14a2f4cc9a9e0150a7b4e1b3992ee823`\n\n### 抗锯齿保护型翻页 LUT\n- 根据 v0.4.32-rc 真机反馈修正：翻页速度太慢、抗锯齿灰阶变硬、残影像墨迹渗开。\n- `lut_page_turn` 改为 AA-preserving：黑字核心短多相位黑驱动，中灰抗锯齿边缘保持 no-op，近白背景 cleanup 延后到尾段，避免早期白色擦除波前和灰边被洗淡。\n- 减少可见相位，从 7 相位降到 3 相位，降低每条带扫描次数；白底尾段在后两相位集中处理。\n- 翻页档位改为按真实条带数提速：清晰=64px（约 9 条带）、均衡=108px（5 条带）、快速=180px（3 条带）；默认均衡，避免小条带导致整屏重复扫描太多次。\n- 保留设备端设置页与 WebUI 的翻页档位切换，阅读菜单仍只控制翻页动画开关。\n- 设置页/阅读设置/系统设置支持上下滑动，内容区裁剪滚动，不显示页码，避免设置项超出屏幕。\n",
-      "assets": {
-        "full": {
-          "name": "Vink-PaperS3-v0.4.33-rc-aa-preserve-full-16MB.bin",
-          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.33-rc/Vink-PaperS3-v0.4.33-rc-aa-preserve-full-16MB.bin",
           "size": 16777216,
           "flashOffset": 0
         }

@@ -1,8 +1,16 @@
 #include "DisplayService.h"
+#include "EpdiyPaperS3Backend.h"
 #include <algorithm>
 #include <cstring>
 #include <Preferences.h>
 #include <lgfx/v1/platforms/esp32/Panel_EPD.hpp>
+
+#ifndef VINK_USE_EPDIY_BACKEND
+#define VINK_USE_EPDIY_BACKEND 0
+#endif
+#ifndef VINK_EPDIY_STRICT
+#define VINK_EPDIY_STRICT 0
+#endif
 
 namespace vink3 {
 
@@ -45,7 +53,11 @@ bool DisplayService::begin(M5Canvas* canvas, uint8_t queueLen) {
         }
     }
     loadLocalSettings();
+#if VINK_USE_EPDIY_BACKEND
+    Serial.println("[vink3][display] service started with EXPERIMENTAL epdiy architecture backend");
+#else
     Serial.println("[vink3][display] service started on official M5.Display path");
+#endif
     return true;
 }
 
@@ -107,7 +119,13 @@ bool DisplayService::waitIdle(uint32_t timeoutMs) const {
         if (millis() - start >= timeoutMs) return false;
         delay(10);
     }
+#if VINK_USE_EPDIY_BACKEND
+    if (!g_epdiyPaperS3Backend.isReady()) {
+        M5.Display.waitDisplay();
+    }
+#else
     M5.Display.waitDisplay();
+#endif
     return true;
 }
 
@@ -467,10 +485,37 @@ void DisplayService::push(const DisplayRequest& request, M5Canvas* canvasToPush)
     busy_ = true;
     g_inDisplayPush = true;
 
+#if VINK_USE_EPDIY_BACKEND
+    // Once the epdiy backend has initialized the LCD/RMT/GDMA renderer, avoid
+    // touching M5GFX Panel_EPD wait paths. M5GFX still owns touch/system setup,
+    // but the EPD bus is now owned by epdiy for this validation build.
+    if (!g_epdiyPaperS3Backend.isReady()) {
+        M5.Display.waitDisplay();
+    }
+#else
     M5.Display.waitDisplay();
+#endif
 
     if (request.readerPageTurn && request.effect != DisplayEffect::None) {
         const epd_mode_t readerMode = chooseReaderRefreshMode(request);
+#if VINK_USE_EPDIY_BACKEND
+        if (!g_epdiyPaperS3Backend.pushPageTurn(canvasToPush, request.effect, readerMode == kQualityRefresh,
+                                                pageTurnBandSeed(), pageTurnResidueCompensation())) {
+#if VINK_EPDIY_STRICT
+            Serial.println("[vink3][display] epdiy page-turn failed; strict validation build will not fall back to M5GFX");
+#else
+            Serial.println("[vink3][display] epdiy page-turn failed; falling back to M5GFX path");
+            if (readerMode == kQualityRefresh) {
+                M5.Display.setColorDepth(kTextColorDepthHigh);
+                M5.Display.setEpdMode(readerMode);
+                canvasToPush->pushSprite(&M5.Display, 0, 0);
+                M5.Display.waitDisplay();
+            } else if (request.effect == DisplayEffect::VerticalShutter || request.effect == DisplayEffect::HorizontalShutter) {
+                pushEdcBookPageTurn(canvasToPush, request.effect, pageTurnScrollMode(readerMode));
+            }
+#endif
+        }
+#else
         if (readerMode == kQualityRefresh) {
             M5.Display.setColorDepth(kTextColorDepthHigh);
             M5.Display.setEpdMode(readerMode);
@@ -481,11 +526,30 @@ void DisplayService::push(const DisplayRequest& request, M5Canvas* canvasToPush)
             // the EDCBook/M5ReadPaper-derived portrait band baseline.
             pushEdcBookPageTurn(canvasToPush, request.effect, pageTurnScrollMode(readerMode));
         }
+#endif
         pushCount_++;
         g_inDisplayPush = false;
         busy_ = false;
         return;
     }
+
+#if VINK_USE_EPDIY_BACKEND
+    if (g_epdiyPaperS3Backend.pushCanvas(canvasToPush, request.quality)) {
+        pushCount_++;
+        g_inDisplayPush = false;
+        busy_ = false;
+        return;
+    }
+#if VINK_EPDIY_STRICT
+    Serial.println("[vink3][display] epdiy full update failed; strict validation build will not fall back to M5GFX");
+    pushCount_++;
+    g_inDisplayPush = false;
+    busy_ = false;
+    return;
+#else
+    Serial.println("[vink3][display] epdiy full update failed; falling back to M5GFX path");
+#endif
+#endif
 
     M5.Display.setColorDepth(kTextColorDepthHigh);
     M5.Display.setEpdMode(chooseRefreshMode(request));

@@ -242,10 +242,21 @@ enum EpdDrawError epd_draw_base_scroll(
         render_context.current_frame = 0;
         render_context.cycle_frames = frames;
 
-        // Set line mask for only this strip's pixel columns
-        memset(render_context.line_mask, 0, render_context.display_width / 4);
-        for (int px = sx; px < sx + sw; px++)
-            render_context.line_mask[px / 4] |= (0x03 << ((px % 4) * 2));
+        // EDCBook-style scroll should still honor the front/back diff mask:
+        // drive only pixels that changed, intersected with the current strip.
+        const int mask_len = render_context.display_width / 4;
+        epd_populate_line_mask(render_context.line_mask, drawn_columns, mask_len);
+        for (int b = 0; b < mask_len; ++b) {
+            uint8_t strip_mask = 0;
+            const int base_px = b * 4;
+            for (int p = 0; p < 4; ++p) {
+                const int px = base_px + p;
+                if (px >= sx && px < sx + sw) {
+                    strip_mask |= (uint8_t)(0x03 << (p * 2));
+                }
+            }
+            render_context.line_mask[b] &= strip_mask;
+        }
 
         if (si == 0) epd_set_mode(1);
         lcd_do_update_frames(&render_context);
@@ -529,7 +540,7 @@ EpdRect epd_difference_image_base(
             break;
     }
     for (max_x = x_end - 1; max_x >= crop_to.x; max_x--) {
-        uint8_t mask = min_x % 2 ? 0xF0 : 0x0F;
+        uint8_t mask = max_x % 2 ? 0xF0 : 0x0F;
         if ((col_dirtyness[max_x / 2] & mask) != 0)
             break;
     }
