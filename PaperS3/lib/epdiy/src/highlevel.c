@@ -194,6 +194,73 @@ enum EpdDrawError epd_hl_update_area(
     return err;
 }
 
+enum EpdDrawError epd_hl_update_area_frames(
+    EpdiyHighlevelState* state, enum EpdDrawMode mode, int temperature, EpdRect area, int max_frames
+) {
+    assert(state != NULL);
+    if (max_frames <= 0) {
+        return epd_hl_update_area(state, mode, temperature, area);
+    }
+
+    EpdRect rotated_area = _inverse_rotated_area(area.x, area.y, area.width, area.height);
+    area.x = rotated_area.x;
+    area.y = rotated_area.y;
+    area.width = rotated_area.width;
+    area.height = rotated_area.height;
+
+    uint32_t ts = esp_timer_get_time() / 1000;
+    EpdRect diff_area = epd_difference_image_cropped(
+        state->front_fb,
+        state->back_fb,
+        area,
+        state->difference_fb,
+        state->dirty_lines,
+        state->dirty_columns
+    );
+
+    if (diff_area.height == 0 || diff_area.width == 0) {
+        return EPD_DRAW_SUCCESS;
+    }
+
+    uint32_t t1 = esp_timer_get_time() / 1000;
+    diff_area.x = 0;
+    diff_area.y = 0;
+    diff_area.width = epd_width();
+    diff_area.height = epd_height();
+
+    enum EpdDrawError err = epd_draw_base_frames(
+        epd_full_screen(),
+        state->difference_fb,
+        diff_area,
+        MODE_PACKING_1PPB_DIFFERENCE | mode,
+        temperature,
+        state->dirty_lines,
+        state->dirty_columns,
+        state->waveform,
+        max_frames
+    );
+
+    uint32_t t2 = esp_timer_get_time() / 1000;
+    if (err == EPD_DRAW_SUCCESS) {
+        // The caller supplied a complete spatial transition frame.  Keep the
+        // high-level front/back model aligned with what we just drove so the
+        // next short frame is a diff from the previous intermediate page.
+        memcpy(state->back_fb, state->front_fb, epd_width() / 2 * epd_height());
+    }
+    uint32_t t3 = esp_timer_get_time() / 1000;
+
+    ESP_LOGI(
+        "epdiy",
+        "short diff: %dms, draw(%d frames): %dms, buffer update: %dms, total: %dms",
+        t1 - ts,
+        max_frames,
+        t2 - t1,
+        t3 - t2,
+        t3 - ts
+    );
+    return err;
+}
+
 void epd_hl_set_all_white(EpdiyHighlevelState* state) {
     assert(state != NULL);
     int fb_size = epd_width() / 2 * epd_height();

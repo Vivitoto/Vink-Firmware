@@ -5,90 +5,94 @@
   "description": "面向 M5Stack PaperS3 的 Vink 电子书阅读固件。",
   "releases": [
     {
-      "version": "v0.4.40-rc",
-      "name": "Vink-PaperS3 v0.4.40-rc EDCBook 所有权修复验证包",
-      "date": "2026-05-16",
-      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.40-rc",
-      "changelog": "## Vink-PaperS3 v0.4.40-rc\n\n### EDCBook 初始化所有权对齐\n- 重新审计 EDCBook v2.0.0：`M5.begin(clear_display=false)` 用于平台/触摸/电源辅助初始化，但活跃 EPD 刷新走 epdiy highlevel/LCD renderer。\n- 保留 Vink 的 M5Unified 平台初始化，避免完全绕开 M5Unified 导致触摸/电源地基偏离 EDCBook。\n- epdiy backend 初始化前显式释放 M5GFX PaperS3 `Panel_EPD` worker、update queue、`esp_lcd_panel_io` 与 i80 bus，防止 M5GFX 与 epdiy 同时持有 ED047TC1 总线。\n- epdiy ready 后显示刷新不再触碰 M5GFX `Panel_EPD::waitDisplay()`；strict build 继续禁止 fallback，避免误判 M5GFX 显示为 epdiy 成功。\n\n### v0.4.38 真机反馈修正\n- 输入任务移到 core 0 / priority 4，降低 EPD worker 长刷新时饿死触摸轮询的概率。\n- `g_inDisplayPush` 期间不再全局吞普通 UI 点击；阅读正文翻页区仍保留一次 pending page-turn 意图。\n- M5GFX clean-room scroll 的 per-row source offset 暂时置零，优先恢复直线波前，避免 v0.4.38 出现的明显斜线翻页。\n- 短波形 active frame 从 2/3 提高到 3/4，作为最小清晰度补强；真正 EDCBook 效果仍以 epdiy pipeline 为目标。\n\n### 本地验证\n- python3 tests/local_firmware_smoke.py 通过。\n- pio run 通过。\n- ./tools/build_full_firmware.sh 通过。\n- full 16MB 固件包重新生成。\n",
+      "version": "v0.4.51-rc",
+      "name": "Vink-PaperS3 v0.4.51-rc EDCBook cover-line 验证包",
+      "date": "2026-05-17",
+      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.51-rc",
+      "changelog": "## Vink-PaperS3 v0.4.51-rc\n\n### EDCBook 覆盖推进线翻页\n- 根据用户进一步澄清，EDCBook 更像一条推进线把新页面覆盖到旧页面上，而不是旧页滑出、新页滑入的双页平移动画。\n- 默认 epdiy 翻页从 fused slide-diff 改为 fused cover-diff：旧页保持原地；下一页时新页按最终坐标从右向左覆盖旧页，上一页时新页从左向右覆盖旧页。\n- `composeHorizontalPageCoverFrame()` 替代旧的 slide compositor；M5GFX fallback 也保持同一 cover-line 语义。\n- `EpdiyPaperS3Backend::buildPageCoverDifferenceFrame()` 直接比较当前覆盖状态与上一覆盖状态，生成 epdiy `MODE_PACKING_1PPB_DIFFERENCE`、dirty_lines、dirty_columns。\n- `pushPageCoverFrame()` 继续直接调用 `epd_draw_base_frames()`，保留 v0.4.50 的 fused diff 短热路径：不建 RGB565 临时 transition canvas，不走 highlevel 每步全屏 diff，不做每步 back_fb memcpy。\n- 仍保留短 physical frame window：Fast/Balanced 每步 2 frames，Clean 每步 3 frames。\n\n### 本地验证\n- python3 tests/local_firmware_smoke.py 通过。\n- pio run -e m5papers3 通过。\n- strict epdiy full 16MB build 通过。\n- full 16MB 固件包 SHA256: `cf1a585a551d468ef495570d2d2500afcc24cbc181f4e6491cea9fdfa78faf7a`。\n",
       "assets": {
         "full": {
-          "name": "Vink-PaperS3-v0.4.40-rc-edcbook-owner-full-16MB.bin",
-          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.40-rc/Vink-PaperS3-v0.4.40-rc-edcbook-owner-full-16MB.bin",
+          "name": "Vink-PaperS3-v0.4.51-rc-edcbook-cover-line-full-16MB.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.51-rc/Vink-PaperS3-v0.4.51-rc-edcbook-cover-line-full-16MB.bin",
+          "size": 16777216,
+          "flashOffset": 0,
+          "sha256": "cf1a585a551d468ef495570d2d2500afcc24cbc181f4e6491cea9fdfa78faf7a"
+        }
+      }
+    },
+    {
+      "version": "v0.4.50-rc",
+      "name": "Vink-PaperS3 v0.4.50-rc EDCBook fused-diff slide 验证包",
+      "date": "2026-05-17",
+      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.50-rc",
+      "changelog": "## Vink-PaperS3 v0.4.50-rc\n\n### EDCBook 翻页热路径继续融合\n- v0.4.49 已去掉 RGB565 临时 transition canvas，但每个短滑动 step 仍会走 highlevel 的 front_fb/back_fb 全屏 diff，并在成功后 memcpy back_fb。\n- 本版新增 fused slide-diff：直接根据 old/new page 和当前 step/上一 step 生成 epdiy `MODE_PACKING_1PPB_DIFFERENCE` difference frame、dirty_lines、dirty_columns。\n- `pushPageSlideFrame()` 现在直接调用 `epd_draw_base_frames()`，绕过每 step 的 `epd_hl_update_area_frames()` 全屏 diff 和 per-step back_fb memcpy。\n- highlevel front/back 状态只在整个页翻完成后同步一次，减少每步约 259KB back_fb copy 和一次全屏 diff pass。\n- 仍保留短 physical frame window：Fast/Balanced 每步 2 frames，Clean 每步 3 frames。\n\n### 本地验证\n- python3 tests/local_firmware_smoke.py 通过。\n- pio run -e m5papers3 通过。\n- strict epdiy full 16MB build 通过。\n- full 16MB 固件包 SHA256: `d62719103ce61af54906054a3adff0a0ddb7a321f5cd5ed80f665bbe73aa4291`。\n",
+      "assets": {
+        "full": {
+          "name": "Vink-PaperS3-v0.4.50-rc-edcbook-fused-diff-slide-full-16MB.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.50-rc/Vink-PaperS3-v0.4.50-rc-edcbook-fused-diff-slide-full-16MB.bin",
+          "size": 16777216,
+          "flashOffset": 0,
+          "sha256": "d62719103ce61af54906054a3adff0a0ddb7a321f5cd5ed80f665bbe73aa4291"
+        }
+      }
+    },
+    {
+      "version": "v0.4.49-rc",
+      "name": "Vink-PaperS3 v0.4.49-rc EDCBook native short-slide 验证包",
+      "date": "2026-05-17",
+      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.49-rc",
+      "changelog": "## Vink-PaperS3 v0.4.49-rc\n\n### EDCBook 翻页继续压榨\n- v0.4.48 已把每个 transition target 改成短物理 waveform window，但仍然先在 app 层合成完整 RGB565 transition canvas，再整屏转换进 epdiy 4bpp framebuffer。\n- 本版去掉 epdiy 翻页热路径里的 RGB565 临时 transition canvas：old/new 页面按空间滑动关系直接合成到 epdiy native 4bpp landscape framebuffer。\n- 新增 `EpdiyPaperS3Backend::pushPageSlideFrame()` / `copyPageSlideToFrontFramebuffer()`：每个短帧窗口直接完成 old/new source remap + RGB565->gray4 + PaperS3 portrait->ED047TC1 landscape packing。\n- 保留 v0.4.48 的短 physical frame window：Fast/Balanced 每步 2 frames，Clean 每步 3 frames。\n- 这版减少每个翻页 step 的大块 PSRAM RGB565 写入和二次 full-screen 转换，目标是继续逼近 EDCBook 翻页速度，而不退回 fixed-position wipe。\n\n### 本地验证\n- python3 tests/local_firmware_smoke.py 通过。\n- pio run -e m5papers3 通过。\n- strict epdiy full 16MB build 通过。\n- full 16MB 固件包 SHA256: `862291950b2afddafff609f2374b14638c273c80c649b3092fad2b502f62ec67`。\n",
+      "assets": {
+        "full": {
+          "name": "Vink-PaperS3-v0.4.49-rc-edcbook-native-short-slide-full-16MB.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.49-rc/Vink-PaperS3-v0.4.49-rc-edcbook-native-short-slide-full-16MB.bin",
+          "size": 16777216,
+          "flashOffset": 0,
+          "sha256": "862291950b2afddafff609f2374b14638c273c80c649b3092fad2b502f62ec67"
+        }
+      }
+    },
+    {
+      "version": "v0.4.48-rc",
+      "name": "Vink-PaperS3 v0.4.48-rc EDCBook short-frame slide 验证包",
+      "date": "2026-05-17",
+      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.48-rc",
+      "changelog": "## Vink-PaperS3 v0.4.48-rc\n\n### EDCBook 级速度纠偏\n- v0.4.47 的视觉语义对了，但每个中间页都跑完整 epdiy update，速度必然不接近 EDCBook。\n- 本版保留 old/new 空间重映射的整页滑动语义，但把每个 transition target 改为短物理帧窗口，而不是完整 30-phase GL16/GC16。\n- 新增 `epd_draw_base_frames()` / `epd_hl_update_area_frames()`：可对 difference image 只驱动前 N 个 waveform physical frames。\n- 新增 `EpdiyPaperS3Backend::pushCanvasFrames()`；epdiy true page-slide 每步调用短帧更新。\n- Fast/Balanced 每个空间 transition step 默认 2 个 physical frames；Clean 默认 3 个 physical frames。目标是接近 EDCBook 的短帧翻页，而不是 v0.4.47 的多次完整刷新。\n- fixed-position wipe 仍不作为默认目标；如果需要继续提速，下一步是把 spatial remap 进一步下沉到 render_lcd line renderer，而不是退回 wipe。\n\n### 本地验证\n- python3 tests/local_firmware_smoke.py 通过。\n- pio run -e m5papers3 通过。\n- strict epdiy full 16MB build 通过。\n- full 16MB 固件包 SHA256: `b69d3eb9d6992cd2918c0e69ea03c638e554ca0bb01babc5488bdce525921013`。\n",
+      "assets": {
+        "full": {
+          "name": "Vink-PaperS3-v0.4.48-rc-edcbook-short-frame-slide-full-16MB.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.48-rc/Vink-PaperS3-v0.4.48-rc-edcbook-short-frame-slide-full-16MB.bin",
+          "size": 16777216,
+          "flashOffset": 0,
+          "sha256": "b69d3eb9d6992cd2918c0e69ea03c638e554ca0bb01babc5488bdce525921013"
+        }
+      }
+    },
+    {
+      "version": "v0.4.47-rc",
+      "name": "Vink-PaperS3 v0.4.47-rc EDCBook true page-slide 验证包",
+      "date": "2026-05-17",
+      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.47-rc",
+      "changelog": "## Vink-PaperS3 v0.4.47-rc\n\n### EDCBook 效果纠偏\n- 明确停止把 fixed-position bucket phase progression / wipe 当成目标效果。用户要求的是 EDCBook/M5ReadPaper 那种整页内容空间滑动。\n- epdiy reader page-turn 默认改走 true page-slide compositor：每个中间阶段都由 old page + new page 按横向位移合成完整 540x960 页面，再交给 epdiy 更新。\n- 新增共享的 `composeHorizontalPageSlideFrame()`，M5GFX compositor 与 epdiy compositor 共用同一套 old/new spatial remap 逻辑，避免两条路径效果不一致。\n- epdiy 普通整页更新成功后会记住 lastDisplayedCanvas，保证下一次页翻有真实旧页作为滑动来源。\n- strict epdiy 构建中，如果 true page-slide 失败，不再回退到固定位置 wipe 或 M5GFX，避免把非 EDCBook 效果误认为成功。\n\n### 说明\n- 这版优先保证视觉语义正确：内容真的按 old/new 页面空间重映射滑动。\n- 代价是每个中间帧都是一次完整 epdiy update，可能比最终 renderer-level EDCBook 实现慢。后续优化应把这个 spatial remap 下沉到 renderer/transition-byte 层，而不是回到 wipe。\n\n### 本地验证\n- python3 tests/local_firmware_smoke.py 通过。\n- pio run -e m5papers3 通过。\n- strict epdiy full 16MB build 通过。\n- full 16MB 固件包 SHA256: d06b9ba807c98380c1488a54e9761260f1e65342b9664cdfe166b2055509ce57。\n",
+      "assets": {
+        "full": {
+          "name": "Vink-PaperS3-v0.4.47-rc-edcbook-true-slide-full-16MB.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.47-rc/Vink-PaperS3-v0.4.47-rc-edcbook-true-slide-full-16MB.bin",
           "size": 16777216,
           "flashOffset": 0
         }
       }
     },
     {
-      "version": "v0.4.39-rc",
-      "name": "Vink-PaperS3 v0.4.39-rc epdiy 架构真机验证包",
-      "date": "2026-05-16",
-      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.39-rc",
-      "changelog": "## Vink-PaperS3 v0.4.39-rc\n\n### epdiy 架构级真机验证包\n- 本版用于验证 PaperS3 是否可以从 M5GFX `Panel_EPD` 切到架构级 epdiy backend。\n- 默认启用 `VINK_USE_EPDIY_BACKEND=1` 编译路径，显示刷新走 `epd_hl_update_area()` / `epd_hl_update_area_ex()`，用于确认后续接入 `epd_draw_base_scroll()` 的硬件基础。\n- 本烧录包同时启用 `VINK_EPDIY_STRICT=1`，如果 epdiy backend 失败不会回退到 M5GFX，避免把 M5GFX 正常显示误判为 epdiy 验证通过。\n- 新增 PaperS3 epdiy board：`epd_board_m5papers3.c`，使用官方/M5GFX 交叉确认的 ED047TC1 8-bit 并口映射：DB0..DB7 = G6/G14/G7/G12/G9/G11/G8/G10。\n- 控制脚按官方文档、原理图与 M5GFX 对齐：XSTL G13、XLE G15、SPV G17、CKV G18、XCL G16、GPIO45 作为 XOE/官方 PWR 网、GPIO46 作为 BST_EN。\n- 先采用 M5GFX PaperS3 已验证的 16MHz LCD pixel clock，而不是直接使用 epdiy ED047TC1 的 20MHz 默认值，降低首次真机黑屏/线噪风险。\n- 保留默认 M5GFX 路径在源码中作为回退，但此 RC 包本身用于烧录验证 epdiy opt-in 路径。\n\n### EDCBook clean-room 对照修正\n- 推送前重新对照 EDCBook 逆向结论：front/back diff、dirty lines/columns、scroll mask、renderer 内部 progression，而不是只做上层 strip。\n- epdiy backend 初始化后避免继续调用 M5GFX `Panel_EPD::waitDisplay()`，降低 LCD/RMT/GDMA 接管后的双驱动冲突风险。\n- `epd_hl_update_area_ex()` 成功后同步 back framebuffer，避免下一次翻页拿更旧页面做 diff。\n- scroll strip mask 与 dirty-column mask 相交，只驱动本次前后帧变化的列，减少无关像素被扫。\n- 修正 dirty crop `max_x` nibble parity 计算，避免奇偶半字节裁剪错误。\n\n### 验证重点\n- 开机是否正常出图，是否黑屏/花屏/方向错误。\n- 首页/设置/阅读页灰阶是否黑白反相或过浅。\n- 全刷、局刷、翻页是否触发，是否卡死或重启。\n- 翻页方向、旧字残影、速度与 M5GFX 备份版差异。\n\n### 本地验证\n- python3 tests/local_firmware_smoke.py 通过。\n- PLATFORMIO_BUILD_FLAGS='-DVINK_USE_EPDIY_BACKEND=1 -DVINK_EPDIY_STRICT=1' pio run -e m5papers3 通过。\n- full 16MB 固件包重新生成。\n",
+      "version": "v0.4.46-rc",
+      "name": "Vink-PaperS3 v0.4.46-rc epdiy 短窗口翻页验证包",
+      "date": "2026-05-17",
+      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.46-rc",
+      "changelog": "## Vink-PaperS3 v0.4.46-rc\n\n### epdiy renderer-level scroll 继续深挖\n- 继承 v0.4.45 的 renderer-level bucket phase progression：不回到 app-layer 多整帧 push，也不回到 strip-level whole-waveform loop。\n- 继续对照 EDCBook 逆向资料：EDCBook 普通翻页使用 `0..15` progression table，并有压缩的 scroll phase/window，而不是完整 30-phase GL16/GC16 长灰阶刷新。\n- ED047TC1 的 `MODE_GL16` / `MODE_GC16` 是 30 phase；直接用于移动翻页会让刷新窗口过长，容易产生尾段后闪和触摸阻塞。\n- 本版把 epdiy scroll active frames cap 到 `min(waveform_frames, 15)`：保留 old/new differential + dirty mask + renderer bucket progression，但避免把完整 30-phase cleanup 当移动动画。\n- 日志新增 `waveform_frames` 与 `active_frames`，便于真机串口确认实际窗口。\n- 修复 scroll physical frame timing：同一帧含多个 bucket-local phase 时，使用 active phases 的最大 `phase_times`，避免晚启动 bucket 欠驱动。\n- scroll 已预构建 per-phase LUT cache，`prepare_context_for_next_frame()` 不再重复 build 普通 LUT。\n- 增加 scroll bucket offset 16px 对齐/单调校验；非 LCD renderer 自动 fallback 到普通刷新。\n- 明确记录当前限制：这版仍是 renderer-level wavefront/wipe，不是完整 source-remap/transition-frame 空间滑页。\n\n### 验证重点\n- strict epdiy 路径是否正常开机出图。\n- 翻页是否比 v0.4.45 更短、更少尾闪。\n- 旧字残影是否可接受；如果残影偏重，下一步应调短 waveform/补偿，而不是回到 30-phase 或 app-layer 动画。\n\n### 本地验证\n- python3 tests/local_firmware_smoke.py 通过。\n- pio run -e m5papers3 通过。\n- strict epdiy full 16MB build 通过。\n- full 16MB 固件包重新生成，SHA256: 97f720eb4e94d9b5b1ba3b2bcef87cf0719839ca7f465695d05056a45704467e。\n",
       "assets": {
         "full": {
-          "name": "Vink-PaperS3-v0.4.39-rc-epdiy-arch-full-16MB.bin",
-          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.39-rc/Vink-PaperS3-v0.4.39-rc-epdiy-arch-full-16MB.bin",
-          "size": 16777216,
-          "flashOffset": 0
-        }
-      }
-    },
-    {
-      "version": "v0.4.38-rc",
-      "name": "Vink-PaperS3 v0.4.38-rc",
-      "date": "2026-05-16",
-      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.38-rc",
-      "changelog": "## Vink-PaperS3 v0.4.38-rc\n\n### M5GFX EDCBook-style 翻页备份版\n- 在当前 M5GFX `Panel_EPD` 架构内保留一版 clean-room EDCBook-style 过渡渲染，作为后续 epdiy 架构级复刻前的可烧录备份。\n- 翻页 worker 接入 transition=(new<<4)|old 的 1ppB difference buffer、dirty lines/columns、line mask、conversion LUT 与 crop/diff rect，减少无变化区域的 panel pulse。\n- Scroll offset 先转换到物理坐标再生成，DMA 行缓冲按物理 x 偏移写入，避免 logical/physical 混用。\n- 加入 EDCBook `row_offset_table` 思路的逐行 wavefront phase offset，翻页不再只是刚性竖条推进。\n- 保留每次翻页残影补偿档位：轻/中/强，独立于周期全刷频率，用于真机比较旧字消失区域清影强度。\n\n### 输入与阅读翻页基线\n- 触控回到 EDCBook/M5ReadPaper 风格固定 10ms `M5.update()` 轮询，避免 GT911 INT 边沿在 EPD busy 时丢失导致的点击不稳定。\n- 正文左右区域采用 press-down 快速翻页，刷新期间最多缓存一次翻页意图，降低快速阅读时点按被吞的概率。\n- 继续保持 Header/目录/设置等区域不走 eager 翻页，降低误触风险。\n\n### UI / WebUI\n- 阅读设置与 WebUI 暴露“翻页残影补偿”档位，方便单包真机对比。\n- 日志增加 EDCBook page-turn profile/residue/band 信息，方便根据真机反馈定位参数。\n\n### 说明\n- 本版是 M5GFX 架构内的备份/对照版本，不声称等同 EDCBook 原生 epdiy pipeline；后续将继续做架构级 epdiy backend 版本。\n\n### 验证\n- python3 tests/local_firmware_smoke.py 通过。\n- PlatformIO build 通过。\n- full 16MB 固件包重新生成。\n",
-      "assets": {
-        "full": {
-          "name": "Vink-PaperS3-v0.4.38-rc-full-16MB.bin",
-          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.38-rc/Vink-PaperS3-v0.4.38-rc-full-16MB.bin",
-          "size": 16777216,
-          "flashOffset": 0
-        }
-      }
-    },
-    {
-      "version": "v0.4.37-rc",
-      "name": "Vink-PaperS3 v0.4.37-rc",
-      "date": "2026-05-16",
-      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.37-rc",
-      "changelog": "## Vink-PaperS3 v0.4.37-rc\n\n### 触屏跟手性补强\n- 保留 v0.4.36-rc 的 GT911 GPIO48 中断触摸链路，在应用层加入 EDCBook 风格手势调校。\n- tap 抖动容忍从 30px 放宽到 50px，press debounce 从 25ms 降到 18ms，连续轻触和轻微手指漂移更容易被识别。\n- release 需要连续 3 帧无触摸才确认，避免 GT911/M5Unified 单帧丢点造成误抬手或误取消。\n- 正文阅读页左右 1/3 增加快速翻页路径：按下稳定约 35ms 即预触发上一页/下一页，release 会被吞掉以避免一次点翻两页。\n- EPD 刷新期间最多缓存一次正文左右翻页意图，刷新结束后补发，降低快速阅读点按被吞的概率。\n\n### SD TTF 性能与稳定性\n- 缓存 stb_truetype 的 fontinfo，避免每个 glyph/advance 重复初始化。\n- SD TTF 单字渲染改用复用 scratch buffer，减少每个字符 malloc/free 带来的 heap 抖动。\n- 修复扫描 SD 字体时 entry.name() 在 File.close() 后继续使用的生命周期风险。\n\n### 设计清理\n- 移除当前未启用的 ghost-compensation 用户设置/API 外露；本版明确使用 stable standard-LUT + 周期全刷清残影，避免真机测试时把无效旋钮误认为已生效。\n- 快速翻页消息增加 ReaderMenu/正文可见性二次校验，缓存翻页意图在状态变化后不会误投。\n\n### 保留 v0.4.36-rc 地基\n- 继续保留扩展窗口翻页动画、TAB 周期清残影、GT911 中断触摸、自动关机、CPU 变频和锁屏/解锁优化。\n\n### 验证\n- python3 tests/local_firmware_smoke.py 通过。\n- PlatformIO build 通过。\n- full 16MB 固件包重新生成。\n",
-      "assets": {
-        "full": {
-          "name": "Vink-PaperS3-v0.4.37-rc-full-16MB.bin",
-          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.37-rc/Vink-PaperS3-v0.4.37-rc-full-16MB.bin",
-          "size": 16777216,
-          "flashOffset": 0
-        }
-      }
-    },
-    {
-      "version": "v0.4.36-rc",
-      "name": "Vink-PaperS3 v0.4.36-rc",
-      "date": "2026-05-16",
-      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.36-rc",
-      "changelog": "## Vink-PaperS3 v0.4.36-rc\n\n### 翻页动画重构\n- 固定 strip 分段改为扩展窗口连续推进，翻页波前从硬边条带变为连续过渡，不再像板刷。\n- 翻页完成后全页均匀 settle，不再沿翻页方向出现后闪。\n- 翻页档位（快速/均衡/清晰）映射为更细粒度的推进步数：12/24/48 步。\n\n### 触屏响应升级\n- 接入 GT911 硬件中断（GPIO48），触屏检测从 5ms 轮询改为 <1ms 中断驱动，跟手度与 EDCBook 看齐。\n- 抑制窗口大幅缩短：默认 60ms→20ms，页面切换 300-500ms→150-200ms。\n- debounce 35ms→25ms，长按 700ms→600ms。\n\n### 省电管理\n- 新增自动关机：系统设置可选关闭/5/15/30 分钟，无操作超时后自动 deep sleep。\n- CPU 变频：启动完成后降到 80MHz，翻页动画时临时提到 240MHz，动画结束恢复 80MHz。\n\n### 锁屏/解锁优化\n- 双击锁屏始终开启，双击解锁可在系统设置中独立开关。\n- 双击区域从右下角移到屏幕顶部居中（页眉高度）。\n- 锁屏页不再显示解锁区提示框。\n",
-      "assets": {
-        "full": {
-          "name": "Vink-PaperS3-v0.4.36-rc-full-16MB.bin",
-          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.36-rc/Vink-PaperS3-v0.4.36-rc-full-16MB.bin",
-          "size": 16777216,
-          "flashOffset": 0
-        }
-      }
-    },
-    {
-      "version": "v0.4.35-rc",
-      "name": "Vink-PaperS3 v0.4.35-rc",
-      "date": "2026-05-15",
-      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.35-rc",
-      "changelog": "## Vink-PaperS3 v0.4.35-rc\n\n### 抗锯齿实验套件\n- 在 v0.4.34-rc 单包翻页/残影实验套件基础上，新增抗锯齿档位：当前、柔和、均衡、锐利。\n- 设备端阅读设置页与 WebUI 均可切换抗锯齿档位，继续保持一次烧录、多档对比。\n- 内置 Wenkai 灰阶路径新增 EDCBook-style palette/threshold 映射，弱灰边可变白、强笔画压黑，用于比较平滑度、字心黑度和快刷灰边残影。\n- SD 卡 TTF 路径新增 EDCBook-style 双阈值量化：当前、柔和、均衡、锐利四档；不再只是简单 `(coverage + 8) >> 4` 线性量化。\n- TTF 绘制会根据抗锯齿开关和档位量化 coverage，再经过对应灰阶映射输出到 EPD framebuffer；保留当前档作为安全回退。\n- 章节目录页底部步进按钮放大到 76×46，并把页码区域加宽到 108px，避免 110/190 这类长页码挤到按钮。\n- 保留 v0.4.34 的翻页档位、残影补偿和 old/new-aware page-turn LUT 实验。\n### 地基清理覆盖\n- 清理错误追踪的 `.pio/libdeps` 依赖源码，恢复为只维护可重复应用的 patch。\n- 标准 LUT 稳定路径下撤下“残影补偿”可见设置，避免无效旋钮误导测试。\n- 设置页滚动范围改为按实际内容 bottom 计算。\n- 保留下划线设备设置入口。\n- 记录 AA 与翻页补偿必须独立归因和测试。\n\n### EDC offset diff 测试覆盖\n- 翻页驱动改为 EDCBook-style `effectSteps -> offsets[]` 推进：快速=12、均衡=24、清晰=48，用同一固件对比速度/连续性。\n- `Panel_EPD::displayScroll()` 保留标准 text LUT，不回到导致墨迹毛糙的短私有 LUT。\n- scroll worker 接入 old/new diff gate：unchanged 跳过，新黑字 target-only，old-dark->light 与灰阶变化走保守标准 text 路径。\n- scroll-diff 日志增加 strips/effectSteps，方便真机反馈定位翻页段数、残影与墨迹均匀性。\n- 新增 `ReaderAaPolicy`，统一内置 Wenkai 与 SD TTF 的 AA 策略，保持 AA 与翻页刷新解耦。\n\n",
-      "assets": {
-        "full": {
-          "name": "Vink-PaperS3-v0.4.35-rc-edc-offset-diff-full-16MB.bin",
-          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.35-rc/Vink-PaperS3-v0.4.35-rc-edc-offset-diff-full-16MB.bin",
+          "name": "Vink-PaperS3-v0.4.46-rc-epdiy-short-window-full-16MB.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.46-rc/Vink-PaperS3-v0.4.46-rc-epdiy-short-window-full-16MB.bin",
           "size": 16777216,
           "flashOffset": 0
         }

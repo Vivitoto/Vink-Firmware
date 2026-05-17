@@ -91,7 +91,7 @@ static inline int rounded_display_height() {
 // FIXME: fix misleading naming:
 //  area -> buffer dimensions
 //  crop -> area taken out of buffer
-enum EpdDrawError IRAM_ATTR epd_draw_base(
+static enum EpdDrawError IRAM_ATTR epd_draw_base_limited(
     EpdRect area,
     const uint8_t* data,
     EpdRect crop_to,
@@ -99,7 +99,8 @@ enum EpdDrawError IRAM_ATTR epd_draw_base(
     int temperature,
     const bool* drawn_lines,
     const uint8_t* drawn_columns,
-    const EpdWaveform* waveform
+    const EpdWaveform* waveform,
+    int max_frames
 ) {
     if (waveform == NULL) {
         return EPD_DRAW_NO_PHASES_AVAILABLE;
@@ -124,6 +125,10 @@ enum EpdDrawError IRAM_ATTR epd_draw_base(
         frame_count = waveform_phases->phases;
     } else {
         frame_count = 1;
+    }
+
+    if (max_frames > 0 && frame_count > max_frames) {
+        frame_count = max_frames;
     }
 
     if (crop_to.width < 0 || crop_to.height < 0) {
@@ -195,10 +200,42 @@ enum EpdDrawError IRAM_ATTR epd_draw_base(
     return EPD_DRAW_SUCCESS;
 }
 
+enum EpdDrawError IRAM_ATTR epd_draw_base(
+    EpdRect area,
+    const uint8_t* data,
+    EpdRect crop_to,
+    enum EpdDrawMode mode,
+    int temperature,
+    const bool* drawn_lines,
+    const uint8_t* drawn_columns,
+    const EpdWaveform* waveform
+) {
+    return epd_draw_base_limited(area, data, crop_to, mode, temperature,
+                                 drawn_lines, drawn_columns, waveform, 0);
+}
+
+enum EpdDrawError IRAM_ATTR epd_draw_base_frames(
+    EpdRect area,
+    const uint8_t* data,
+    EpdRect crop_to,
+    enum EpdDrawMode mode,
+    int temperature,
+    const bool* drawn_lines,
+    const uint8_t* drawn_columns,
+    const EpdWaveform* waveform,
+    int max_frames
+) {
+    return epd_draw_base_limited(area, data, crop_to, mode, temperature,
+                                 drawn_lines, drawn_columns, waveform, max_frames);
+}
+
 
 // EDCBook-style directional scroll page-turn.
-// Divides the update area into vertical strips per scroll_offsets,
-// processes each strip's waveform sequentially within a single call.
+// Build a single renderer-level phase/progression pass.  The old prototype ran
+// a complete waveform for strip 0, then a complete waveform for strip 1, etc.;
+// on real PaperS3 that looks like a board brush and can add a tail flash.  This
+// path instead extends the physical frame sequence and lets each strip/bucket be
+// at its own waveform phase inside the LCD scanline renderer.
 enum EpdDrawError epd_draw_base_scroll(
     EpdRect area, const uint8_t* data, EpdRect crop_to,
     enum EpdDrawMode mode, int temperature,
@@ -209,15 +246,70 @@ enum EpdDrawError epd_draw_base_scroll(
     if (scroll_offsets == NULL || scroll_count < 1 || scroll_count > 24)
         return epd_draw_base(area, data, crop_to, mode, temperature,
                             drawn_lines, drawn_columns, waveform);
+#ifndef RENDER_METHOD_LCD
+    // Scroll rendering currently relies on the LCD scanline backend's ability to
+    // select a per-bucket LUT/phase.  Non-LCD builds should keep linking and use
+    // the normal renderer until an I2S equivalent exists.
+    return epd_draw_base(area, data, crop_to, mode, temperature,
+                        drawn_lines, drawn_columns, waveform);
+#else
     if (waveform == NULL) return EPD_DRAW_NO_PHASES_AVAILABLE;
+    if (scroll_offsets[0] != 0 || scroll_offsets[scroll_count] != area.width) {
+        ESP_LOGW("epdiy", "invalid scroll offsets range; falling back to normal draw");
+        return epd_draw_base(area, data, crop_to, mode, temperature,
+                            drawn_lines, drawn_columns, waveform);
+    }
+    for (int i = 0; i < scroll_count; ++i) {
+        const int sx = scroll_offsets[i];
+        const int ex = scroll_offsets[i + 1];
+        if (sx < 0 || ex <= sx || ex > area.width || (sx & 0x0F) || (ex & 0x0F)) {
+            ESP_LOGW("epdiy", "invalid scroll bucket %d [%d,%d); falling back to normal draw", i, sx, ex);
+            return epd_draw_base(area, data, crop_to, mode, temperature,
+                                drawn_lines, drawn_columns, waveform);
+        }
+    }
     int wf_range = waveform_temp_range_index(waveform, temperature);
     if (wf_range < 0) return EPD_DRAW_NO_PHASES_AVAILABLE;
     int wf_idx = get_waveform_index(waveform, mode);
     if (wf_idx < 0) return EPD_DRAW_MODE_NOT_FOUND;
     const EpdWaveformPhases* phases =
         waveform->mode_data[wf_idx]->range_data[wf_range];
-    uint8_t frames = phases->phases;
+    const uint8_t waveform_frames = phases->phases;
+    if (waveform_frames == 0) return EPD_DRAW_NO_PHASES_AVAILABLE;
+
+    // ED047TC1 GL16/GC16 have 30 phases.  EDCBook's reconstructed page-turn
+    // caller builds a 0..15 progression table and its scroll context uses a
+    // compressed phase window, not a long 30-phase full grayscale update.  Keep
+    // the scroll renderer capped to the first 15 waveform frames; residue/quality
+    // cleanup remains the job of periodic full refreshes, not the moving turn.
+    const uint8_t frames = waveform_frames > 15 ? 15 : waveform_frames;
+
+    LutFunctionPair luts = find_lut_functions(mode, render_context.conversion_lut_size);
+    if (luts.build_func == NULL || luts.lookup_func == NULL) {
+        ESP_LOGE("epdiy", "no output lookup method found for scroll mode!");
+        return EPD_DRAW_LOOKUP_NOT_IMPLEMENTED;
+    }
+
+    uint8_t* scroll_luts = (uint8_t*)heap_caps_malloc(
+        (size_t)frames * render_context.conversion_lut_size,
+        MALLOC_CAP_8BIT | MALLOC_CAP_INTERNAL
+    );
+    if (scroll_luts == NULL) {
+        ESP_LOGE("epdiy", "could not allocate scroll phase LUT cache; falling back to normal draw");
+        return epd_draw_base(area, data, crop_to, mode, temperature,
+                            drawn_lines, drawn_columns, waveform);
+    }
+    for (int f = 0; f < frames; ++f) {
+        luts.build_func(scroll_luts + ((size_t)f * render_context.conversion_lut_size), phases, f);
+    }
+
     render_context.area = area;
+    // Keep horizontal crop at full width so the scanline renderer can address
+    // absolute physical x offsets.  Dirty columns still gate unchanged pixels.
+    render_context.crop_to.x = 0;
+    render_context.crop_to.y = crop_to.y;
+    render_context.crop_to.width = area.width;
+    render_context.crop_to.height = crop_to.height;
     render_context.waveform_range = wf_range;
     render_context.waveform_index = wf_idx;
     render_context.mode = mode;
@@ -225,45 +317,41 @@ enum EpdDrawError epd_draw_base_scroll(
     render_context.data_ptr = data;
     render_context.phase_times = phases->phase_times;
     render_context.error = EPD_DRAW_SUCCESS;
-    LutFunctionPair luts = find_lut_functions(mode, render_context.conversion_lut_size);
+    render_context.drawn_lines = drawn_lines;
     render_context.lut_build_func = luts.build_func;
     render_context.lut_lookup_func = luts.lookup_func;
-    for (int si = 0; si < scroll_count; si++) {
-        int idx = scroll_direction ? (scroll_count - 1 - si) : si;
-        int sx = scroll_offsets[idx];
-        int sw = scroll_offsets[idx + 1] - sx;
-        EpdRect sc = { .x = sx, .y = crop_to.y,
-                       .width = sw, .height = crop_to.height };
-        render_context.crop_to = sc;
-        render_context.drawn_lines = drawn_lines;
-        render_context.lines_prepared = 0;
-        render_context.lines_consumed = 0;
-        render_context.lines_total = rounded_display_height();
-        render_context.current_frame = 0;
-        render_context.cycle_frames = frames;
-
-        // EDCBook-style scroll should still honor the front/back diff mask:
-        // drive only pixels that changed, intersected with the current strip.
-        const int mask_len = render_context.display_width / 4;
-        epd_populate_line_mask(render_context.line_mask, drawn_columns, mask_len);
-        for (int b = 0; b < mask_len; ++b) {
-            uint8_t strip_mask = 0;
-            const int base_px = b * 4;
-            for (int p = 0; p < 4; ++p) {
-                const int px = base_px + p;
-                if (px >= sx && px < sx + sw) {
-                    strip_mask |= (uint8_t)(0x03 << (p * 2));
-                }
-            }
-            render_context.line_mask[b] &= strip_mask;
-        }
-
-        if (si == 0) epd_set_mode(1);
-        lcd_do_update_frames(&render_context);
-        if (render_context.error != EPD_DRAW_SUCCESS) { epd_set_mode(0); return render_context.error; }
+    render_context.lines_prepared = 0;
+    render_context.lines_consumed = 0;
+    render_context.lines_total = rounded_display_height();
+    render_context.current_frame = 0;
+    render_context.cycle_frames = frames + scroll_count - 1;
+    render_context.scroll_enabled = true;
+    render_context.scroll_count = scroll_count;
+    render_context.scroll_direction = scroll_direction ? 1 : 0;
+    render_context.scroll_waveform_frames = frames;
+    render_context.scroll_conversion_luts = scroll_luts;
+    for (int i = 0; i <= scroll_count; ++i) {
+        render_context.scroll_offsets[i] = scroll_offsets[i];
     }
+
+    epd_populate_line_mask(render_context.line_mask, drawn_columns, render_context.display_width / 4);
+
+    ESP_LOGI("epdiy", "scroll renderer: strips=%d waveform_frames=%u active_frames=%u total_frames=%d direction=%s",
+             scroll_count, waveform_frames, frames, render_context.cycle_frames, scroll_direction ? "rtl" : "ltr");
+
+    epd_set_mode(1);
+    lcd_do_update_frames(&render_context);
     epd_set_mode(0);
+
+    render_context.scroll_enabled = false;
+    render_context.scroll_conversion_luts = NULL;
+    heap_caps_free(scroll_luts);
+
+    if (render_context.error != EPD_DRAW_SUCCESS) {
+        return render_context.error;
+    }
     return EPD_DRAW_SUCCESS;
+#endif
 }
 
 static void IRAM_ATTR render_thread(void* arg) {

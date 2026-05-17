@@ -953,7 +953,7 @@
 +            continue;
 +          }
 +
-+          const uint8_t active_frames = new_data.scroll_effect_steps >= 24 ? 3 : 2;
++          const uint8_t active_frames = new_data.scroll_effect_steps >= 24 ? 4 : 3;
 +          const uint8_t total_frames = n_steps + active_frames - 1;
 +          bool any_action = false;
 +          for (uint8_t frame = 0; frame < total_frames; ++frame) {

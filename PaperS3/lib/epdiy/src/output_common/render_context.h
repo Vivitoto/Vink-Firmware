@@ -77,6 +77,18 @@ typedef struct {
 
     /// line buffer when using epd_push_pixels
     uint8_t* static_line_buffer;
+
+    /// EDCBook-style scroll renderer state.  A scroll update is not a loop of
+    /// strip-sized full waveforms; it is one extended scan-cycle sequence where
+    /// every column bucket can be at a different waveform phase.  This lets the
+    /// wavefront move horizontally while each bucket still receives the full
+    /// old/new differential waveform over consecutive physical frames.
+    bool scroll_enabled;
+    int scroll_count;
+    int scroll_direction;
+    int scroll_waveform_frames;
+    int scroll_offsets[25];
+    uint8_t* scroll_conversion_luts;
 } RenderContext_t;
 
 /**

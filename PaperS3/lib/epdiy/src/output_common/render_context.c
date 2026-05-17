@@ -69,9 +69,31 @@ void get_buffer_params(
 }
 
 void IRAM_ATTR prepare_context_for_next_frame(RenderContext_t* ctx) {
+    int waveform_frame = ctx->current_frame;
+    if (ctx->scroll_enabled && ctx->scroll_waveform_frames > 0 && waveform_frame >= ctx->scroll_waveform_frames) {
+        waveform_frame = ctx->scroll_waveform_frames - 1;
+    }
+
     int frame_time = DEFAULT_FRAME_TIME;
     if (ctx->phase_times != NULL) {
-        frame_time = ctx->phase_times[ctx->current_frame];
+        if (ctx->scroll_enabled && ctx->scroll_waveform_frames > 0 && ctx->scroll_count > 0) {
+            // A scroll physical frame may contain multiple bucket-local waveform
+            // phases.  Drive the frame for the longest active phase; using only
+            // current_frame's phase time can under-drive late buckets that are
+            // still at phase 0/1 while the wavefront tail is at a later phase.
+            frame_time = 0;
+            for (int si = 0; si < ctx->scroll_count; ++si) {
+                const int progression = ctx->scroll_direction ? (ctx->scroll_count - 1 - si) : si;
+                const int phase = ctx->current_frame - progression;
+                if (phase >= 0 && phase < ctx->scroll_waveform_frames) {
+                    const int phase_time = ctx->phase_times[phase];
+                    if (phase_time > frame_time) frame_time = phase_time;
+                }
+            }
+            if (frame_time == 0) frame_time = ctx->phase_times[waveform_frame];
+        } else {
+            frame_time = ctx->phase_times[waveform_frame];
+        }
     }
 
     if (ctx->mode & MODE_EPDIY_MONOCHROME) {
@@ -79,11 +101,13 @@ void IRAM_ATTR prepare_context_for_next_frame(RenderContext_t* ctx) {
     }
     ctx->frame_time = frame_time;
 
-    const EpdWaveformPhases* phases
-        = ctx->waveform->mode_data[ctx->waveform_index]->range_data[ctx->waveform_range];
+    if (!(ctx->scroll_enabled && ctx->scroll_conversion_luts != NULL)) {
+        const EpdWaveformPhases* phases
+            = ctx->waveform->mode_data[ctx->waveform_index]->range_data[ctx->waveform_range];
 
-    assert(ctx->lut_build_func != NULL);
-    ctx->lut_build_func(ctx->conversion_lut, phases, ctx->current_frame);
+        assert(ctx->lut_build_func != NULL);
+        ctx->lut_build_func(ctx->conversion_lut, phases, waveform_frame);
+    }
 
     ctx->lines_prepared = 0;
     ctx->lines_consumed = 0;

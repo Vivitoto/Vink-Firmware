@@ -140,6 +140,15 @@ enum EpdDrawError epd_hl_update_area(
 );
 
 /**
+ * Update an area using only the first `max_frames` physical waveform frames.
+ * This is intended for EDCBook-style transition frames that already contain a
+ * spatial old/new page remap, not for final quality cleanup.
+ */
+enum EpdDrawError epd_hl_update_area_frames(
+    EpdiyHighlevelState* state, enum EpdDrawMode mode, int temperature, EpdRect area, int max_frames
+);
+
+/**
  * Reset the front framebuffer to a white state.
  *
  * @param state: A reference to the `EpdiyHighlevelState` object used.

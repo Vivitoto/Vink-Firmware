@@ -234,7 +234,33 @@ lcd_calculate_frame(RenderContext_t* ctx, int thread_id) {
             buf = lq_current(lq);
         }
 
-        ctx->lut_lookup_func(lp, buf, ctx->conversion_lut, ctx->display_width);
+        if (ctx->scroll_enabled && ctx->scroll_conversion_luts != NULL && ctx->scroll_count > 0) {
+            // EDCBook-style phase/progression scroll: render one physical frame
+            // for the whole screen, but let each horizontal bucket use the
+            // waveform phase that corresponds to the moving wavefront.  This is
+            // materially different from running a complete waveform for strip A,
+            // then strip B, then strip C, which exposes a board-brush sweep.
+            memset(buf, 0x00, lq->element_size);
+            for (int si = 0; si < ctx->scroll_count; ++si) {
+                const int progression = ctx->scroll_direction ? (ctx->scroll_count - 1 - si) : si;
+                const int phase = ctx->current_frame - progression;
+                if (phase < 0 || phase >= ctx->scroll_waveform_frames) {
+                    continue;
+                }
+                const int sx = ctx->scroll_offsets[si];
+                const int ex = ctx->scroll_offsets[si + 1];
+                if (sx < 0 || ex <= sx || ex > ctx->display_width) {
+                    continue;
+                }
+                const int sw = ex - sx;
+                ctx->lut_lookup_func((const uint32_t*)(ptr + sx),
+                                     buf + (sx / 4),
+                                     ctx->scroll_conversion_luts + (phase * ctx->conversion_lut_size),
+                                     sw);
+            }
+        } else {
+            ctx->lut_lookup_func(lp, buf, ctx->conversion_lut, ctx->display_width);
+        }
 
         // apply the line mask
         epd_apply_line_mask_VE(buf, ctx->line_mask, ctx->display_width / 4);

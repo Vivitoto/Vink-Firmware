@@ -15,11 +15,20 @@ public:
     bool isReady() const { return ready_; }
 
     bool pushCanvas(M5Canvas* canvas, bool quality);
+    bool pushCanvasFrames(M5Canvas* canvas, bool quality, uint8_t maxFrames);
+    bool pushPageCoverFrame(const M5Canvas* oldCanvas, const M5Canvas* newCanvas,
+                            DisplayEffect effect, uint8_t frame, uint8_t frames,
+                            bool quality, uint8_t maxFrames);
     bool pushPageTurn(M5Canvas* canvas, DisplayEffect effect, bool quality,
                       uint8_t effectSteps, uint8_t residueCompensation);
 
 private:
     bool copyCanvasToFrontFramebuffer(M5Canvas* canvas);
+    bool copyPageCoverToFrontFramebuffer(const M5Canvas* oldCanvas, const M5Canvas* newCanvas,
+                                         DisplayEffect effect, uint8_t frame, uint8_t frames);
+    bool buildPageCoverDifferenceFrame(const M5Canvas* oldCanvas, const M5Canvas* newCanvas,
+                                       DisplayEffect effect, uint8_t frame, uint8_t frames,
+                                       bool* hasDirty);
     static uint8_t rgb565ToGray4(uint16_t rgb565);
 
     bool ready_ = false;

@@ -529,6 +529,24 @@ enum EpdDrawError epd_draw_base(
     const uint8_t* drawn_columns,
     const EpdWaveform* waveform
 );
+
+/**
+ * Draw like `epd_draw_base`, but cap the waveform to the first `max_frames`
+ * physical frames.  Used for EDCBook-style page-slide experiments where each
+ * intermediate page is already an old/new spatial transition frame and must not
+ * run a full 30-phase GL16/GC16 cleanup.
+ */
+enum EpdDrawError epd_draw_base_frames(
+    EpdRect area,
+    const uint8_t* data,
+    EpdRect crop_to,
+    enum EpdDrawMode mode,
+    int temperature,
+    const bool* drawn_lines,
+    const uint8_t* drawn_columns,
+    const EpdWaveform* waveform,
+    int max_frames
+);
 /**
  * Calculate a `MODE_PACKING_1PPB_DIFFERENCE` difference image
  * from two `MODE_PACKING_2PPB` (4 bit-per-pixel) buffers.
