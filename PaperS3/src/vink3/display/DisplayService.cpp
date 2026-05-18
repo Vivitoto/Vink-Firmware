@@ -47,7 +47,7 @@ bool DisplayService::begin(M5Canvas* canvas, uint8_t queueLen) {
         BaseType_t ok = xTaskCreatePinnedToCore(
             taskThunk,
             "vink3-display",
-            8192,
+            16384,
             this,
             2,
             &task_,
@@ -680,7 +680,8 @@ void DisplayService::push(const DisplayRequest& request, M5Canvas* canvasToPush)
             }
 #endif
         } else if (request.effect == DisplayEffect::VerticalShutter || request.effect == DisplayEffect::HorizontalShutter) {
-            // The user asked for the EDCBook effect: content must spatially move.
+            // EDCBook-like cover-line effect: old page stays fixed while the
+            // final-position new page covers it behind a moving vertical line.
             // Do not use the old epdiy fixed-position bucket wipe as the default.
             if (!pushEpdiyCompositedPageCover(canvasToPush, request.effect, false)) {
 #if VINK_EPDIY_STRICT

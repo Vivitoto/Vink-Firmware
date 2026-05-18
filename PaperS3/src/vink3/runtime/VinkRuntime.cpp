@@ -1,6 +1,7 @@
 #include "VinkRuntime.h"
 #include <Preferences.h>
 #include "../display/DisplayService.h"
+#include "../display/EpdiyPaperS3Backend.h"
 #include "../input/InputService.h"
 #include "../reader/ReaderBookService.h"
 #include "../reader/ReaderTextRenderer.h"
@@ -13,6 +14,10 @@
 #include "esp_sleep.h"
 #include "esp_system.h"
 #include "driver/gpio.h"
+
+#ifndef VINK_USE_EPDIY_BACKEND
+#define VINK_USE_EPDIY_BACKEND 0
+#endif
 
 namespace vink3 {
 
@@ -218,9 +223,20 @@ bool VinkRuntime::beginHardware() {
     delay(50);
     configureOfficialPaperS3Gpios();
 
+#if VINK_USE_EPDIY_BACKEND
+    // EDCBook-style ownership split: M5Unified initializes platform services
+    // (PMIC/touch/I2C), but active EPD ownership must move to epdiy before the
+    // first Vink display push.  Do this on MainTask's large stack instead of
+    // lazily from the display worker's refresh path.
+    if (!g_epdiyPaperS3Backend.begin()) {
+        Serial.println("[vink3][boot] epdiy backend init failed");
+        return false;
+    }
+#else
     M5.Display.setEpdMode(kQualityRefresh);
     M5.Display.setColorDepth(kTextColorDepthHigh);
     applyOfficialPaperS3DisplaySetup();
+#endif
 
     if (!SPIFFS.begin(false)) {
         Serial.println("[vink3][boot] SPIFFS mount failed; continuing without formatting");
