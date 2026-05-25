@@ -270,3 +270,15 @@ v0.4.46-rc 修正为：scroll 模式下遍历当前物理 frame 中所有 active
 - 不再把“双页同时滑动”作为默认目标效果；除非用户明确要求纸张滑入/滑出动画。
 
 处理：v0.4.51-rc 起，默认 epdiy compositor 改为 page-cover fused diff：每个 step 比较当前覆盖状态与上一覆盖状态，直接生成 epdiy difference frame，不再做旧页源坐标平移。
+
+### 26. 把跨版本 NVS `running=1` 当成侧键关机事件
+
+**结论：这是烧录后“不启动/无显示”的低级 boot blocker，必须版本化保护。**
+
+2026-05-18 真机反馈：`v0.4.51-rc` 与 `v0.4.52-rc` 烧录后都不开机。复查发现 full image 烧录不会擦除 NVS，旧固件正常运行时写入的 `vink-boot/running=1` 会在新 RC 第一次 `ESP_RST_POWERON` 时被 `VinkRuntime::begin()` 的 pre-hardware side-key shutdown fast path 误判为“用户按侧键关机”。
+
+误判后代码会在正常启动前尝试绘制关机页并 pulse `GPIO44` 断电；在 strict epdiy 包中，这条路径还可能再次从 display worker 懒加载 epdiy。用户看到的就是“烧录完开不了机/黑屏/停旧画面”。
+
+EDCBook 证据只支持 `M5.begin(clear_display=false)` 做平台服务初始化，并不支持这种跨固件版本的 NVS running flag 直接拦截新固件首启。
+
+处理：新固件首启必须先检查 `vink-boot/fw`。如果与当前 `kVinkPaperS3FirmwareVersion` 不一致，先清除 stale `running` / `locked` / RTC magic，并跳过本轮 side-key shutdown fast path。所有运行/锁屏标记写入时同步写入当前 `fw`。

@@ -77,7 +77,7 @@ def apply_recovery_patch() -> None:
 
     replace_once(PANEL_HPP,
                  "    void displayScroll(uint_fast16_t x, uint_fast16_t y, uint_fast16_t w, uint_fast16_t h,\n                       uint_fast16_t strip_width, bool reverse, uint8_t compensation = 1,\n                       uint8_t effect_steps = 0);\n\n    void writeFillRectPreclipped",
-                 "    void displayScroll(uint_fast16_t x, uint_fast16_t y, uint_fast16_t w, uint_fast16_t h,\n                       uint_fast16_t strip_width, bool reverse, uint8_t compensation = 1,\n                       uint8_t effect_steps = 0);\n    // Vink PaperS3 epdiy bring-up: M5Unified initializes Panel_EPD first for\n    // board/touch/PMIC detection.  A real epdiy backend must then stop this\n    // worker and release the esp_lcd i80 bus before epdiy configures LCD/RMT/GDMA.\n    void releaseBusForExternalDriver(void);\n\n    void writeFillRectPreclipped",
+                 "    void displayScroll(uint_fast16_t x, uint_fast16_t y, uint_fast16_t w, uint_fast16_t h,\n                       uint_fast16_t strip_width, bool reverse, uint8_t compensation = 1,\n                       uint8_t effect_steps = 0);\n    // PaperS3 future external-driver hook: M5Unified initializes Panel_EPD\n    // first for board/touch/PMIC detection.  Any future driver replacement must\n    // stop this worker and release the esp_lcd i80 bus first.\n    void releaseBusForExternalDriver(void);\n\n    void writeFillRectPreclipped",
                  "Panel_EPD external-driver release declaration")
     replace_once(PANEL_CPP,
                  "    return true;\n  }\n\n  void Panel_EPD::beginTransaction(void)\n",

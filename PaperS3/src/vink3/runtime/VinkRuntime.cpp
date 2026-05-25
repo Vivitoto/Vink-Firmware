@@ -1,7 +1,6 @@
 #include "VinkRuntime.h"
 #include <Preferences.h>
 #include "../display/DisplayService.h"
-#include "../display/EpdiyPaperS3Backend.h"
 #include "../input/InputService.h"
 #include "../reader/ReaderBookService.h"
 #include "../reader/ReaderTextRenderer.h"
@@ -14,10 +13,6 @@
 #include "esp_sleep.h"
 #include "esp_system.h"
 #include "driver/gpio.h"
-
-#ifndef VINK_USE_EPDIY_BACKEND
-#define VINK_USE_EPDIY_BACKEND 0
-#endif
 
 namespace vink3 {
 
@@ -33,6 +28,31 @@ RTC_NOINIT_ATTR uint32_t s_softwareLockMagicInv;
 static constexpr uint32_t kRuntimeRunningMagic = 0x56494E4Bu; // "VINK"
 static constexpr uint32_t kSoftwareLockMagic = 0x564C4F43u; // "VLOC"
 bool s_sideKeyUnlockRequested = false;
+
+bool sanitizeBootFlagsForCurrentFirmware() {
+    Preferences prefs;
+    if (!prefs.begin("vink-boot", false)) return false;
+    const String storedFw = prefs.getString("fw", "");
+    const bool firmwareChanged = storedFw != kVinkPaperS3FirmwareVersion;
+    if (firmwareChanged) {
+        // Full-image flashing does not erase NVS. A stale `running=1` from a
+        // previous firmware must not be interpreted as a PaperS3 side-key
+        // shutdown request on the first boot of a new RC; that makes the unit
+        // immediately draw/cut power and looks exactly like "won't boot".
+        prefs.putString("fw", kVinkPaperS3FirmwareVersion);
+        prefs.putBool("running", false);
+        prefs.putBool("locked", false);
+        s_runtimeRunningMagic = 0;
+        s_runtimeRunningMagicInv = 0;
+        s_softwareLockMagic = 0;
+        s_softwareLockMagicInv = 0;
+        s_sideKeyUnlockRequested = false;
+        Serial.printf("[vink3][boot] firmware changed from '%s' to '%s'; cleared stale boot flags\n",
+                      storedFw.c_str(), kVinkPaperS3FirmwareVersion);
+    }
+    prefs.end();
+    return firmwareChanged;
+}
 
 void configureOfficialPaperS3Gpios() {
     pinMode(static_cast<int>(kUsbDetectPin), INPUT);
@@ -62,6 +82,7 @@ void markPaperS3RuntimeRunning() {
     // NVS fallback: survives PMS150G power cycle (ESP_RST_POWERON)
     Preferences prefs;
     prefs.begin("vink-boot", false);
+    prefs.putString("fw", kVinkPaperS3FirmwareVersion);
     prefs.putBool("running", true);
     prefs.end();
     Serial.println("[vink3][nvs] mark running=1");
@@ -72,6 +93,7 @@ void clearPaperS3RuntimeRunning() {
     s_runtimeRunningMagicInv = 0;
     Preferences prefs;
     prefs.begin("vink-boot", false);
+    prefs.putString("fw", kVinkPaperS3FirmwareVersion);
     prefs.putBool("running", false);
     prefs.end();
     Serial.println("[vink3][nvs] clear running=0");
@@ -87,6 +109,7 @@ void markPaperS3SoftwareLocked() {
     s_softwareLockMagicInv = ~kSoftwareLockMagic;
     Preferences prefs;
     prefs.begin("vink-boot", false);
+    prefs.putString("fw", kVinkPaperS3FirmwareVersion);
     prefs.putBool("locked", true);
     prefs.end();
     Serial.println("[vink3][nvs] mark locked=1");
@@ -97,6 +120,7 @@ void clearPaperS3SoftwareLocked() {
     s_softwareLockMagicInv = 0;
     Preferences prefs;
     prefs.begin("vink-boot", false);
+    prefs.putString("fw", kVinkPaperS3FirmwareVersion);
     prefs.putBool("locked", false);
     prefs.end();
     Serial.println("[vink3][nvs] clear locked=0");
@@ -122,12 +146,18 @@ bool consumePaperS3SideKeyUnlockRequested() {
 }
 
 bool VinkRuntime::begin() {
+    Serial.begin(115200);
+    delay(100);
     Serial.printf("[vink3][runtime] starting %s from ReadPaper V1.7.6 baseline\n", kVinkPaperS3FirmwareVersion);
+
+    const bool freshFirmwareBoot = sanitizeBootFlagsForCurrentFirmware();
 
     // Check side-key event BEFORE hardware init so the EPD never powers on
     // for a shutdown. If we detect a shutdown: do just the minimum to draw
     // the power-off page, then cut power via GPIO44.
-    {
+    // Do not run this path on the first boot of a newly flashed firmware:
+    // NVS survives full-image flashing and may contain a stale `running=1`.
+    if (!freshFirmwareBoot) {
         const int reason = esp_reset_reason();
         Serial.printf("[vink3][chk] reset=%d rst_poweron=%d rst_ext=%d\n", reason, ESP_RST_POWERON, ESP_RST_EXT);
         if (reason == ESP_RST_EXT || reason == ESP_RST_POWERON) {
@@ -142,11 +172,11 @@ bool VinkRuntime::begin() {
             Serial.printf("[vink3][chk] nvsOk=%d run=%d lock=%d\n", nvsOk, wasRunning, wasLocked);
             if (wasRunning) {
                 // Consume flag immediately
-                { Preferences q; q.begin("vink-boot", false); q.putBool("running", false); q.end(); }
+                { Preferences q; q.begin("vink-boot", false); q.putString("fw", kVinkPaperS3FirmwareVersion); q.putBool("running", false); q.end(); }
 
                 if (wasLocked) {
                     // Unlock path: need full hardware for resume
-                    { Preferences q; q.begin("vink-boot", false); q.putBool("locked", false); q.end(); }
+                    { Preferences q; q.begin("vink-boot", false); q.putString("fw", kVinkPaperS3FirmwareVersion); q.putBool("locked", false); q.end(); }
                     clearPaperS3SoftwareLocked();
                     markPaperS3SideKeyUnlockRequested();
                     Serial.println("[vink3][power] side-key unlock pending, continuing boot");
@@ -171,7 +201,7 @@ bool VinkRuntime::begin() {
                     delay(800);
 
                     clearPaperS3RuntimeRunning();
-                    { Preferences r; r.begin("vink-boot", false); r.putBool("running", false); r.end(); }
+                    { Preferences r; r.begin("vink-boot", false); r.putString("fw", kVinkPaperS3FirmwareVersion); r.putBool("running", false); r.end(); }
                     g_systemLog.append("side-key shutdown page drawn; GPIO44 pulse");
                     Serial.println("[vink3][power] shutdown page drawn; pulsing GPIO44");
                     Serial.flush();
@@ -223,20 +253,9 @@ bool VinkRuntime::beginHardware() {
     delay(50);
     configureOfficialPaperS3Gpios();
 
-#if VINK_USE_EPDIY_BACKEND
-    // EDCBook-style ownership split: M5Unified initializes platform services
-    // (PMIC/touch/I2C), but active EPD ownership must move to epdiy before the
-    // first Vink display push.  Do this on MainTask's large stack instead of
-    // lazily from the display worker's refresh path.
-    if (!g_epdiyPaperS3Backend.begin()) {
-        Serial.println("[vink3][boot] epdiy backend init failed");
-        return false;
-    }
-#else
     M5.Display.setEpdMode(kQualityRefresh);
     M5.Display.setColorDepth(kTextColorDepthHigh);
     applyOfficialPaperS3DisplaySetup();
-#endif
 
     if (!SPIFFS.begin(false)) {
         Serial.println("[vink3][boot] SPIFFS mount failed; continuing without formatting");
@@ -297,6 +316,7 @@ bool VinkRuntime::handleSideKeyResetShutdown() {
     {
         Preferences prefs;
         prefs.begin("vink-boot", false);
+        prefs.putString("fw", kVinkPaperS3FirmwareVersion);
         prefs.putBool("running", false);
         prefs.end();
     }
@@ -307,6 +327,7 @@ bool VinkRuntime::handleSideKeyResetShutdown() {
         {
             Preferences prefs;
             prefs.begin("vink-boot", false);
+            prefs.putString("fw", kVinkPaperS3FirmwareVersion);
             prefs.putBool("locked", false);
             prefs.end();
         }

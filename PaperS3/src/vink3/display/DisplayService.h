@@ -84,11 +84,6 @@ private:
     void loadLocalSettings();
     epd_mode_t chooseReaderRefreshMode(const DisplayRequest& request);
     void pushEdcBookPageTurn(M5Canvas* canvas, DisplayEffect effect, epd_mode_t mode);
-    bool pushCompositedPageCover(M5Canvas* newCanvas, DisplayEffect effect, epd_mode_t mode);
-    bool pushEpdiyCompositedPageCover(M5Canvas* newCanvas, DisplayEffect effect, bool quality);
-    bool ensureTransitionCanvas(const M5Canvas* source);
-    void rememberDisplayedCanvas(const M5Canvas* canvas);
-    uint8_t pageTurnCompositorFrames() const;
     uint16_t pageTurnScrollStripWidth() const;
     uint8_t pageTurnBandSeed() const;
     uint8_t pageTurnResidueCompensation() const;
@@ -97,8 +92,6 @@ private:
     QueueHandle_t queue_ = nullptr;
     QueueHandle_t canvasQueue_ = nullptr;
     TaskHandle_t task_ = nullptr;
-    M5Canvas* lastDisplayedCanvas_ = nullptr;
-    M5Canvas* transitionCanvas_ = nullptr;
     volatile bool busy_ = false;
     volatile uint32_t pushCount_ = 0;
     volatile uint32_t readerPageTurnCount_ = 0;
@@ -107,9 +100,8 @@ private:
     // interactive UI, with periodic quality refreshes to clean ghosting.
     bool fastRefresh_ = true;
     ReaderRefreshStrategy readerRefreshStrategy_ = ReaderRefreshStrategy::Balanced;
-    // Default to the optimized scroll profile. Clean/Balanced remain available
-    // for on-device comparison, but the normal RC should not start with the
-    // slowest, most visibly scan-line-heavy path.
+    // Tuning knobs retained for diagnostics/log output; the normal M5GFX
+    // page-turn path is restored to v0.4.28 edcscroll.
     ReaderPageTurnProfile readerPageTurnProfile_ = ReaderPageTurnProfile::Fast;
     ReaderPageTurnResidue readerPageTurnResidue_ = ReaderPageTurnResidue::Balanced;
 };

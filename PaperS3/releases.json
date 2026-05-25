@@ -5,6 +5,22 @@
   "description": "面向 M5Stack PaperS3 的 Vink 电子书阅读固件。",
   "releases": [
     {
+      "version": "v0.4.54-rc",
+      "name": "Vink-PaperS3 v0.4.54-rc boot guard + v0.4.28 edcscroll no-epdiy 验证包",
+      "date": "2026-05-25",
+      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.54-rc",
+      "changelog": "## Vink-PaperS3 v0.4.54-rc\n\n### no-epdiy 本地恢复验证包\n- 从最新本地功能线保留阅读、书架、锁屏、触摸、上传、WebUI 等已完成功能，不做整包回退。\n- 保留 v0.4.53 的版本化 boot-flag guard：`vink-boot/fw` 与当前固件版本不一致时清除 stale `running` / `locked` / RTC magic，避免 full image 烧录后旧 NVS 状态把首次 `ESP_RST_POWERON` 误判成侧键关机。\n- 正常翻页动画恢复到 v0.4.28-rc edcscroll-lock-direct 的 M5GFX `Panel_EPD::displayScroll()` wavefront 路线。\n- 移除固件内 epdiy backend 接入：`EpdiyPaperS3Backend`、`lib/epdiy`、`VINK_USE_EPDIY_BACKEND` / `VINK_EPDIY_STRICT` display/runtime 分支均不再参与构建。\n- 删除无用的 full-page cover compositor / displayed-canvas 缓存残留，降低 PSRAM 压力。\n- 单页残影设置继续生效：默认 Balanced 等价 v0.4.28 原默认 compensation=1，轻/强用于真机对比。\n\n### 本地验证\n- `python3 tests/local_firmware_smoke.py` 通过。\n- `git diff --check` 通过。\n- `PLATFORMIO_BUILD_JOBS=1 MALLOC_ARENA_MAX=2 pio run -e m5papers3 -j 1` 通过。\n- full 16MB 固件包 SHA256: `adba4a0d764a921fdbeeccdc7f60e6100260954749c5d17939341592ad2496d8`。\n\n### 注意\n- 这是 RC 验证包，仍需真机确认：正常开机、锁屏/解锁、侧键关机、正文翻页观感、触摸响应。\n",
+      "assets": {
+        "full": {
+          "name": "Vink-PaperS3-v0.4.54-rc-bootguard-v0428-edcscroll-noepdiy-full-16MB.bin",
+          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.54-rc/Vink-PaperS3-v0.4.54-rc-bootguard-v0428-edcscroll-noepdiy-full-16MB.bin",
+          "size": 16777216,
+          "flashOffset": 0,
+          "sha256": "adba4a0d764a921fdbeeccdc7f60e6100260954749c5d17939341592ad2496d8"
+        }
+      }
+    },
+    {
       "version": "v0.4.52-rc",
       "name": "Vink-PaperS3 v0.4.52-rc EDCBook epdiy bootfix cover-line 验证包",
       "date": "2026-05-18",
@@ -81,21 +97,6 @@
           "size": 16777216,
           "flashOffset": 0,
           "sha256": "b69d3eb9d6992cd2918c0e69ea03c638e554ca0bb01babc5488bdce525921013"
-        }
-      }
-    },
-    {
-      "version": "v0.4.47-rc",
-      "name": "Vink-PaperS3 v0.4.47-rc EDCBook true page-slide 验证包",
-      "date": "2026-05-17",
-      "releaseUrl": "https://github.com/Vivitoto/Vink-Firmware/releases/tag/v0.4.47-rc",
-      "changelog": "## Vink-PaperS3 v0.4.47-rc\n\n### EDCBook 效果纠偏\n- 明确停止把 fixed-position bucket phase progression / wipe 当成目标效果。用户要求的是 EDCBook/M5ReadPaper 那种整页内容空间滑动。\n- epdiy reader page-turn 默认改走 true page-slide compositor：每个中间阶段都由 old page + new page 按横向位移合成完整 540x960 页面，再交给 epdiy 更新。\n- 新增共享的 `composeHorizontalPageSlideFrame()`，M5GFX compositor 与 epdiy compositor 共用同一套 old/new spatial remap 逻辑，避免两条路径效果不一致。\n- epdiy 普通整页更新成功后会记住 lastDisplayedCanvas，保证下一次页翻有真实旧页作为滑动来源。\n- strict epdiy 构建中，如果 true page-slide 失败，不再回退到固定位置 wipe 或 M5GFX，避免把非 EDCBook 效果误认为成功。\n\n### 说明\n- 这版优先保证视觉语义正确：内容真的按 old/new 页面空间重映射滑动。\n- 代价是每个中间帧都是一次完整 epdiy update，可能比最终 renderer-level EDCBook 实现慢。后续优化应把这个 spatial remap 下沉到 renderer/transition-byte 层，而不是回到 wipe。\n\n### 本地验证\n- python3 tests/local_firmware_smoke.py 通过。\n- pio run -e m5papers3 通过。\n- strict epdiy full 16MB build 通过。\n- full 16MB 固件包 SHA256: d06b9ba807c98380c1488a54e9761260f1e65342b9664cdfe166b2055509ce57。\n",
-      "assets": {
-        "full": {
-          "name": "Vink-PaperS3-v0.4.47-rc-edcbook-true-slide-full-16MB.bin",
-          "url": "https://github.com/Vivitoto/Vink-Firmware/releases/download/v0.4.47-rc/Vink-PaperS3-v0.4.47-rc-edcbook-true-slide-full-16MB.bin",
-          "size": 16777216,
-          "flashOffset": 0
         }
       }
     }

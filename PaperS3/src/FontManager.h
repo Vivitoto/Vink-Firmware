@@ -76,7 +76,7 @@ public:
     uint16_t getFontSize() const;
     
     // 渲染辅助
-    // 将 4bpp 数据解压到 8bpp 缓冲区（用于直接写入 epdiy framebuffer）
+    // 将 4bpp 数据解压到 8bpp 缓冲区（用于灰度填充/直写）
     static void unpackGray4To8(const uint8_t* src, uint8_t* dst, int width, int height);
     
 private:
