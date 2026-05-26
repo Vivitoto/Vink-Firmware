@@ -31,6 +31,18 @@ enum class ReaderPageTurnResidue : uint8_t {
     Strong = 2,   // stronger old-dark -> new-light cleanup for visible residue
 };
 
+// v0.4.59 dual-engine selector for the no-epdiy logical-strip page-turn path.
+// Both engines use the standard text waveform (no private LUT, no Bayer
+// threshold) and the same per-profile strip width; they only differ in how
+// the EPD worker schedules consecutive strips.
+enum class ReaderPageTurnEngine : uint8_t {
+    SerialStrip = 0,    // v0.4.58 behavior: drain each strip's waveform before
+                        // queuing the next; clean discrete "thin line jumps".
+    ContinuousFlow = 1, // v0.4.59 alternate: single cycle per strip, adjacent
+                        // strips overlap in waveform phase for a smoother
+                        // moving wavefront on real PaperS3 hardware.
+};
+
 // ReadPaper 1.7.6 style display message: flags + effect + rectangle.
 struct DisplayRequest {
     bool transparent = false; // ReadPaper flags[0]
@@ -62,6 +74,11 @@ public:
     void setReaderRefreshStrategy(ReaderRefreshStrategy strategy);
     void setReaderPageTurnProfile(ReaderPageTurnProfile profile);
     void cycleReaderPageTurnProfile();
+
+    void setReaderPageTurnEngine(ReaderPageTurnEngine engine);
+    void cycleReaderPageTurnEngine();
+    ReaderPageTurnEngine readerPageTurnEngine() const { return readerPageTurnEngine_; }
+    const char* readerPageTurnEngineLabel() const;
     void setReaderPageTurnResidue(ReaderPageTurnResidue residue);
     void cycleReaderPageTurnResidue();
     bool saveLocalSettings() const;
@@ -105,6 +122,7 @@ private:
     // Tuning knobs retained for diagnostics/log output; the normal M5GFX
     // page-turn path is restored to v0.4.28 edcscroll.
     ReaderPageTurnProfile readerPageTurnProfile_ = ReaderPageTurnProfile::Fast;
+    ReaderPageTurnEngine readerPageTurnEngine_ = ReaderPageTurnEngine::SerialStrip;
     ReaderPageTurnResidue readerPageTurnResidue_ = ReaderPageTurnResidue::Balanced;
 };
 

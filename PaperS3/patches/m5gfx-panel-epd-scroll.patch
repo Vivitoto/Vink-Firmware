@@ -157,11 +157,16 @@
 +    // strip scheduler. The later private transition/waveform path is intentionally
 +    // not enabled by default because real-device feedback showed it underdrives
 +    // text and reveals along the rotated physical Y axis.
-+    (void)compensation;
++    //
++    // v0.4.59 dual-engine: the `compensation` parameter is reused as the
++    // logical-strip engine selector — 0 = serial drain (clean discrete steps),
++    // 1 = continuous flow (no per-strip drain, lets adjacent strips overlap
++    // in waveform phase for a smoother moving wavefront).  No private LUT,
++    // no private waveform; both engines still use the standard text LUT.
 +    (void)effect_steps;
 +    upd.scroll_waveform = false;
 +    upd.scroll_diff_gate = false;
-+    upd.scroll_compensation = 0;
++    upd.scroll_compensation = std::min<uint8_t>(1, compensation);
 +    upd.scroll_effect_steps = 0;
 +    // Each step-buffer loop consumes two packed bytes (4 pixels). Keep the
 +    // public scroll width 4-pixel aligned so arbitrary callers cannot create
@@ -910,6 +915,14 @@
 +            // rotate each strip independently. Splitting after rotation makes the
 +            // wavefront advance along physical Y on PaperS3 (visually bottom-up
 +            // rows), which is the regression this recovery avoids.
++            //
++            // v0.4.59 dual-engine: `scroll_compensation` selects how the
++            // strips run on the panel — 0 = serial drain (each strip's
++            // waveform fully settles before queuing the next; clean discrete
++            // steps), 1 = continuous flow (adjacent strips overlap in
++            // waveform phase for a smoother moving wavefront).  Both engines
++            // stay on the standard text LUT.
++            const bool continuous_flow = (new_data.scroll_compensation >= 1);
 +            const uint16_t x0 = new_data.x;
 +            const uint16_t x1 = new_data.x + new_data.w;
 +            const uint16_t strip_w = std::max<uint16_t>(4, new_data.scroll_strip_width & ~1u);
@@ -933,7 +946,18 @@
 +              strip.y = ys + me->_cfg.offset_y;
 +              strip.h = ye - ys + 1;
 +              prepare_update(strip);
-+              remain = run_cycle();
++              if (continuous_flow) {
++                // v0.4.59 continuous-flow engine: single waveform cycle per
++                // strip; adjacent strips will be in different waveform phases
++                // at the same time, which reads as a smoother moving wavefront.
++                remain = run_cycle();
++              } else {
++                // v0.4.58 serial-drain engine: drain this strip's full waveform
++                // before queuing the next so only one strip settles at a time.
++                do {
++                  remain = run_cycle();
++                } while (remain);
++              }
 +            }
 +            while (remain) { remain = run_cycle(); }
 +            continue;

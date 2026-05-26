@@ -5,7 +5,7 @@
 
 namespace vink3 {
 
-static constexpr const char* kVinkPaperS3FirmwareVersion = "v0.4.56-rc";
+static constexpr const char* kVinkPaperS3FirmwareVersion = "v0.4.59-rc";
 
 // Vink-PaperS3 hardware profile and device configuration.
 // Official M5Stack PaperS3 hardware profile.
@@ -67,9 +67,8 @@ void markPaperS3SideKeyUnlockRequested();
 bool isPaperS3SideKeyUnlockRequested();
 bool consumePaperS3SideKeyUnlockRequested();
 
-// v0.4.56 retired the middle and quality-fast thresholds; only the full
-// baseline threshold remains, because per-frame waveform is fixed to the
-// smooth text path and we no longer rotate through three thresholds.
+// Non-reader UI uses the faster middle waveform for responsiveness and cleans
+// ghosting periodically. Reader body pages keep their own epd_text policy.
 static constexpr uint32_t kDisplayFullRefreshNormalThreshold = 24;
 
 static constexpr epd_mode_t kQualityRefresh = epd_mode_t::epd_quality;

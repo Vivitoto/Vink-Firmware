@@ -209,6 +209,7 @@ void DisplayService::loadLocalSettings() {
     const uint8_t raw = prefs.getUChar("refresh", static_cast<uint8_t>(readerRefreshStrategy_));
     const uint8_t turnProfile = prefs.getUChar("turnprof", static_cast<uint8_t>(readerPageTurnProfile_));
     const uint8_t turnResidue = prefs.getUChar("turnresid", static_cast<uint8_t>(readerPageTurnResidue_));
+    const uint8_t turnEngine = prefs.getUChar("turneng", static_cast<uint8_t>(readerPageTurnEngine_));
     // Older RCs exposed numeric cleanup intervals. The EDCBook-like scroll path
     // keeps full-clean frequency and per-turn residue compensation as separate
     // controls, so a single turn can clean disappeared strokes without forcing a
@@ -223,6 +224,9 @@ void DisplayService::loadLocalSettings() {
     if (turnResidue <= static_cast<uint8_t>(ReaderPageTurnResidue::Strong)) {
         readerPageTurnResidue_ = static_cast<ReaderPageTurnResidue>(turnResidue);
     }
+    if (turnEngine <= static_cast<uint8_t>(ReaderPageTurnEngine::ContinuousFlow)) {
+        readerPageTurnEngine_ = static_cast<ReaderPageTurnEngine>(turnEngine);
+    }
 }
 
 bool DisplayService::saveLocalSettings() const {
@@ -231,6 +235,7 @@ bool DisplayService::saveLocalSettings() const {
     prefs.putUChar("refresh", static_cast<uint8_t>(readerRefreshStrategy_));
     prefs.putUChar("turnprof", static_cast<uint8_t>(readerPageTurnProfile_));
     prefs.putUChar("turnresid", static_cast<uint8_t>(readerPageTurnResidue_));
+    prefs.putUChar("turneng", static_cast<uint8_t>(readerPageTurnEngine_));
     prefs.end();
     return true;
 }
@@ -302,6 +307,33 @@ void DisplayService::cycleReaderPageTurnResidue() {
     }
 }
 
+void DisplayService::setReaderPageTurnEngine(ReaderPageTurnEngine engine) {
+    readerPageTurnEngine_ = engine;
+    resetReaderPageTurnCount();
+    saveLocalSettings();
+    Serial.printf("[vink3][display] reader page-turn engine -> %s\n", readerPageTurnEngineLabel());
+}
+
+void DisplayService::cycleReaderPageTurnEngine() {
+    switch (readerPageTurnEngine_) {
+        case ReaderPageTurnEngine::SerialStrip:
+            setReaderPageTurnEngine(ReaderPageTurnEngine::ContinuousFlow);
+            break;
+        case ReaderPageTurnEngine::ContinuousFlow:
+        default:
+            setReaderPageTurnEngine(ReaderPageTurnEngine::SerialStrip);
+            break;
+    }
+}
+
+const char* DisplayService::readerPageTurnEngineLabel() const {
+    switch (readerPageTurnEngine_) {
+        case ReaderPageTurnEngine::SerialStrip:    return "细线分段";
+        case ReaderPageTurnEngine::ContinuousFlow: return "连续推进";
+    }
+    return "细线分段";
+}
+
 const char* DisplayService::readerRefreshStrategyLabel() const {
     switch (readerRefreshStrategy_) {
         case ReaderRefreshStrategy::Speed: return "低";
@@ -370,24 +402,29 @@ static int effectStepsForStrategy(ReaderRefreshStrategy /*s*/) {
 }
 
 uint16_t DisplayService::pageTurnScrollStripWidth() const {
-    // Compatibility helper retained for diagnostics/logging. The normal M5GFX
-    // page-turn path is intentionally restored to the exact v0.4.28 edcscroll
-    // strip-width formula inside pushEdcBookPageTurn().
-    uint16_t offsets[25] = {0};
-    const uint8_t n = buildEdcBookOffsets(offsets, kPaperS3Width, pageTurnBandSeed());
-    return n > 1 ? offsets[1] - offsets[0] : kPaperS3Width;
+    // v0.4.57 real-device tuning: v0.4.56 made the setting effective again,
+    // but the old EDCBook-derived seed math made the persisted Fast profile a
+    // huge ~192 px reveal band.  On PaperS3 that looks like two connected
+    // boards sweeping across the page, and after a quality/full refresh the
+    // first following turn can drag a large black block.  Use explicit narrow
+    // logical strips instead: still profile-controlled, but never a wide board.
+    switch (readerPageTurnProfile_) {
+        case ReaderPageTurnProfile::Fast:     return 48;  // ~12 passes; close to v0.4.28 visual width
+        case ReaderPageTurnProfile::Balanced: return 32;  // ~17 passes
+        case ReaderPageTurnProfile::Clean:
+        default:                              return 24;  // ~23 passes; thinnest line-like reveal
+    }
 }
 
 uint8_t DisplayService::pageTurnBandSeed() const {
-    // Same seed values recovered from EDCBook's update_area_ex path:
-    // n = clamp(effectSteps / 2, 1, 24), step = ceil(width/(n*16))*16.
-    // Retained for diagnostics; the normal M5GFX page-turn path uses its own
-    // v0.4.28 edcscroll strip formula and does not consume this value.
+    // Historical diagnostic only.  The live path uses explicit strip widths
+    // above because the seed/offset formula made the default Fast profile much
+    // too wide on real PaperS3 hardware.
     switch (readerPageTurnProfile_) {
-        case ReaderPageTurnProfile::Fast:     return 6;   // ~192px first band, ~5 physical passes
-        case ReaderPageTurnProfile::Balanced: return 12;  // ~96px first band, ~8 physical passes
+        case ReaderPageTurnProfile::Fast:     return 6;
+        case ReaderPageTurnProfile::Balanced: return 12;
         case ReaderPageTurnProfile::Clean:
-        default:                              return 24;  // ~48px first band, ~15 physical passes
+        default:                              return 24;
     }
 }
 
@@ -436,13 +473,15 @@ void DisplayService::pushEdcBookPageTurn(M5Canvas* canvas, DisplayEffect effect,
     // row persisted but did not change the actual scroll passes, making the
     // reading page feel slower than the selected profile implied.
     const uint16_t stripWidth = pageTurnScrollStripWidth();
-    Serial.printf("[vink3][display] v0.4.28 edcscroll Panel_EPD logical-strip mode=%d sweep=%d strip=%u direction=%s\n",
-                  static_cast<int>(mode), static_cast<int>(sweepMode), stripWidth, rtl ? "rtl" : "ltr");
+    Serial.printf("[vink3][display] v0.4.28 edcscroll Panel_EPD logical-strip mode=%d sweep=%d strip=%u direction=%s engine=%s\n",
+                  static_cast<int>(mode), static_cast<int>(sweepMode), stripWidth, rtl ? "rtl" : "ltr",
+                  readerPageTurnEngineLabel());
     // Keep the no-epdiy recovery on the known-good v0.4.28 logical-strip path.
     // The later private transition/waveform parameters underdrove text and, after
     // rotation, advanced along the physical Y axis, which looked like bottom-up
     // row refresh instead of the v0.4.28 right/left page-turn.
-    panel->displayScroll(0, 0, kPaperS3Width, kPaperS3Height, stripWidth, rtl);
+    panel->displayScroll(0, 0, kPaperS3Width, kPaperS3Height, stripWidth, rtl,
+                         static_cast<uint8_t>(readerPageTurnEngine_));
     M5.Display.waitDisplay();
 }
 
@@ -502,11 +541,12 @@ epd_mode_t DisplayService::chooseReaderRefreshMode(const DisplayRequest& request
 epd_mode_t DisplayService::chooseRefreshMode(const DisplayRequest& request) {
     if (request.readerPageTurn) return chooseReaderRefreshMode(request);
 
-    // Non-reader UI (tabs/settings/library) historically toggled between an
-    // 18-push fast cleanup and a 24-push baseline cleanup via fastRefresh_.
-    // After v0.4.56 the non-reader path uses the smooth text waveform for
-    // every per-frame push, so the two thresholds collapsed; keep the higher
-    // one so periodic quality cleanup still fires.
+    // Non-reader UI (tabs/settings/library) should feel like a native touch
+    // surface.  v0.4.56 kept these pages on epd_text to avoid the reader's
+    // dot-matrix regression, but full-screen UI transitions then flashed all
+    // widgets with a slow GL16/text-looking update and felt badly detached from
+    // the tap.  Keep the strict epd_text rule for reader pages only; ordinary
+    // UI returns to the faster middle waveform, with periodic quality cleanup.
     const bool useQualityMode = request.quality ||
         pushCount_ >= kDisplayFullRefreshNormalThreshold;
 
@@ -517,9 +557,7 @@ epd_mode_t DisplayService::chooseRefreshMode(const DisplayRequest& request) {
     }
 
     M5.Display.setColorDepth(kTextColorDepthHigh);
-    // epd_fastest / epd_fast Bayer-threshold the canvas (see Negative_Findings
-    // #27), so even non-reader UI must stay on the smooth text waveform.
-    return kNormalRefresh;
+    return kMiddleRefresh;
 }
 
 void DisplayService::push(const DisplayRequest& request, M5Canvas* canvasToPush) {

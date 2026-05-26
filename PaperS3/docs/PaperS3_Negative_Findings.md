@@ -315,3 +315,42 @@ fast: readbuf[i] = (sum + (b << 4)) < 248 ? 0 : 0xF;
 - 不允许把任何要显示文字的页面（reader / settings / library / WebUI 入口）默认推到 `epd_fast` 或 `epd_fastest`。
 - 任何想加快翻页速度的优化，先调 Panel_EPD scroll wavefront 的 strip width 或并行度，不要靠改 `epd_mode`。
 - 在 patch / RC 描述里再写“恢复 v0.4.28 默认”时必须显式列出 `normalMode`，避免又静默用了 fastest。
+
+### 28. 把 EDCBook seed/offset 公式直接当作 PaperS3 默认翻页 strip 宽度
+
+**结论：不适合作为默认真实视觉参数。**
+
+2026-05-26 真机反馈，版本：`v0.4.56-rc`。现象：翻页动画像“两块完全连起来的板刷刷过去”，不是一条细线；每次 quality/full 刷新后，下一次翻页还会带着一大块黑色过去。
+
+原因：v0.4.56 把“翻页档位”重新接入 `pageTurnScrollStripWidth()`，但该函数仍使用历史 EDCBook seed/offset 公式。默认 `ReaderPageTurnProfile::Fast`（且旧 NVS 很可能也保存为 Fast）会得到约 192px 的 reveal band；在 PaperS3 上这不是“细线扫过”，而是大板刷。quality/full 刷新后的下一次 scroll reveal 也因此把新旧页面差异放大成一块黑色区域跟着移动。
+
+处理：v0.4.57-rc 起 live strip width 改为显式窄条：Clean 24px、Balanced 32px、Fast 48px。历史 seed/offset 函数只保留诊断，不作为 live 参数。后续如果需要更快，只能在 24~64px 区间微调，不要回到 96/192px 这种大块宽度。
+
+### 29. 把所有非阅读 UI 也强制走 epd_text waveform
+
+**结论：不适合作为 tab/设置/书架等外部页面默认。**
+
+2026-05-26 真机反馈，版本：`v0.4.56-rc`。现象：点击 tab 等外部页面时“所有东西都闪一下但又不是全刷”，不跟手且难看。
+
+原因：v0.4.56 为避免正文点阵化，把 `chooseRefreshMode()` 的非阅读 UI 也固定到了 `kNormalRefresh (=epd_text)`。正文页需要 `epd_text` 是正确的，因为 `epd_fast/epd_fastest` 会 Bayer 二值化字形；但 tab/设置/书架是全屏 UI 切换，`epd_text` 的大面积 GL16/text-like 更新会让所有组件闪一下，主观上比 fast UI waveform 更不跟手。
+
+处理：v0.4.57-rc 起区分策略：正文 reader page-turn 严格保持 `epd_text`；非阅读 UI 恢复 `kMiddleRefresh (=epd_fast)`，并保留周期性 quality cleanup。触摸层不做额外坐标变换或延迟；这类“不跟手”主要是刷新 waveform 选错，不是 M5Unified 原生触摸被改坏。
+
+### 30. 在 logical-strip 翻页路径里只跑一个 run_cycle 就 prepare_update 下一张
+
+**结论：会被真机看成“两块连起来的板刷一起扫过去”，不是单线推进。**
+
+2026-05-26 真机反馈，版本：`v0.4.57-rc`。现象：strip 宽度已经收窄到 48px，翻页方向也已经是左右逻辑分条，但视觉上仍然像两块连起来的大板刷一起滑过去，而不是一条细线移动。
+
+原因：M5GFX `Panel_EPD::task_update` 在 logical-strip 路径里写的是
+```
+prepare_update(strip); remain = run_cycle();
+```
+每张 strip 只跑一个 EPD waveform cycle，然后立刻 `prepare_update` 下一张 strip。`epd_text` 需要 ~3-4 cycle 才能 settle；当 strip N 还没 settle 时 strip N+1 已经进入推送，相邻两条 strip 在真机上同时还在变化，所以看起来是两块连起来的板刷在一起向前推。这是调度顺序问题，不是 strip 宽度问题。
+
+处理：v0.4.58-rc 起 logical-strip 调度改为
+```
+prepare_update(strip);
+do { remain = run_cycle(); } while (remain);
+```
+当前 strip 的所有 waveform cycle 跑完再 `prepare_update` 下一张。这样每一时刻只有一条窄条在 settle，视觉上是单条细线在向前推进。代价：整页翻页时间从“N×1 cycle”变成“N×完整 waveform”；strip 宽度的“快速档” 48px 已足够窄，整体翻页时长仍可接受，必要时再调档位。
