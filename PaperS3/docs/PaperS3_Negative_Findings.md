@@ -282,3 +282,36 @@ v0.4.46-rc 修正为：scroll 模式下遍历当前物理 frame 中所有 active
 EDCBook 证据只支持 `M5.begin(clear_display=false)` 做平台服务初始化，并不支持这种跨固件版本的 NVS running flag 直接拦截新固件首启。
 
 处理：新固件首启必须先检查 `vink-boot/fw`。如果与当前 `kVinkPaperS3FirmwareVersion` 不一致，先清除 stale `running` / `locked` / RTC magic，并跳过本轮 side-key shutdown fast path。所有运行/锁屏标记写入时同步写入当前 `fw`。
+
+### 26. 在 no-epdiy 恢复包里默认启用 M5GFX 私有 transition/waveform 参数
+
+**结论：不适合作为 v0.4.54 后的默认稳定路径。**
+
+2026-05-26 真机反馈，版本：`v0.4.54-rc`。现象：能正常开机，但所有字体都很模糊；翻页视觉又变成类似早期 0.4.5x 的从下往上/逐行刷新；正文阅读页触摸仍偏慢。
+
+原因判断：v0.4.54 名义上恢复 v0.4.28 edcscroll/no-epdiy，但 `Panel_EPD::displayScroll()` 默认仍启用了后续私有 transition / page-turn LUT 参数：`scroll_waveform=true`、`scroll_diff_gate=true`、`scroll_compensation`。该路径在 `task_update()` 中先把整页矩形旋转到 ED047TC1 物理 landscape 坐标，再按 physical X/bucket 推进；PaperS3 rotation=3 时 logical X 映射到 physical Y，所以真机看起来像从下往上/逐行扫描。同时私有短 LUT 可能对正文黑色笔画驱动不足，造成整体发虚。
+
+处理：v0.4.55-rc 起 no-epdiy 默认路径禁用私有 transition/waveform 参数，恢复 v0.4.28 的逻辑竖屏分条：先按 logical portrait X 分 strip，再让 Panel_EPD 对每个 strip 做旋转和标准 M5GFX EPD LUT 刷新。私有 transition 代码只保留为显式实验，不作为普通 RC 默认。
+
+后续要求：如果继续做 M5GFX 私有 transition，必须先解决 logical→physical 轴映射，并证明 AA 关闭纯黑白正文在翻页后不发虚；否则不能再打着“v0.4.28 恢复/no-epdiy”的名义默认启用。
+
+### 27. 把 epd_fastest / epd_fast 当作正文（或普通 UI）默认推送 mode
+
+**结论：不可以。在 PaperS3 Panel_EPD 路径上等同于强制把所有字变成点阵。**
+
+2026-05-26 真机反馈，版本：`v0.4.55-rc`。现象：所有字都很模糊，笔画像“一颗一颗墨点点上去”，很像点阵字体而不是连贯笔画。
+
+原因：M5GFX `Panel_EPD::_draw_pixels()` 在 `epd_fast` / `epd_fastest` 模式下，对从 rgb565 framebuffer 转出的每个像素做 4x4 Bayer 阈值化：
+```
+fast: readbuf[i] = (sum + (b << 4)) < 248 ? 0 : 0xF;
+```
+也就是说，整页画布（包括字形内部已经渲染好的灰阶/边缘）都会按 Bayer 矩阵被一刀切成纯黑或纯白。视觉上就是规则的点阵抖动覆盖整行文字，正好对应“一颗一颗墨点点上去”。
+
+`v0.4.5x` 之后 `DisplayService::chooseReaderRefreshMode()` 把 `normalMode` 默认改成了 `kLowRefresh (=epd_fastest)`，意味着平均 9/10 次正文翻页推送都走 fastest Bayer 阈值路径，剩下 1/10 才是 `epd_quality` 的 16 级灰度。这就是字体看起来全是点阵的根因——不是字体源、不是 AA 强度、不是 epdiy backend 残留。
+
+处理：v0.4.56-rc 起恢复 v0.4.28-rc 默认：`chooseReaderRefreshMode` 用 `kNormalRefresh (=epd_text)` 作为正常翻页 mode；`chooseRefreshMode` 也不再让 fastRefresh_ 把非正文 UI 切到 `epd_fast`。同时 `pushEdcBookPageTurn()` 显式 guard：调度到 `epd_fast/epd_fastest` 全部强制回退到 `epd_text` 再做 logical-strip 翻页揭示。
+
+后续要求：
+- 不允许把任何要显示文字的页面（reader / settings / library / WebUI 入口）默认推到 `epd_fast` 或 `epd_fastest`。
+- 任何想加快翻页速度的优化，先调 Panel_EPD scroll wavefront 的 strip width 或并行度，不要靠改 `epd_mode`。
+- 在 patch / RC 描述里再写“恢复 v0.4.28 默认”时必须显式列出 `normalMode`，避免又静默用了 fastest。

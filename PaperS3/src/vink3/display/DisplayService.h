@@ -98,7 +98,9 @@ private:
     volatile bool forceNextReaderFullRefresh_ = false;
     // PaperS3 official/examples and reference firmware favor fast EPD updates for
     // interactive UI, with periodic quality refreshes to clean ghosting.
-    bool fastRefresh_ = true;
+    // v0.4.56 retired the fastRefresh_/middle-threshold split; per-frame mode
+    // now stays on the smooth text waveform, and only the full-refresh
+    // threshold below decides when to clean ghosting.
     ReaderRefreshStrategy readerRefreshStrategy_ = ReaderRefreshStrategy::Balanced;
     // Tuning knobs retained for diagnostics/log output; the normal M5GFX
     // page-turn path is restored to v0.4.28 edcscroll.

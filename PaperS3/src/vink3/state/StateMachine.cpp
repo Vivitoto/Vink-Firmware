@@ -587,14 +587,6 @@ void StateMachine::handle(const Message& message) {
                     suppressAfterTransition();
                     break;
 
-                case UiAction::CycleReaderPageTurnResidue:
-                    g_displayService.cycleReaderPageTurnResidue();
-                    state_ = SystemState::Settings;
-                    renderState(state_);
-                    g_displayService.enqueueFull(false, 100);
-                    suppressAfterTransition();
-                    break;
-
                 case UiAction::ToggleWifiAp:
                     if (g_wifiService.httpServerRunning()) {
                         g_wifiService.stop();

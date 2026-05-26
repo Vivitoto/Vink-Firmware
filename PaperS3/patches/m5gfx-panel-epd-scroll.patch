@@ -153,12 +153,16 @@
 +    upd.mode = _epd_mode;
 +    upd.scroll = true;
 +    upd.scroll_reverse = reverse;
-+    // EDCBook-like path: use the private old/new-aware page-turn waveform for
-+    // every scroll request; compensation controls single-turn residue cleanup.
-+    upd.scroll_waveform = true;
-+    upd.scroll_diff_gate = true;
-+    upd.scroll_compensation = std::min<uint8_t>(2, compensation);
-+    upd.scroll_effect_steps = std::min<uint8_t>(48, effect_steps);
++    // v0.4.54 recovery: keep published no-epdiy builds on the v0.4.28 logical
++    // strip scheduler. The later private transition/waveform path is intentionally
++    // not enabled by default because real-device feedback showed it underdrives
++    // text and reveals along the rotated physical Y axis.
++    (void)compensation;
++    (void)effect_steps;
++    upd.scroll_waveform = false;
++    upd.scroll_diff_gate = false;
++    upd.scroll_compensation = 0;
++    upd.scroll_effect_steps = 0;
 +    // Each step-buffer loop consumes two packed bytes (4 pixels). Keep the
 +    // public scroll width 4-pixel aligned so arbitrary callers cannot create
 +    // an odd packed-byte strip and overrun the row tail.
@@ -901,6 +905,40 @@
 +      if (xQueueReceive(me->_update_queue_handle, &new_data, wait_tick)) {
 +        me->_display_busy = true;
 +        if (new_data.scroll && new_data.scroll_strip_width > 0) {
++          if (!new_data.scroll_waveform) {
++            // Known-good v0.4.28 behavior: split in logical portrait space, then
++            // rotate each strip independently. Splitting after rotation makes the
++            // wavefront advance along physical Y on PaperS3 (visually bottom-up
++            // rows), which is the regression this recovery avoids.
++            const uint16_t x0 = new_data.x;
++            const uint16_t x1 = new_data.x + new_data.w;
++            const uint16_t strip_w = std::max<uint16_t>(4, new_data.scroll_strip_width & ~1u);
++            const uint16_t strip_count = (new_data.w + strip_w - 1) / strip_w;
++            for (uint16_t si = 0; si < strip_count; ++si) {
++              const uint16_t idx = new_data.scroll_reverse ? (strip_count - 1 - si) : si;
++              const uint16_t sx = x0 + idx * strip_w;
++              const uint16_t ex = std::min<uint16_t>(x1, (uint16_t)(sx + strip_w));
++              if (ex <= sx) { continue; }
++
++              uint_fast16_t xs = sx;
++              uint_fast16_t ys = new_data.y;
++              uint_fast16_t xe = ex - 1;
++              uint_fast16_t ye = new_data.y + new_data.h - 1;
++              me->_rotate_pos(xs, ys, xe, ye);
++
++              update_data_t strip = new_data;
++              strip.scroll = false;
++              strip.x = (xs + me->_cfg.offset_x) & ~1u;
++              strip.w = ((xe + me->_cfg.offset_x) & ~1u) - strip.x + 2;
++              strip.y = ys + me->_cfg.offset_y;
++              strip.h = ye - ys + 1;
++              prepare_update(strip);
++              remain = run_cycle();
++            }
++            while (remain) { remain = run_cycle(); }
++            continue;
++          }
++
 +          uint_fast16_t xs = new_data.x;
 +          uint_fast16_t ys = new_data.y;
 +          uint_fast16_t xe = new_data.x + new_data.w - 1;

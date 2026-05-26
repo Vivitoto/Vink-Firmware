@@ -351,19 +351,22 @@ static uint8_t buildEdcBookOffsets(uint16_t* offsets, uint16_t width, uint8_t ef
     return count;
 }
 
+    // v0.4.56 simplifies the non-reader path; pageTurnScrollMode is no longer
+    // required because pushEdcBookPageTurn enforces the smooth text waveform
+    // internally.  Helper retained for backward compatibility with diagnostic
+    // builds that still call it; new code should not introduce new callers.
+static epd_mode_t pageTurnScrollMode(epd_mode_t scheduledMode) __attribute__((unused));
 static epd_mode_t pageTurnScrollMode(epd_mode_t scheduledMode) {
     return scheduledMode == kQualityRefresh ? kQualityRefresh : scheduledMode;
 }
 
-static int effectStepsForStrategy(ReaderRefreshStrategy s) {
-    // Exact v0.4.28-rc edcscroll strip-width source.  Keep this local to the
-    // Panel_EPD wavefront path so the rest of the newer reader/full-clean
-    // settings are not rolled back.
-    switch (s) {
-        case ReaderRefreshStrategy::Speed:  return 12;
-        case ReaderRefreshStrategy::Clear:  return 48;
-        default:                            return 24;
-    }
+static int effectStepsForStrategy(ReaderRefreshStrategy /*s*/) __attribute__((unused));
+static int effectStepsForStrategy(ReaderRefreshStrategy /*s*/) {
+    // Retained for historical reference; no live caller now that the page-turn
+    // strip width is controlled exclusively by ReaderPageTurnProfile through
+    // pageTurnScrollStripWidth().  Kept private so accidental reintroduction
+    // shows up as a duplicate symbol rather than a silent regression.
+    return 24;
 }
 
 uint16_t DisplayService::pageTurnScrollStripWidth() const {
@@ -401,13 +404,16 @@ void DisplayService::pushEdcBookPageTurn(M5Canvas* canvas, DisplayEffect effect,
     M5.Display.waitDisplay();
     M5.Display.setColorDepth(kTextColorDepthHigh);
 
-    // Exact v0.4.28-rc edcscroll behavior: quality/text scheduled turns animate
-    // with the low DU-like waveform, while other fast modes are preserved.  Do
-    // not use the later full-page cover compositor or residue/profile tuning in
-    // the normal M5GFX path.
-    const epd_mode_t sweepMode = (mode == kQualityRefresh || mode == kNormalRefresh)
-        ? kLowRefresh
-        : mode;
+    // v0.4.56 recovery: reader pushes must never reach a Bayer-thresholded
+    // waveform (`epd_fast`/`epd_fastest`), because that path quantises every
+    // pixel to pure black/white through ordered dither and breaks glyph
+    // strokes (see Negative_Findings #27).  v0.4.28-rc applied the same guard
+    // inside pushShutterAnimation(); we apply it here for the scroll
+    // wavefront.  Quality cleanup never enters this function because
+    // DisplayService::push() handles it as a direct full-page refresh, so the
+    // reveal waveform is always the smooth text waveform regardless of which
+    // non-quality mode the scheduler chose.
+    const epd_mode_t sweepMode = kNormalRefresh;
     M5.Display.setEpdMode(sweepMode);
 
     auto* panel = static_cast<lgfx::Panel_EPD*>(M5.Display.panel());
@@ -425,21 +431,48 @@ void DisplayService::pushEdcBookPageTurn(M5Canvas* canvas, DisplayEffect effect,
     // v0.4.28 moved the visible animation below public clip/push timing: the
     // staged framebuffer is revealed by Panel_EPD's waveform/scan-cycle layer.
     const bool rtl = (effect == DisplayEffect::VerticalShutter);
-    const uint16_t stripWidth = static_cast<uint16_t>(max(24, min(96, kPaperS3Width / effectStepsForStrategy(readerRefreshStrategy_) * 2)));
-    const uint8_t residueComp = pageTurnResidueCompensation();
-    Serial.printf("[vink3][display] v0.4.28 edcscroll Panel_EPD wavefront mode=%d sweep=%d strip=%u direction=%s residue=%u\n",
-                  static_cast<int>(mode), static_cast<int>(sweepMode), stripWidth, rtl ? "rtl" : "ltr", residueComp);
-    panel->displayScroll(0, 0, kPaperS3Width, kPaperS3Height, stripWidth, rtl, residueComp);
+    // Use the runtime page-turn profile for wavefront width. A previous recovery
+    // accidentally used readerRefreshStrategy_ here, so the Settings "翻页速度"
+    // row persisted but did not change the actual scroll passes, making the
+    // reading page feel slower than the selected profile implied.
+    const uint16_t stripWidth = pageTurnScrollStripWidth();
+    Serial.printf("[vink3][display] v0.4.28 edcscroll Panel_EPD logical-strip mode=%d sweep=%d strip=%u direction=%s\n",
+                  static_cast<int>(mode), static_cast<int>(sweepMode), stripWidth, rtl ? "rtl" : "ltr");
+    // Keep the no-epdiy recovery on the known-good v0.4.28 logical-strip path.
+    // The later private transition/waveform parameters underdrove text and, after
+    // rotation, advanced along the physical Y axis, which looked like bottom-up
+    // row refresh instead of the v0.4.28 right/left page-turn.
+    panel->displayScroll(0, 0, kPaperS3Width, kPaperS3Height, stripWidth, rtl);
     M5.Display.waitDisplay();
 }
 
 epd_mode_t DisplayService::chooseReaderRefreshMode(const DisplayRequest& request) {
-    // Stable baseline: ReaderRefreshStrategy controls full-clean frequency, decoupled
-    // from page-turn animation speed. PageTurnProfile now controls the non-quality
-    // waveform used by the EDCBook band renderer.
+    // v0.4.56 recovery: real-device feedback showed v0.4.54 reader pushes
+    // looked like dot-matrix ink dots. Root cause was the v0.4.5x default
+    // `normalMode = kLowRefresh (=epd_fastest)`, whose Panel_EPD draw path
+    // thresholds every pixel through a 4x4 Bayer (`< 248 ? 0 : 0xF`). That is
+    // the correct fast UI behavior for tabs/menus, but it destroys glyph
+    // strokes by quantising the rgb565 grayscale framebuffer to pure black/
+    // white through an ordered-dither pattern, which the user reads as
+    // "strokes made of ink dots".
+    //
+    // v0.4.28-rc instead used `normalMode = kNormalRefresh (=epd_text)` for
+    // every regular reader turn, where Panel_EPD applies the smooth
+    // `(v + b - 8) >> 4` 16-gray mapping. Restore that as the default; page-turn
+    // speed should be tuned by scroll strip width, not by binary fastest mode.
+    // ReaderRefreshStrategy controls full-clean frequency; page-turn animation
+    // speed is decoupled and controlled by ReaderPageTurnProfile strip width.
     uint32_t fullEvery = 10;
-    epd_mode_t normalMode = kLowRefresh;
-    if (readerPageTurnProfile_ == ReaderPageTurnProfile::Clean) normalMode = kNormalRefresh;
+    epd_mode_t normalMode = kNormalRefresh;
+    if (readerPageTurnProfile_ == ReaderPageTurnProfile::Fast) {
+        // Fast page-turn profile still keeps the smooth text waveform for the
+        // pixel push itself. The narrow Panel_EPD scroll wavefront is what
+        // gives "fast" its perceived speed; binary Bayer thresholding is not
+        // required and was the regression source.
+        normalMode = kNormalRefresh;
+    } else if (readerPageTurnProfile_ == ReaderPageTurnProfile::Clean) {
+        normalMode = kNormalRefresh;
+    }
     switch (readerRefreshStrategy_) {
         case ReaderRefreshStrategy::Speed:    // 全刷频率：低
             fullEvery = 20;
@@ -469,9 +502,13 @@ epd_mode_t DisplayService::chooseReaderRefreshMode(const DisplayRequest& request
 epd_mode_t DisplayService::chooseRefreshMode(const DisplayRequest& request) {
     if (request.readerPageTurn) return chooseReaderRefreshMode(request);
 
+    // Non-reader UI (tabs/settings/library) historically toggled between an
+    // 18-push fast cleanup and a 24-push baseline cleanup via fastRefresh_.
+    // After v0.4.56 the non-reader path uses the smooth text waveform for
+    // every per-frame push, so the two thresholds collapsed; keep the higher
+    // one so periodic quality cleanup still fires.
     const bool useQualityMode = request.quality ||
-        (fastRefresh_ && pushCount_ >= kDisplayQualityFastThreshold) ||
-        (!fastRefresh_ && pushCount_ >= kDisplayFullRefreshNormalThreshold);
+        pushCount_ >= kDisplayFullRefreshNormalThreshold;
 
     if (useQualityMode) {
         pushCount_ = 0;
@@ -480,11 +517,9 @@ epd_mode_t DisplayService::chooseRefreshMode(const DisplayRequest& request) {
     }
 
     M5.Display.setColorDepth(kTextColorDepthHigh);
-    // Non-reader UI (tabs/settings/library) should acknowledge taps quickly,
-    // but v0.4.41 showed epd_fastest is too dirty for real UI pages. Use the
-    // middle fast waveform for ordinary UI pushes and keep periodic quality
-    // cleanup instead of making every tab switch look like text/quality full refresh.
-    return fastRefresh_ ? kMiddleRefresh : kNormalRefresh;
+    // epd_fastest / epd_fast Bayer-threshold the canvas (see Negative_Findings
+    // #27), so even non-reader UI must stay on the smooth text waveform.
+    return kNormalRefresh;
 }
 
 void DisplayService::push(const DisplayRequest& request, M5Canvas* canvasToPush) {
@@ -506,10 +541,10 @@ void DisplayService::push(const DisplayRequest& request, M5Canvas* canvasToPush)
                    (request.effect == DisplayEffect::VerticalShutter || request.effect == DisplayEffect::HorizontalShutter)) {
             // Restore the v0.4.28-rc edcscroll default: stage the complete next
             // page once, then let the patched Panel_EPD worker reveal it as a
-            // narrow moving wavefront.  Do not use the later full-page cover
-            // compositor as the normal M5GFX path; it moved the visual away from
-            // the version that had the EDCBook flavor on real hardware.
-            pushEdcBookPageTurn(canvasToPush, request.effect, pageTurnScrollMode(readerMode));
+            // narrow moving wavefront.  pushEdcBookPageTurn() forces the smooth
+            // text waveform internally, so the caller does not have to map
+            // non-quality modes here.
+            pushEdcBookPageTurn(canvasToPush, request.effect, readerMode);
         } else {
             // Explicit fallback only for diagnostic builds that compile the
             // scroll path out. Normal RCs should keep optimizing scroll instead
